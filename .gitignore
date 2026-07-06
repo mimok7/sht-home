@@ -39,3 +39,16 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Scratch data and scripts
+*.py
+*.bat
+/*.js
+!next.config.js
+/*.sql
+/*.json
+!package.json
+!package-lock.json
+!jsconfig.json
+*.txt
+/sql/

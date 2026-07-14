@@ -1,5 +1,4 @@
 'use client';
 import Link from 'next/link';
-import {useState} from 'react';
 import './Header.css';
-export default function Header(){const[open,setOpen]=useState(false);return <header className="header glass"><div className="container header-content"><Link href="/" className="logo" onClick={()=>setOpen(false)}><span className="logo-mark">SH</span><span>STAY <b>HALONG</b><small>CURATED BAY JOURNEYS</small></span></Link><button className="menu-toggle" aria-label="메뉴 열기" aria-expanded={open} onClick={()=>setOpen(!open)}><i></i><i></i></button><nav className={`nav-links ${open?'open':''}`}><Link href="/cruises">크루즈</Link><Link href="/tours">당일 투어</Link><Link href="/transport">차량 서비스</Link><Link href="/community">여행 정보</Link><div className="mobile-auth"><Link href="/login">로그인</Link><Link href="/register" className="btn-primary">회원가입</Link></div></nav><div className="auth-buttons"><Link href="/login">로그인</Link><Link href="/register" className="header-cta">여행 시작하기</Link></div></div></header>}
+export default function Header(){return <header className="header glass"><div className="container header-content"><Link href="/" className="logo"><span className="logo-mark">SH</span><span>STAY <b>HALONG</b><small>CURATED BAY JOURNEYS</small></span></Link></div></header>}

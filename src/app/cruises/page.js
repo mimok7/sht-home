@@ -4,6 +4,11 @@ import './cruises.css';
 
 import { MOCK_CRUISES } from '@/data/cruisesData';
 
+const normalizeImagePath = (imageUrl) =>
+  imageUrl
+    ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
+    ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
+
 async function getCruises() {
   try {
     // 1. Fetch unique cruises from cruise_info
@@ -77,6 +82,7 @@ async function getCruises() {
       if (!imageUrl || imageUrl === 'null' || imageUrl === '[]') {
         imageUrl = mockImages[index % mockImages.length];
       }
+      imageUrl = normalizeImagePath(imageUrl);
 
       return {
         id: cruise.id,

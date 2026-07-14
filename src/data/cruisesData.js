@@ -363,6 +363,10 @@ export const ALL_CRUISES_DATA = {
   },
 };
 
+const normalizeLocalImage = (imageUrl) => imageUrl
+  ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
+  ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
+
 export const MOCK_CRUISES = Object.values(ALL_CRUISES_DATA).map(c => ({
-  id: c.id, name: c.name, description: c.description, duration: c.duration, rating: c.rating, min_price: c.min_price, image_url: c.image_url
+  id: c.id, name: c.name, description: c.description, duration: c.duration, rating: c.rating, min_price: c.min_price, image_url: normalizeLocalImage(c.image_url)
 }));

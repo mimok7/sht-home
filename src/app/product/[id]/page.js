@@ -2,6 +2,7 @@
 
 import { useState, useEffect, use } from 'react';
 import { supabase } from '@/lib/supabase';
+import { ALL_CRUISES_DATA } from '@/data/cruisesData';
 import './product.css';
 
 export default function ProductDetail({ params }) {
@@ -39,14 +40,57 @@ export default function ProductDetail({ params }) {
       try {
         setLoading(true);
         const decodedId = decodeURIComponent(id);
+        const localCruise = Object.values(ALL_CRUISES_DATA).find(
+          item => item.id === decodedId || item.name === decodedId
+        );
 
         // 1 & 2. Fetch Cruise and Cabins from cruise_info
-        const { data: cabinsData, error: cruiseError } = await supabase
+        let { data: cabinsData, error: cruiseError } = await supabase
           .from('cruise_info')
           .select('*')
           .eq('name', decodedId);
 
+        // Some records use the Korean display name in cruise_name instead of name.
+        if (!cruiseError && (!cabinsData || cabinsData.length === 0)) {
+          const koreanNameResult = await supabase
+            .from('cruise_info')
+            .select('*')
+            .eq('cruise_name', decodedId);
+          cabinsData = koreanNameResult.data;
+          cruiseError = koreanNameResult.error;
+        }
+
         if (cruiseError || !cabinsData || cabinsData.length === 0) {
+          if (localCruise) {
+            const localCabins = localCruise.cabins.map(cabin => ({
+              id: cabin.id,
+              cruise_name: localCruise.name,
+              name: localCruise.name,
+              room_name: cabin.name,
+              room_image: cabin.image_url,
+              room_description: cabin.description,
+              rate: {
+                price_adult: cabin.price,
+                price_child: 0,
+                price_infant: 0,
+                price_extra_bed: 0,
+                price_single: 0
+              }
+            }));
+
+            setCruise({
+              id: localCruise.id,
+              name: localCruise.name,
+              description: localCruise.description,
+              duration: localCruise.duration,
+              images: localCruise.image_url,
+              cruise_name: localCruise.name
+            });
+            setCabins(localCabins);
+            setSelectedCabin(localCabins[0] || null);
+            return;
+          }
+
           console.error("Supabase fetch failed", cruiseError, "decodedId:", decodedId, "id:", id);
           setLoading(false);
           // Set a fake cruise object just to display the error
@@ -243,7 +287,7 @@ export default function ProductDetail({ params }) {
     );
   }
   
-  const cruiseImage = (cruise.images && cruise.images !== 'null' && cruise.images !== '[]') ? cruise.images : '/yacht_1.png';
+  const cruiseImage = '/images/cruises/headimage.png';
   
   // Parse Itinerary and Cancellation
   const itineraryData = selectedCabin?.itinerary ? safeParseJSON(selectedCabin.itinerary) : null;
@@ -256,8 +300,10 @@ export default function ProductDetail({ params }) {
         className="product-hero"
         style={{ 
           backgroundImage: `url(${cruiseImage})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center'
+          backgroundSize: 'contain',
+          backgroundPosition: 'center top',
+          backgroundRepeat: 'no-repeat',
+          backgroundColor: 'var(--navy)'
         }}
       >
         <div className="product-hero-bg" style={{ background: 'rgba(10, 35, 66, 0.4)' }}></div>
@@ -267,7 +313,7 @@ export default function ProductDetail({ params }) {
         <div className="product-main">
           <div className="product-header">
             <span className="duration-badge">{cruise.duration}</span>
-            <h1>{cruise.name} {cruise.cruise_name ? `(${cruise.cruise_name})` : ''}</h1>
+            <h1>{cruise.name}{cruise.cruise_name && cruise.cruise_name !== cruise.name ? ` (${cruise.cruise_name})` : ''}</h1>
             <p className="product-desc">{cruise.description}</p>
             
             <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>

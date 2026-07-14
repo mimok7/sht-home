@@ -221,12 +221,20 @@ export default function ProductDetail({ params }) {
   };
 
   if (loading) {
-    return <div className="container" style={{ padding: '8rem 2rem', textAlign: 'center' }}>로딩 중...</div>;
+    return (
+      <div className="product-state product-state-loading">
+        <span>STAY HALONG / PREPARING YOUR JOURNEY</span>
+        <h1>좋은 여행을<br />불러오는 중입니다.</h1>
+        <i aria-hidden="true" />
+        <p>크루즈와 객실 정보를 확인하고 있습니다.</p>
+      </div>
+    );
   }
 
   if (!cruise || cruise.error_debug) {
     return (
-      <div className="container" style={{ padding: '8rem 2rem', textAlign: 'center' }}>
+      <div className="product-state product-state-error">
+        <span>STAY HALONG / NOT FOUND</span>
         <h2>상품을 찾을 수 없습니다.</h2>
         {cruise?.error_debug && (
           <p style={{ color: 'red', marginTop: '1rem' }}>Debug: {cruise.error_debug}</p>

@@ -12,7 +12,6 @@ async function getCruises() {
       .select('*');
       
     if (cruisesError || !rawCruisesData || rawCruisesData.length === 0) {
-      console.log("Supabase fetch failed or empty", cruisesError);
       return MOCK_CRUISES;
     }
 
@@ -93,7 +92,8 @@ async function getCruises() {
       };
     });
   } catch (err) {
-    console.error("Error fetching cruises:", err);
+    // Supabase may be unavailable during build or local development.
+    // The page has a complete local fallback, so keep this expected case quiet.
     return MOCK_CRUISES;
   }
 }

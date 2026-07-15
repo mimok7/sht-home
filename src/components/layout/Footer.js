@@ -1,7 +1,12 @@
+ 'use client';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import './Footer.css';
 
 export default function Footer() {
+  const temporary = usePathname() === '/temp-home';
+  const item = (href, label) => temporary ? <span className="footer-disabled">{label}</span> : <Link href={href}>{label}</Link>;
+  const externalItem = (href, label) => temporary ? <span className="footer-disabled">{label}</span> : <a href={href} target="_blank" rel="noreferrer">{label}</a>;
   return (
     <footer className="footer">
       <div className="container footer-content">
@@ -14,17 +19,17 @@ export default function Footer() {
         <div className="footer-links">
           <div className="link-group">
             <h4>서비스</h4>
-            <Link href="/cruises">하롱베이 크루즈</Link>
-            <Link href="/tours">당일 투어</Link>
-            <Link href="/transport">차량/렌트카</Link>
-            <Link href="/hotels">호텔 예약</Link>
+            {item('/cruises', '하롱베이 크루즈')}
+            {item('/tours', '당일 투어')}
+            {item('/transport', '차량/렌트카')}
+            {item('/hotels', '호텔 예약')}
           </div>
           
           <div className="link-group">
             <h4>고객센터</h4>
-            <Link href="/notice">공지사항</Link>
-            <Link href="/faq">자주 묻는 질문</Link>
-            <a href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">1:1 문의 (카톡)</a>
+            {item('/notice', '공지사항')}
+            {item('/faq', '자주 묻는 질문')}
+            {externalItem('http://pf.kakao.com/_zvsxaG/chat', '1:1 문의 (카톡)')}
           </div>
           
           <div className="link-group contact-info">
@@ -39,8 +44,8 @@ export default function Footer() {
         <div className="container">
           <p>&copy; {new Date().getFullYear()} STAY HALONG. All rights reserved.</p>
           <div className="legal-links">
-            <Link href="/terms">이용약관</Link>
-            <Link href="/privacy">개인정보처리방침</Link>
+            {item('/terms', '이용약관')}
+            {item('/privacy', '개인정보처리방침')}
           </div>
         </div>
       </div>

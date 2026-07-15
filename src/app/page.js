@@ -11,7 +11,7 @@ export default function Home() {
           <h1>하롱베이,<br /><span>머무는 여행</span>이 되다.</h1>
           <p className={styles.description}>배 한 척이 여행의 분위기를 바꿉니다. 현지에서 직접 보고 고른 크루즈로 복잡한 선택은 줄이고, 좋은 순간은 더 오래 남겨보세요.</p>
           <div className={styles.actions}>
-            <a href="https://cafe.naver.com/stayhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">내 크루즈 찾기 <span>↗</span></a>
+            <a href="https://cafe.naver.com/f-e/cafes/31003053/menus/792?viewType=I" className={styles.yellowButton} target="_blank" rel="noreferrer">내 크루즈 찾기 <span>↗</span></a>
             <a href="https://customer.stayhalong.com/" className={styles.yellowButton} target="_blank" rel="noreferrer">예약하기 <span>↗</span></a>
           </div>
           <div className={styles.contactActions}>

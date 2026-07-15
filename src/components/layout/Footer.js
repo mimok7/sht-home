@@ -24,13 +24,13 @@ export default function Footer() {
             <h4>고객센터</h4>
             <Link href="/notice">공지사항</Link>
             <Link href="/faq">자주 묻는 질문</Link>
-            <Link href="/contact">1:1 문의</Link>
+            <a href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">1:1 문의 (카톡)</a>
           </div>
           
           <div className="link-group contact-info">
             <h4>Contact Us</h4>
             <p><strong>카카오톡:</strong> 스테이하롱</p>
-            <p><strong>영업시간:</strong> 09:00 - 18:00</p>
+            <p><strong>영업시간:</strong> 09:00 - 23:00</p>
           </div>
         </div>
       </div>

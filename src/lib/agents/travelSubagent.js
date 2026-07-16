@@ -1,5 +1,6 @@
 import { ALL_CRUISES_DATA } from '@/data/cruisesData';
 import { supabase } from '@/lib/supabase';
+import { refineTravelAnswer } from '@/lib/agents/aiTravelGuide';
 
 const MAX_MESSAGE_LENGTH = 1_000;
 const AGENTS = {
@@ -77,5 +78,6 @@ export async function runTravelSubagent(rawMessage) {
   if (!message) throw new Error('메시지를 입력해주세요.');
   const intent = chooseAgent(message);
   const result = await answerFor(intent, message);
-  return { agent: intent === 'general' ? '일반 안내 서브에이전트' : AGENTS[intent].label, intent, message, ...result, guardrails: ['예약 확정, 결제 처리, 취소 확정은 담당자 확인 없이 수행하지 않습니다.', '가격과 객실 가능 여부는 최종 확인 전 안내 정보입니다.'] };
+  const refinement = await refineTravelAnswer({ message, draft: result });
+  return { agent: intent === 'general' ? '일반 안내 서브에이전트' : AGENTS[intent].label, intent, message, ...result, answer: refinement.answer, provider: refinement.provider, guardrails: ['예약 확정, 결제 처리, 취소 확정은 담당자 확인 없이 수행하지 않습니다.', '가격과 객실 가능 여부는 최종 확인 전 안내 정보입니다.'] };
 }

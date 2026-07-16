@@ -27,6 +27,7 @@ export default function Footer() {
           
           <div className="link-group">
             <h4>고객센터</h4>
+            {item('/travel-guide', '하롱 여행 안내')}
             {item('/notice', '공지사항')}
             {item('/faq', '자주 묻는 질문')}
             {externalItem('http://pf.kakao.com/_zvsxaG/chat', '1:1 문의 (카톡)')}

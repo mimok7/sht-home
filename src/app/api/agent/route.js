@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { runTravelSubagent } from '@/lib/agents/travelSubagent';
+import { getAgentMetrics, recordAgentEvent } from '@/lib/agents/agentTelemetry';
 
 export const runtime = 'nodejs';
 const WINDOW_MS = 60_000;
@@ -33,9 +34,17 @@ export async function POST(request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON 형식의 요청 본문이 필요합니다.' }, { status: 400 }); }
   try {
     const result = await runTravelSubagent(body?.message);
+    recordAgentEvent(result);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Travel assistant request failed:', error);
+    recordAgentEvent({ intent: 'error', provider: 'rules', requiresHumanReview: false, failed: true });
     return NextResponse.json({ error: '안내를 준비하지 못했습니다. 잠시 후 다시 시도해주세요.' }, { status: 400 });
   }
+}
+
+export async function GET(request) {
+  const metricsToken = process.env.AGENT_METRICS_TOKEN;
+  if (!metricsToken || request.headers.get('authorization') !== `Bearer ${metricsToken}`) return new Response(null, { status: 404 });
+  return NextResponse.json(getAgentMetrics(), { headers: { 'Cache-Control': 'no-store' } });
 }

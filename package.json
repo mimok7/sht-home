@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:cli": "node scripts/supabase-cli.mjs",
+    "browser:smoke": "node scripts/browser-smoke.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.110.0",

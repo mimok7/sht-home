@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { runTravelSubagent } from '@/lib/agents/travelSubagent';
 import { getAgentMetrics, recordAgentEvent } from '@/lib/agents/agentTelemetry';
+import { recommendCruisesForContext } from '@/lib/agents/cruiseRecommendation';
 
 export const runtime = 'nodejs';
 const WINDOW_MS = 60_000;
@@ -33,7 +34,9 @@ export async function POST(request) {
   let body;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON 형식의 요청 본문이 필요합니다.' }, { status: 400 }); }
   try {
-    const result = await runTravelSubagent(body?.message);
+    const result = body?.mode === 'recommend'
+      ? await recommendCruisesForContext(body.context)
+      : await runTravelSubagent(body?.message);
     recordAgentEvent(result);
     return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {

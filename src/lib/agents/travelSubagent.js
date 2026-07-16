@@ -1,4 +1,3 @@
-import { ALL_CRUISES_DATA } from '@/data/cruisesData';
 import { supabase } from '@/lib/supabase';
 import { refineTravelAnswer } from '@/lib/agents/aiTravelGuide';
 
@@ -23,35 +22,42 @@ function formatPrice(price, currency = 'VND') {
   return `${new Intl.NumberFormat('ko-KR').format(price)} ${currency}`;
 }
 
-function localCatalog() {
-  return Object.values(ALL_CRUISES_DATA).map((cruise) => ({ name: cruise.name, duration: cruise.duration, minPrice: cruise.min_price, currency: 'VND', familyFriendly: cruise.cabins?.some((cabin) => /트리플|커넥팅/.test(cabin.name)) }));
+function durationLabel(scheduleTypes) {
+  const labels = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
+  return [...scheduleTypes].map((type) => labels[type]).filter(Boolean).join(' · ') || '일정 확인 필요';
 }
 
 async function getCruiseCatalog() {
-  const [cruisesResult, ratesResult] = await Promise.all([
-    supabase.from('cruise_info').select('name, cruise_name, duration'),
-    supabase.from('cruise_rate_card').select('cruise_name, price_adult, currency, room_type, room_type_en').eq('is_active', true),
-  ]);
-  if (cruisesResult.error || ratesResult.error || !cruisesResult.data?.length) return { cruises: localCatalog(), source: 'fallback' };
+  const { data, error } = await supabase
+    .from('public_cruise_recommendation_v2')
+    .select('cruise_id,slug,cruise_name,schedule_type,max_guests,connecting_available,extra_bed_available,price_adult,currency,tags');
+  if (error) return { cruises: [], source: 'v2_unavailable' };
 
-  const ratesByCruise = new Map();
-  for (const rate of ratesResult.data || []) {
-    if (!rate.cruise_name || !Number.isFinite(rate.price_adult) || rate.price_adult <= 0) continue;
-    const current = ratesByCruise.get(rate.cruise_name);
-    const familyFriendly = /트리플|커넥팅|family|triple|connecting/i.test(`${rate.room_type || ''} ${rate.room_type_en || ''}`);
-    if (!current || rate.price_adult < current.minPrice) ratesByCruise.set(rate.cruise_name, { minPrice: rate.price_adult, currency: rate.currency || 'VND', familyFriendly });
-    else if (familyFriendly) current.familyFriendly = true;
+  const byId = new Map();
+  for (const row of data || []) {
+    if (!row.cruise_id || !row.cruise_name) continue;
+    if (!byId.has(row.cruise_id)) {
+      byId.set(row.cruise_id, {
+        name: row.cruise_name,
+        slug: row.slug,
+        scheduleTypes: new Set(),
+        minPrice: null,
+        currency: row.currency || 'VND',
+        familyFriendly: false,
+      });
+    }
+    const cruise = byId.get(row.cruise_id);
+    cruise.scheduleTypes.add(row.schedule_type);
+    cruise.familyFriendly ||= row.max_guests >= 3 || row.connecting_available || row.extra_bed_available || row.tags?.includes('family');
+    if (Number.isFinite(row.price_adult) && row.price_adult > 0 && (cruise.minPrice === null || row.price_adult < cruise.minPrice)) {
+      cruise.minPrice = row.price_adult;
+      cruise.currency = row.currency || 'VND';
+    }
   }
-
-  const byName = new Map();
-  for (const cruise of cruisesResult.data) {
-    const displayName = cruise.cruise_name || cruise.name;
-    if (!displayName || byName.has(displayName)) continue;
-    const rate = ratesByCruise.get(displayName) || ratesByCruise.get(cruise.name);
-    if (rate) byName.set(displayName, { name: displayName, duration: cruise.duration, ...rate });
-  }
-  const cruises = [...byName.values()];
-  return cruises.length ? { cruises, source: 'live' } : { cruises: localCatalog(), source: 'fallback' };
+  const cruises = [...byId.values()]
+    .filter((cruise) => cruise.minPrice !== null)
+    .map((cruise) => ({ ...cruise, duration: durationLabel(cruise.scheduleTypes) }));
+  return { cruises, source: 'v2' };
 }
 
 async function recommendCruises(message) {
@@ -59,13 +65,13 @@ async function recommendCruises(message) {
   const needsFamilyRoom = /가족|인원|아이|어린이|아동/.test(message);
   const preferred = needsFamilyRoom ? cruises.filter((cruise) => cruise.familyFriendly) : cruises;
   const candidates = (preferred.length ? preferred : cruises).sort((a, b) => a.minPrice - b.minPrice).slice(0, 3);
-  return { source, recommendations: candidates.map((cruise) => ({ name: cruise.name, duration: cruise.duration || '일정 확인 필요', fromPrice: cruise.minPrice, currency: cruise.currency, fromPriceLabel: `${formatPrice(cruise.minPrice, cruise.currency)}부터 / 1인`, href: `/product/${encodeURIComponent(cruise.name)}` })) };
+  return { source, recommendations: candidates.map((cruise) => ({ name: cruise.name, duration: cruise.duration, fromPrice: cruise.minPrice, currency: cruise.currency, fromPriceLabel: `${formatPrice(cruise.minPrice, cruise.currency)} 등록요금부터`, href: `/product/${encodeURIComponent(cruise.slug)}` })) };
 }
 
 async function answerFor(agent, message) {
   if (agent === 'cruise') {
     const { recommendations, source } = await recommendCruises(message);
-    return { answer: source === 'live' ? '현재 등록된 요금 기준으로 추천했어요. 실제 잔여 객실과 최종 금액은 이용일, 인원, 프로모션에 따라 달라집니다.' : '현재 표시 가능한 상품 기준으로 추천했어요. 정확한 요금과 잔여 객실은 상담을 통해 확인해 주세요.', recommendations, requiresHumanReview: true, suggestedActions: ['이용일과 인원을 알려주세요', '카카오톡으로 실시간 잔여 객실 확인'] };
+    return { answer: source === 'v2' && recommendations.length ? '현재 v2에 등록된 요금 기준으로 추천했어요. 요금 단위, 실제 잔여 객실과 최종 금액은 상담을 통해 확인해 주세요.' : '현재 v2에서 추천 가능한 상품을 찾지 못했어요. 이용일과 인원을 알려주시면 현지 데스크에서 확인해 드립니다.', recommendations, requiresHumanReview: true, suggestedActions: ['이용일과 인원을 알려주세요', '카카오톡으로 실시간 잔여 객실 확인'] };
   }
   if (agent === 'reservation') return { answer: '원하는 날짜와 인원, 여행 스타일을 알려주시면 상품을 추천해드리고, 상품과 일정 확정 후 결제 방법 및 금액을 안내합니다. 취소·변경 수수료는 예약한 크루즈 규정에 따라 달라져 담당자 확인이 필요합니다.', recommendations: [], requiresHumanReview: true, suggestedActions: ['이용일과 인원을 알려주세요', '예약자명과 이용일로 변경·취소 확인'] };
   if (agent === 'transfer') return { answer: '하노이 또는 하롱 지역에서의 픽업 가능 여부는 상품과 출발 시간에 따라 달라집니다. 출발지와 희망 시간을 알려주시면 셔틀 또는 전용 차량 가능 여부를 확인해드립니다.', recommendations: [], requiresHumanReview: true, suggestedActions: ['출발지와 희망 시간을 알려주세요', '선택한 크루즈를 알려주세요'] };

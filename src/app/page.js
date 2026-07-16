@@ -1,8 +1,20 @@
 import Image from 'next/image';
 import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 import styles from './page.module.css';
 
-export default function Home() {
+export const revalidate = 300;
+
+async function getActiveCruiseCount() {
+  const { count, error } = await supabase
+    .from('cruises_v2')
+    .select('*', { count: 'exact', head: true })
+    .eq('is_active', true);
+  return error ? null : count;
+}
+
+export default async function Home() {
+  const activeCruiseCount = await getActiveCruiseCount();
   return (
     <div className={styles.home}>
       <section className={styles.hero}>
@@ -18,7 +30,7 @@ export default function Home() {
             <a href="http://pf.kakao.com/_zvsxaG/chat" className={styles.yellowButton} target="_blank" rel="noreferrer">카톡 상담 <span>↗</span></a>
             <a href="https://www.youtube.com/@Realhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">유튜브 <span>↗</span></a>
           </div>
-          <div className={styles.meta}><span><b>23</b> CURATED CRUISES</span><span><b>KR</b> 현지 한국어 상담</span></div>
+          <div className={styles.meta}><span><b>{activeCruiseCount ?? '—'}</b> CURATED CRUISES</span><span><b>KR</b> 현지 한국어 상담</span></div>
         </div>
 
         <div className={styles.heroImage} style={{ backgroundColor: 'var(--deep)' }}>

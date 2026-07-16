@@ -6,6 +6,29 @@
 { "message": "가족 3명에게 맞는 크루즈를 추천해줘" }
 ```
 
+`/travel-guide`의 단계형 안내 화면은 검증된 구조화 조건으로 크루즈 추천 모드를 호출합니다.
+
+```json
+{
+  "mode": "recommend",
+  "context": {
+    "scheduleType": "1N2D",
+    "checkinDate": "2026-08-20",
+    "adults": 2,
+    "children": 1,
+    "infants": 0,
+    "childAges": [7],
+    "roomCount": 1,
+    "roomPreference": "standard",
+    "totalBudgetVnd": 8000000,
+    "preferences": ["family", "value"],
+    "transfer": "hanoi"
+  }
+}
+```
+
+추천 결과는 상세 정보가 등록된 크루즈만 대상으로 최대 3개를 반환합니다. 요금은 `등록요금부터`라는 비교 기준으로만 표시하며, 실시간 재고·적용 단위·아동 규정·최종 합계는 확정하지 않습니다.
+
 현재 전문 역할은 다음과 같습니다.
 
 - `cruise`: Supabase의 현재 등록 상품·활성 요금 기반의 읽기 전용 추천 (조회 실패 시 로컬 데이터 사용)

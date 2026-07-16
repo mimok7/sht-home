@@ -1,268 +1,214 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { ALL_CRUISES_DATA } from '@/data/cruisesData';
 import './product.css';
 
-export default function ProductDetail({ params }) {
-  const unwrappedParams = use(params);
-  const id = unwrappedParams.id;
-  const [loading, setLoading] = useState(true);
-  const [cruise, setCruise] = useState(null);
-  const [location, setLocation] = useState(null);
-  const [cabins, setCabins] = useState([]);
-  const [selectedCabin, setSelectedCabin] = useState(null);
-  
-  // Extra Data
-  const [tourOptions, setTourOptions] = useState([]);
-  const [holidays, setHolidays] = useState([]);
-  const [promotions, setPromotions] = useState([]);
-  const [promoRates, setPromoRates] = useState([]);
+const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
+const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
+const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 
-  // Dynamic Pricing States
+function positiveNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : null;
+}
+
+function formatVnd(value, currency = 'VND') {
+  const price = positiveNumber(value);
+  return price ? `${price.toLocaleString('ko-KR')} ${currency}` : '상담 확인';
+}
+
+function rateMatchesDate(rate, date) {
+  if (!date) return true;
+  return (!rate.valid_from || rate.valid_from <= date) && (!rate.valid_to || rate.valid_to >= date);
+}
+
+function chooseRate(cabin, scheduleType, date) {
+  const scheduled = cabin?.rates.filter((rate) => rate.schedule_type === scheduleType) || [];
+  const dated = scheduled.filter((rate) => rateMatchesDate(rate, date));
+  const candidates = date ? dated : scheduled;
+  return [...candidates].sort((left, right) => {
+    const leftPrice = positiveNumber(left.price_adult) ?? Number.MAX_SAFE_INTEGER;
+    const rightPrice = positiveNumber(right.price_adult) ?? Number.MAX_SAFE_INTEGER;
+    return leftPrice - rightPrice;
+  })[0] || null;
+}
+
+function buildCabins(rows) {
+  const cabins = new Map();
+  for (const row of rows) {
+    if (!row.cabin_id) continue;
+    if (!cabins.has(row.cabin_id)) {
+      cabins.set(row.cabin_id, {
+        id: row.cabin_id,
+        name: row.cabin_name,
+        nameEn: row.cabin_name_en,
+        roomArea: row.room_area_text,
+        bedType: row.bed_type,
+        maxAdults: row.max_adults,
+        maxGuests: row.max_guests,
+        hasBalcony: row.has_balcony,
+        isVip: row.is_vip,
+        hasButler: row.has_butler,
+        isRecommended: row.is_recommended,
+        connectingAvailable: row.connecting_available,
+        extraBedAvailable: row.extra_bed_available,
+        facilities: row.facilities,
+        specialAmenities: row.special_amenities,
+        rates: [],
+      });
+    }
+    cabins.get(row.cabin_id).rates.push(row);
+  }
+  return [...cabins.values()].sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
+}
+
+function parseFacilities(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value.filter(Boolean);
+  try {
+    const parsed = JSON.parse(value);
+    if (Array.isArray(parsed)) return parsed.filter(Boolean);
+  } catch {
+    // Legacy free text was preserved in v2; split it conservatively for display.
+  }
+  return String(value).split(/\\n|\n|,|·/).map((item) => item.trim()).filter(Boolean);
+}
+
+function cabinFeatures(cabin) {
+  return [
+    cabin.maxGuests ? `최대 ${cabin.maxGuests}명` : null,
+    cabin.hasBalcony ? '발코니' : null,
+    cabin.isVip ? 'VIP' : null,
+    cabin.hasButler ? '버틀러' : null,
+    cabin.connectingAvailable ? '커넥팅 가능' : null,
+    cabin.extraBedAvailable ? '엑스트라베드 가능' : null,
+  ].filter(Boolean);
+}
+
+export default function ProductDetail({ params }) {
+  const { id } = use(params);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [cruise, setCruise] = useState(null);
+  const [cabins, setCabins] = useState([]);
+  const [selectedCabinId, setSelectedCabinId] = useState(null);
+  const [selectedSchedule, setSelectedSchedule] = useState('');
+  const [date, setDate] = useState('');
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
-  const [extraBed, setExtraBed] = useState(false);
-  const [singleRoom, setSingleRoom] = useState(false);
-  
-  // Selected Options
-  const [selectedOptions, setSelectedOptions] = useState({});
-  
-  const [date, setDate] = useState('');
   const [userName, setUserName] = useState('');
   const [userPhone, setUserPhone] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    async function fetchData() {
-      try {
-        setLoading(true);
-        const decodedId = decodeURIComponent(id);
-        const localCruise = Object.values(ALL_CRUISES_DATA).find(
-          item => item.id === decodedId || item.name === decodedId
-        );
+    let cancelled = false;
 
-        // 1 & 2. Fetch Cruise and Cabins from cruise_info
-        let { data: cabinsData, error: cruiseError } = await supabase
-          .from('cruise_info')
-          .select('*')
-          .eq('name', decodedId);
+    async function fetchProduct() {
+      setLoading(true);
+      setLoadError('');
+      const decodedId = decodeURIComponent(id);
+      let result = await supabase
+        .from('public_cruise_recommendation_v2')
+        .select(PRODUCT_COLUMNS)
+        .eq('slug', decodedId);
 
-        // Some records use the Korean display name in cruise_name instead of name.
-        if (!cruiseError && (!cabinsData || cabinsData.length === 0)) {
-          const koreanNameResult = await supabase
-            .from('cruise_info')
-            .select('*')
-            .eq('cruise_name', decodedId);
-          cabinsData = koreanNameResult.data;
-          cruiseError = koreanNameResult.error;
-        }
-
-        if (cruiseError || !cabinsData || cabinsData.length === 0) {
-          if (localCruise) {
-            const localCabins = localCruise.cabins.map(cabin => ({
-              id: cabin.id,
-              cruise_name: localCruise.name,
-              name: localCruise.name,
-              room_name: cabin.name,
-              room_image: cabin.image_url,
-              room_description: cabin.description,
-              rate: {
-                price_adult: cabin.price,
-                price_child: 0,
-                price_infant: 0,
-                price_extra_bed: 0,
-                price_single: 0
-              }
-            }));
-
-            setCruise({
-              id: localCruise.id,
-              name: localCruise.name,
-              description: localCruise.description,
-              duration: localCruise.duration,
-              images: localCruise.image_url,
-              cruise_name: localCruise.name
-            });
-            setCabins(localCabins);
-            setSelectedCabin(localCabins[0] || null);
-            return;
-          }
-
-          console.error("Supabase fetch failed", cruiseError, "decodedId:", decodedId, "id:", id);
-          setLoading(false);
-          // Set a fake cruise object just to display the error
-          setCruise({ error_debug: `Fetch failed for id: ${id}, decoded: ${decodedId}` });
-          return;
-        }
-
-        const cruiseData = cabinsData[0];
-        const cruiseNameEn = cruiseData.name;
-        const cruiseNameKr = cruiseData.cruise_name || '';
-
-        // 3. Parallel fetch for all other 9 tables
-        const [ratesRes, promoRes, promoRatesRes, surchargeRes, optionsRes, locationRes] = await Promise.all([
-          supabase.from('cruise_rate_card').select('*'),
-          supabase.from('cruise_promotion').select('*').eq('is_active', true),
-          supabase.from('cruise_promotion_rate').select('*'),
-          supabase.from('cruise_holiday_surcharge').select('*'),
-          supabase.from('cruise_tour_options').select('*').eq('is_active', true),
-          supabase.from('cruise_location').select('*')
-        ]);
-
-        const ratesData = ratesRes.data || [];
-        setPromotions(promoRes.data || []);
-        setPromoRates(promoRatesRes.data || []);
-        
-        const cruiseHolidays = (surchargeRes.data || []).filter(h => h.cruise_name === cruiseNameKr || (h.cruise_name && cruiseNameKr && h.cruise_name.includes(cruiseNameKr)));
-        setHolidays(cruiseHolidays);
-
-        const cruiseOptions = (optionsRes.data || []).filter(o => o.cruise_name === cruiseNameKr || (o.cruise_name && cruiseNameKr && o.cruise_name.includes(cruiseNameKr)));
-        setTourOptions(cruiseOptions);
-
-        const loc = (locationRes.data || []).find(l => l.en_name && l.en_name.toLowerCase() === cruiseNameEn.toLowerCase());
-        setLocation(loc);
-
-        // Merge Cabins with Base Rates
-        let mergedCabins = [];
-        if (cabinsData && cabinsData.length > 0) {
-          mergedCabins = cabinsData.map(cabin => {
-            const rate = ratesData.find(r => 
-              (r.cruise_name === cabin.cruise_name || (r.cruise_name && cabin.cruise_name && r.cruise_name.includes(cabin.cruise_name))) && 
-              (r.room_type_en === cabin.room_name || r.room_type === cabin.room_name || (r.room_type_en && cabin.room_name && r.room_type_en.toLowerCase().includes(cabin.room_name.toLowerCase())))
-            );
-
-            return {
-              ...cabin,
-              rate: rate || {
-                price_adult: 0, price_child: 0, price_infant: 0,
-                price_extra_bed: 0, price_single: 0
-              }
-            };
-          });
-        }
-
-        setCruise({ ...cruiseData, cruise_name: cruiseNameKr });
-        setCabins(mergedCabins);
-        
-        if (mergedCabins.length > 0) {
-          setSelectedCabin(mergedCabins[0]);
-        }
-      } catch (err) {
-        console.error("Error loading product detail:", err);
-      } finally {
-        setLoading(false);
+      if (!result.error && !result.data?.length) {
+        result = await supabase
+          .from('public_cruise_recommendation_v2')
+          .select(PRODUCT_COLUMNS)
+          .eq('cruise_name', decodedId);
       }
+
+      if (cancelled) return;
+      if (result.error) {
+        setLoadError('v2 상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        setLoading(false);
+        return;
+      }
+      if (!result.data?.length) {
+        setLoadError('현재 공개된 v2 상품을 찾을 수 없습니다.');
+        setLoading(false);
+        return;
+      }
+
+      const rows = result.data;
+      const first = rows[0];
+      const schedules = [...new Set(rows.map((row) => row.schedule_type))]
+        .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
+      const nextCabins = buildCabins(rows);
+
+      setCruise({
+        id: first.cruise_id,
+        slug: first.slug,
+        name: first.cruise_name,
+        nameEn: first.cruise_name_en,
+        description: first.description,
+        category: first.category,
+        rating: first.star_rating,
+        heroImage: first.hero_image,
+        tags: first.tags || [],
+        schedules,
+      });
+      setCabins(nextCabins);
+      setSelectedSchedule(schedules[0] || '');
+      setSelectedCabinId(nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === schedules[0]))?.id || nextCabins[0]?.id || null);
+      setLoading(false);
     }
-    fetchData();
+
+    fetchProduct();
+    return () => { cancelled = true; };
   }, [id]);
 
-  const handleOptionToggle = (optionId) => {
-    setSelectedOptions(prev => ({
-      ...prev,
-      [optionId]: !prev[optionId]
-    }));
-  };
+  const availableCabins = useMemo(
+    () => cabins.filter((cabin) => cabin.rates.some((rate) => rate.schedule_type === selectedSchedule)),
+    [cabins, selectedSchedule]
+  );
+  const selectedCabin = availableCabins.find((cabin) => cabin.id === selectedCabinId) || availableCabins[0] || null;
+  const selectedRate = useMemo(
+    () => chooseRate(selectedCabin, selectedSchedule, date),
+    [selectedCabin, selectedSchedule, date]
+  );
+  const facilities = parseFacilities(selectedCabin?.facilities);
 
-  const isDateInSurcharge = (checkDate, holiday) => {
-    if (!checkDate || !holiday.holiday_date) return false;
-    return holiday.holiday_date.includes(checkDate.substring(5));
-  };
+  function handleScheduleChange(event) {
+    const scheduleType = event.target.value;
+    setSelectedSchedule(scheduleType);
+    setSelectedCabinId(cabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType))?.id || null);
+  }
 
-  const calculateTotal = () => {
-    if (!selectedCabin || !selectedCabin.rate) return 0;
-    
-    let currentRate = selectedCabin.rate;
-    const promo = promotions.find(p => p.cruise_name === cruise?.cruise_name);
-    if (promo) {
-      const pRate = promoRates.find(pr => pr.promotion_id === promo.id && (pr.room_type === selectedCabin.room_name || pr.room_type === selectedCabin.room_type));
-      if (pRate) {
-        currentRate = { ...currentRate, ...pRate };
-      }
+  async function handleReservation(event) {
+    event.preventDefault();
+    if (!selectedCabin || !date || !userName.trim() || !userPhone.trim()) {
+      alert('객실, 이용일, 예약자 이름과 연락처를 모두 입력해 주세요.');
+      return;
     }
 
-    let total = (adults * (currentRate.price_adult || 0)) +
-                (children * (currentRate.price_child || 0)) +
-                (infants * (currentRate.price_infant || 0));
-                
-    if (extraBed) total += (currentRate.price_extra_bed || 0);
-    if (singleRoom) total += (currentRate.price_single || 0);
-    
-    let surchargeTotal = 0;
-    if (date) {
-      const appliedHoliday = holidays.find(h => isDateInSurcharge(date, h));
-      if (appliedHoliday) {
-        const surchargeVal = parseInt(appliedHoliday.surcharge_per_person) || 0;
-        surchargeTotal = (adults + children) * surchargeVal;
-        total += surchargeTotal;
-      }
-    }
-
-    tourOptions.forEach(opt => {
-      if (selectedOptions[opt.option_id]) {
-        const price = parseInt(opt.option_price) || 0;
-        total += price; 
-      }
+    setSubmitting(true);
+    const { error } = await supabase.from('reservations').insert({
+      user_name: userName.trim(),
+      user_phone: userPhone.trim(),
+      cruise_id: cruise.id,
+      cabin_id: selectedCabin.id,
+      reservation_date: date,
+      guests_count: adults + children + infants,
+      total_price: 0,
+      status: 'pending',
     });
-    
-    return total;
-  };
+    setSubmitting(false);
 
-  const handleReservation = async (e) => {
-    e.preventDefault();
-    if (!date) {
-      alert('예약 날짜를 선택해주세요.');
-      return;
-    }
-    if (!userName || !userPhone) {
-      alert('예약자 이름과 연락처를 입력해주세요.');
+    if (error) {
+      console.error('Reservation inquiry failed:', error.message);
+      alert('예약 문의를 접수하지 못했습니다. 카카오톡 상담으로 연락해 주세요.');
       return;
     }
 
-    try {
-      setSubmitting(true);
-      const totalPrice = calculateTotal();
-
-      const { data, error } = await supabase
-        .from('reservations')
-        .insert([
-          {
-            user_name: userName,
-            user_phone: userPhone,
-            cruise_id: id,
-            cabin_id: selectedCabin ? selectedCabin.id : null,
-            reservation_date: date,
-            guests_count: adults + children + infants,
-            total_price: totalPrice,
-            status: 'pending'
-          }
-        ]);
-
-      if (error) throw error;
-
-      alert(`예약이 성공적으로 완료되었습니다!\n상담원이 조만간 ${userPhone} 번호로 연락드릴 예정입니다.`);
-      setDate('');
-      setUserName('');
-      setUserPhone('');
-      setSelectedOptions({});
-    } catch (err) {
-      console.error("Reservation failed:", err);
-      alert(`[데모 모드 완료] 예약이 가상으로 완료되었습니다.\n예약자: ${userName}\n총 금액: ${calculateTotal().toLocaleString()} VND`);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const safeParseJSON = (str) => {
-    try {
-      if (!str) return null;
-      return JSON.parse(str);
-    } catch (e) {
-      return null;
-    }
-  };
+    alert('예약 문의가 접수되었습니다. 객실 가능 여부와 최종 요금 확인 후 연락드리겠습니다.');
+    setDate('');
+    setUserName('');
+    setUserPhone('');
+  }
 
   if (loading) {
     return (
@@ -270,432 +216,167 @@ export default function ProductDetail({ params }) {
         <span>STAY HALONG / PREPARING YOUR JOURNEY</span>
         <h1>좋은 여행을<br />불러오는 중입니다.</h1>
         <i aria-hidden="true" />
-        <p>크루즈와 객실 정보를 확인하고 있습니다.</p>
+        <p>v2 크루즈와 객실 정보를 확인하고 있습니다.</p>
       </div>
     );
   }
 
-  if (!cruise || cruise.error_debug) {
+  if (!cruise || loadError) {
     return (
       <div className="product-state product-state-error">
         <span>STAY HALONG / NOT FOUND</span>
         <h2>상품을 찾을 수 없습니다.</h2>
-        {cruise?.error_debug && (
-          <p style={{ color: 'red', marginTop: '1rem' }}>Debug: {cruise.error_debug}</p>
-        )}
+        <p>{loadError}</p>
       </div>
     );
   }
-  
-  const cruiseImage = '/images/cruises/headimage.png';
-  
-  // Parse Itinerary and Cancellation
-  const itineraryData = selectedCabin?.itinerary ? safeParseJSON(selectedCabin.itinerary) : null;
-  const cancellationData = selectedCabin?.cancellation_policy ? safeParseJSON(selectedCabin.cancellation_policy) : null;
-  const facilitiesData = selectedCabin?.facilities ? safeParseJSON(selectedCabin.facilities) : null;
+
+  const heroImage = cruise.heroImage || '/images/cruises/headimage.png';
+  const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ');
 
   return (
     <div className="product-page">
-      <div 
+      <div
         className="product-hero"
-        style={{ 
-          backgroundImage: `url(${cruiseImage})`,
-          backgroundSize: 'contain',
-          backgroundPosition: 'center top',
+        style={{
+          backgroundImage: `url(${heroImage})`,
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
           backgroundRepeat: 'no-repeat',
-          backgroundColor: 'var(--navy)'
+          backgroundColor: 'var(--navy)',
         }}
       >
-        <div className="product-hero-bg" style={{ background: 'rgba(10, 35, 66, 0.4)' }}></div>
+        <div className="product-hero-bg" />
       </div>
-      
+
       <div className="container product-content-wrapper">
-        <div className="product-main">
-          <div className="product-header">
-            <span className="duration-badge">{cruise.duration}</span>
-            <h1>{cruise.name}{cruise.cruise_name && cruise.cruise_name !== cruise.name ? ` (${cruise.cruise_name})` : ''}</h1>
-            <p className="product-desc">{cruise.description}</p>
-            
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-              {selectedCabin?.star_rating && (
-                <span style={{ padding: '4px 12px', backgroundColor: '#fef3c7', color: '#d97706', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                  ⭐ {selectedCabin.star_rating}
-                </span>
-              )}
-              {selectedCabin?.capacity && (
-                <span style={{ padding: '4px 12px', backgroundColor: '#e0f2fe', color: '#0369a1', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                  👥 최대 인원: {selectedCabin.capacity}
-                </span>
-              )}
-              {selectedCabin?.awards && selectedCabin.awards !== 'null' && (
-                <span style={{ padding: '4px 12px', backgroundColor: '#fce7f3', color: '#be185d', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold' }}>
-                  🏆 {selectedCabin.awards}
-                </span>
-              )}
+        <main className="product-main">
+          <header className="product-header">
+            <span className="duration-badge">{duration}</span>
+            <h1>{cruise.name}</h1>
+            {cruise.nameEn && <p className="product-subtitle">{cruise.nameEn}</p>}
+            <p className="product-desc">{cruise.description || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>
+            <div className="product-facts">
+              {cruise.category && <span>{cruise.category}</span>}
+              {cruise.rating && <span>★ {cruise.rating}</span>}
+              {cruise.tags.map((tag) => <span key={tag}>#{tag}</span>)}
             </div>
+          </header>
 
-            {location && (
-              <div style={{marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f1f5f9', borderRadius: '8px', display: 'flex', gap: '1rem', alignItems: 'center'}}>
-                <span style={{fontSize: '1.2rem'}}>📍</span>
-                <div>
-                  <div style={{fontWeight: 'bold', color: '#0f172a'}}>탑승 위치</div>
-                  <div style={{color: '#64748b', fontSize: '0.9rem'}}>{location.pier_location}</div>
-                  {location.pier_map_url && (
-                    <a href={location.pier_map_url} target="_blank" rel="noreferrer" style={{color: '#0ea5e9', fontSize: '0.85rem', textDecoration: 'none', display: 'inline-block', marginTop: '4px', fontWeight: 'bold'}}>
-                      구글 맵에서 보기 →
-                    </a>
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* 객실 선택 섹션 */}
-          <div className="product-section">
-            <h2>객실 및 요금 정보</h2>
+          <section className="product-section">
+            <div className="section-heading-row">
+              <h2>객실 및 등록 요금</h2>
+              <label className="schedule-picker">
+                <span>일정</span>
+                <select value={selectedSchedule} onChange={handleScheduleChange}>
+                  {cruise.schedules.map((type) => <option key={type} value={type}>{SCHEDULE_LABELS[type]}</option>)}
+                </select>
+              </label>
+            </div>
+            <p className="price-notice">v2 이관 요금은 현재 가격 단위가 확정되지 않았습니다. 아래 금액은 비교용 등록값이며 최종 견적이 아닙니다.</p>
             <div className="cabins-list">
-              {cabins.map((cabin, idx) => {
-                const promo = promotions.find(p => p.cruise_name === cruise?.cruise_name);
-                const hasPromoRate = promo && promoRates.some(pr => pr.promotion_id === promo.id && (pr.room_type === cabin.room_name || pr.room_type === cabin.room_type));
-
+              {availableCabins.map((cabin, index) => {
+                const rate = chooseRate(cabin, selectedSchedule, date);
                 return (
-                  <div 
-                    key={cabin.id || idx} 
+                  <button
+                    type="button"
+                    key={cabin.id}
                     className={`cabin-card ${selectedCabin?.id === cabin.id ? 'active' : ''}`}
-                    onClick={() => setSelectedCabin(cabin)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '1.5rem',
-                      padding: '1.5rem',
-                      position: 'relative',
-                      overflow: 'hidden'
-                    }}
+                    onClick={() => setSelectedCabinId(cabin.id)}
                   >
-                    {hasPromoRate && (
-                      <div style={{position: 'absolute', top: 0, right: 0, backgroundColor: '#ef4444', color: 'white', padding: '4px 12px', fontSize: '0.75rem', fontWeight: 'bold', borderBottomLeftRadius: '8px'}}>
-                        특가할인
-                      </div>
-                    )}
-                    <div style={{
-                      width: '100px',
-                      height: '80px',
-                      borderRadius: '8px',
-                      backgroundImage: `url(${cabin.room_image || `/cabin_${(idx % 5) + 1}.png`})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      flexShrink: 0
-                    }} />
-                    <div className="cabin-info" style={{ flex: 1 }}>
-                      <h3>{cabin.room_name}</h3>
-                      {cabin.room_area || cabin.bed_type ? (
-                        <p style={{fontSize: '0.85rem', color: '#64748b', marginTop: '0.2rem', fontWeight: '500'}}>
-                          {cabin.room_area && `면적: ${cabin.room_area}`} 
-                          {cabin.room_area && cabin.bed_type && ' | '}
-                          {cabin.bed_type && `침대: ${cabin.bed_type}`}
-                        </p>
-                      ) : null}
-                    </div>
-                    <div className="cabin-price" style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      <div style={{fontSize: '0.8rem', color: '#64748b'}}>성인 1인 기준</div>
-                      {hasPromoRate && cabin.rate?.price_adult > 0 && (
-                        <div style={{fontSize: '0.8rem', color: '#ef4444', textDecoration: 'line-through'}}>
-                          {cabin.rate.price_adult.toLocaleString()} VND
-                        </div>
-                      )}
-                      <div style={{fontWeight: '700', color: '#0f172a'}}>
-                        {(cabin.rate?.price_adult || 0).toLocaleString()} VND
-                      </div>
-                    </div>
-                  </div>
-                )
+                    <span className="cabin-image" style={{ backgroundImage: `url(/cabin_${(index % 5) + 1}.png)` }} />
+                    <span className="cabin-info">
+                      <strong>{cabin.name}</strong>
+                      <small>{[cabin.roomArea && `면적 ${cabin.roomArea}`, cabin.bedType && `침대 ${cabin.bedType}`, cabin.maxGuests && `최대 ${cabin.maxGuests}명`].filter(Boolean).join(' · ')}</small>
+                    </span>
+                    <span className="cabin-price">
+                      <small>등록요금 참고</small>
+                      <strong>{formatVnd(rate?.price_adult, rate?.currency)}</strong>
+                    </span>
+                  </button>
+                );
               })}
             </div>
-          </div>
+          </section>
 
-          {/* 객실 상세 정보 표시 (선택된 객실 기준) */}
           {selectedCabin && (
-            <div style={{ backgroundColor: '#f8fafc', padding: '2rem', borderRadius: '12px', border: '1px solid #e2e8f0', marginBottom: '3rem' }}>
-              <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: '#0f172a' }}>{selectedCabin.room_name} 객실 안내</h2>
-              
-              {selectedCabin.room_description && selectedCabin.room_description !== 'null' && (
-                <div style={{ marginBottom: '1.5rem' }}>
-                  <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7', color: '#334155' }}>
-                    {selectedCabin.room_description}
-                  </p>
+            <section className="cabin-detail">
+              <h2>{selectedCabin.name} 객실 안내</h2>
+              {selectedCabin.nameEn && <p className="cabin-name-en">{selectedCabin.nameEn}</p>}
+              <div className="feature-list">
+                {cabinFeatures(selectedCabin).map((feature) => <span key={feature}>{feature}</span>)}
+              </div>
+              {selectedCabin.specialAmenities && (
+                <div className="amenity-note">
+                  <strong>스페셜 어메니티</strong>
+                  <p>{selectedCabin.specialAmenities}</p>
                 </div>
               )}
-
-              {selectedCabin.special_amenities && selectedCabin.special_amenities !== 'null' && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#eff6ff', borderRadius: '8px' }}>
-                  <strong style={{ display: 'block', color: '#1e3a8a', marginBottom: '0.5rem' }}>✨ 스페셜 어메니티 & 혜택</strong>
-                  <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', color: '#1e40af', fontSize: '0.95rem' }}>
-                    {selectedCabin.special_amenities}
-                  </p>
+              {facilities.length > 0 && (
+                <div className="facility-block">
+                  <strong>등록 시설</strong>
+                  <div>{facilities.map((facility) => <span key={facility}>{facility}</span>)}</div>
                 </div>
               )}
-
-              {selectedCabin.warnings && selectedCabin.warnings !== 'null' && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444', borderRadius: '4px' }}>
-                  <strong style={{ display: 'block', color: '#991b1b', marginBottom: '0.5rem' }}>⚠️ 중요 안내 및 주의사항</strong>
-                  <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6', color: '#b91c1c', fontSize: '0.95rem', margin: 0 }}>
-                    {selectedCabin.warnings}
-                  </p>
-                </div>
-              )}
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem' }}>
-                {selectedCabin.inclusions && selectedCabin.inclusions !== 'null' && (
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', color: '#166534', marginBottom: '0.8rem', borderBottom: '2px solid #bbf7d0', paddingBottom: '0.5rem' }}>⭕ 포함 사항</h3>
-                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7', color: '#334155', fontSize: '0.95rem' }}>
-                      {selectedCabin.inclusions.replace(/\\n/g, '\n')}
-                    </p>
-                  </div>
-                )}
-                {selectedCabin.exclusions && selectedCabin.exclusions !== 'null' && (
-                  <div>
-                    <h3 style={{ fontSize: '1.1rem', color: '#991b1b', marginBottom: '0.8rem', borderBottom: '2px solid #fecaca', paddingBottom: '0.5rem' }}>❌ 불포함 사항</h3>
-                    <p style={{ whiteSpace: 'pre-wrap', lineHeight: '1.7', color: '#334155', fontSize: '0.95rem' }}>
-                      {selectedCabin.exclusions.replace(/\\n/g, '\n')}
-                    </p>
-                  </div>
-                )}
+              <div className="rate-reference">
+                <strong>선택 조건의 등록 요금</strong>
+                <dl>
+                  <div><dt>기준 등록값</dt><dd>{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</dd></div>
+                  <div><dt>아동 등록값</dt><dd>{formatVnd(selectedRate?.price_child, selectedRate?.currency)}</dd></div>
+                  <div><dt>유아 등록값</dt><dd>{formatVnd(selectedRate?.price_infant, selectedRate?.currency)}</dd></div>
+                  <div><dt>유효 기간</dt><dd>{selectedRate ? `${selectedRate.valid_from} ~ ${selectedRate.valid_to}` : '선택일 적용 요금 없음'}</dd></div>
+                  <div><dt>가격 단위</dt><dd>{selectedRate?.price_basis === 'unknown' || !selectedRate ? '상담 확인 필요' : selectedRate.price_basis}</dd></div>
+                </dl>
               </div>
-            </div>
+            </section>
           )}
+        </main>
 
-          {/* 일정표 (Itinerary) */}
-          {itineraryData && Array.isArray(itineraryData) && (
-            <div className="product-section">
-              <h2>운항 일정표</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
-                {itineraryData.map((day, idx) => (
-                  <div key={idx} style={{ backgroundColor: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                    <div style={{ backgroundColor: '#f8fafc', padding: '1rem 1.5rem', borderBottom: '1px solid #e2e8f0', fontWeight: 'bold', color: '#0f172a' }}>
-                      {day.title || `${day.day}일차`}
-                    </div>
-                    <div style={{ padding: '1.5rem' }}>
-                      {day.schedule && day.schedule.map((item, i) => (
-                        <div key={i} style={{ display: 'flex', gap: '1.5rem', marginBottom: i === day.schedule.length - 1 ? 0 : '1rem' }}>
-                          <div style={{ fontWeight: 'bold', color: '#0ea5e9', minWidth: '60px' }}>{item.time}</div>
-                          <div style={{ color: '#334155', lineHeight: '1.5' }}>{item.activity}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 부대시설 */}
-          {facilitiesData && Array.isArray(facilitiesData) && facilitiesData.length > 0 && (
-            <div className="product-section">
-              <h2>크루즈 부대시설</h2>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.8rem' }}>
-                {facilitiesData.map((fac, idx) => (
-                  <span key={idx} style={{ padding: '8px 16px', backgroundColor: '#f1f5f9', color: '#334155', borderRadius: '20px', fontSize: '0.9rem', border: '1px solid #e2e8f0' }}>
-                    {fac}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* 취소 규정 */}
-          {cancellationData && Array.isArray(cancellationData) && (
-            <div className="product-section">
-              <h2>취소 및 환불 규정</h2>
-              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
-                  <thead style={{ backgroundColor: '#f8fafc' }}>
-                    <tr>
-                      <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', color: '#475569', width: '50%' }}>조건 (기준)</th>
-                      <th style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', color: '#475569', width: '50%' }}>위약금 / 내용</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cancellationData.map((policy, idx) => (
-                      <tr key={idx}>
-                        <td style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', color: '#334155', lineHeight: '1.5' }}>{policy.condition}</td>
-                        <td style={{ padding: '1rem', borderBottom: '1px solid #e2e8f0', color: '#ef4444', fontWeight: '500', lineHeight: '1.5' }}>{policy.penalty}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="product-sidebar">
+        <aside className="product-sidebar">
           <div className="reservation-card sticky">
-            <h3 style={{marginTop: 0, marginBottom: '1.5rem', color: '#0f172a'}}>예약 요금 계산기</h3>
-            
+            <h3>예약 문의</h3>
+            <p className="reservation-intro">실시간 객실과 최종 금액은 현지 데스크 확인 후 안내합니다.</p>
             <form className="reservation-form" onSubmit={handleReservation}>
               <div className="form-group">
                 <label>선택한 객실</label>
-                <input 
-                  type="text" 
-                  value={selectedCabin ? selectedCabin.room_name : '객실을 선택하세요'} 
-                  readOnly 
-                  style={{ backgroundColor: '#f1f5f9', fontWeight: '600' }}
-                />
+                <input type="text" value={selectedCabin?.name || '객실을 선택하세요'} readOnly />
               </div>
-
-              {/* Dynamic Pricing Inputs */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>성인</label>
-                  <select value={adults} onChange={(e) => setAdults(Number(e.target.value))}>
-                    {[1,2,3,4,5,6].map(num => (
-                      <option key={num} value={num}>{num}명</option>
-                    ))}
-                  </select>
-                </div>
-                
-                <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label>아동 (만 5~11세)</label>
-                  <select value={children} onChange={(e) => setChildren(Number(e.target.value))}>
-                    {[0,1,2,3,4].map(num => (
-                      <option key={num} value={num}>{num}명</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               <div className="form-group">
-                  <label>유아 (만 4세 이하)</label>
-                  <select value={infants} onChange={(e) => setInfants(Number(e.target.value))}>
-                    {[0,1,2,3].map(num => (
-                      <option key={num} value={num}>{num}명</option>
-                    ))}
-                  </select>
+                <label htmlFor="schedule">일정</label>
+                <select id="schedule" value={selectedSchedule} onChange={handleScheduleChange}>
+                  {cruise.schedules.map((type) => <option key={type} value={type}>{SCHEDULE_LABELS[type]}</option>)}
+                </select>
               </div>
-
-              {/* Optional Extras */}
-              {(selectedCabin?.rate?.price_extra_bed > 0 || selectedCabin?.rate?.price_single > 0) && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
-                  {selectedCabin?.rate?.price_extra_bed > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '0.8rem' }}>
-                      <input 
-                        type="checkbox" 
-                        id="extraBed" 
-                        checked={extraBed} 
-                        onChange={(e) => setExtraBed(e.target.checked)}
-                        style={{ marginRight: '8px', width: 'auto' }}
-                      />
-                      <label htmlFor="extraBed" style={{ marginBottom: 0, flex: 1, cursor: 'pointer', fontSize: '0.9rem' }}>엑스트라 베드 추가</label>
-                      <span style={{ fontSize: '0.85rem', color: '#0ea5e9', fontWeight: '600' }}>
-                        +{selectedCabin.rate.price_extra_bed.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {selectedCabin?.rate?.price_single > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <input 
-                        type="checkbox" 
-                        id="singleRoom" 
-                        checked={singleRoom} 
-                        onChange={(e) => setSingleRoom(e.target.checked)}
-                        style={{ marginRight: '8px', width: 'auto' }}
-                      />
-                      <label htmlFor="singleRoom" style={{ marginBottom: 0, flex: 1, cursor: 'pointer', fontSize: '0.9rem' }}>싱글 룸 차지</label>
-                      <span style={{ fontSize: '0.85rem', color: '#0ea5e9', fontWeight: '600' }}>
-                        +{selectedCabin.rate.price_single.toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {tourOptions.length > 0 && (
-                <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f0fdf4', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
-                  <div style={{fontWeight: 'bold', fontSize: '0.9rem', marginBottom: '0.5rem', color: '#166534'}}>투어 추가 옵션</div>
-                  {tourOptions.map(opt => (
-                    <div key={opt.option_id} style={{ display: 'flex', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <input 
-                        type="checkbox" 
-                        id={`opt-${opt.option_id}`} 
-                        checked={selectedOptions[opt.option_id] || false} 
-                        onChange={() => handleOptionToggle(opt.option_id)}
-                        style={{ marginRight: '8px', width: 'auto' }}
-                      />
-                      <label htmlFor={`opt-${opt.option_id}`} style={{ marginBottom: 0, flex: 1, cursor: 'pointer', fontSize: '0.85rem' }}>
-                        {opt.option_name}
-                      </label>
-                      <span style={{ fontSize: '0.8rem', color: '#16a34a', fontWeight: '600' }}>
-                        +{(parseInt(opt.option_price) || 0).toLocaleString()}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
+              <div className="guest-grid">
+                <div className="form-group"><label htmlFor="adults">성인</label><select id="adults" value={adults} onChange={(event) => setAdults(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((number) => <option key={number}>{number}</option>)}</select></div>
+                <div className="form-group"><label htmlFor="children">아동</label><select id="children" value={children} onChange={(event) => setChildren(Number(event.target.value))}>{[0, 1, 2, 3, 4].map((number) => <option key={number}>{number}</option>)}</select></div>
+                <div className="form-group"><label htmlFor="infants">유아</label><select id="infants" value={infants} onChange={(event) => setInfants(Number(event.target.value))}>{[0, 1, 2, 3].map((number) => <option key={number}>{number}</option>)}</select></div>
+              </div>
               <div className="form-group">
-                <label htmlFor="date">예약 날짜</label>
-                <input 
-                  type="date" 
-                  id="date" 
-                  value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  required 
-                />
+                <label htmlFor="date">이용일</label>
+                <input type="date" id="date" value={date} onChange={(event) => setDate(event.target.value)} required />
               </div>
-              
-              {/* Holiday warning */}
-              {date && holidays.some(h => isDateInSurcharge(date, h)) && (
-                <div style={{ marginBottom: '1rem', padding: '0.8rem', backgroundColor: '#fef2f2', borderLeft: '4px solid #ef4444', borderRadius: '4px', fontSize: '0.85rem', color: '#991b1b' }}>
-                  ⚠️ 선택하신 날짜는 명절/공휴일 할증이 적용되는 기간입니다. (총 금액에 자동 합산됨)
-                </div>
-              )}
-
+              {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 문의 접수 후 별도 확인합니다.</p>}
               <div className="form-group">
                 <label htmlFor="userName">예약자 성함</label>
-                <input 
-                  type="text" 
-                  id="userName" 
-                  placeholder="예약자 이름을 입력하세요"
-                  value={userName}
-                  onChange={(e) => setUserName(e.target.value)}
-                  required 
-                />
+                <input type="text" id="userName" value={userName} onChange={(event) => setUserName(event.target.value)} placeholder="이름" required />
               </div>
-
               <div className="form-group">
                 <label htmlFor="userPhone">연락처</label>
-                <input 
-                  type="tel" 
-                  id="userPhone" 
-                  placeholder="010-1234-5678"
-                  value={userPhone}
-                  onChange={(e) => setUserPhone(e.target.value)}
-                  required 
-                />
+                <input type="tel" id="userPhone" value={userPhone} onChange={(event) => setUserPhone(event.target.value)} placeholder="010-1234-5678" required />
               </div>
-              
-              <div className="total-price-box" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: '0.5rem', marginTop: '1rem' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', fontSize: '0.9rem', color: '#64748b' }}>
-                  <span>총 결제 예정 금액</span>
-                  <span>({adults + children + infants}명)</span>
-                </div>
-                <span className="total-amount" style={{ color: '#ef4444', fontSize: '1.8rem' }}>
-                  {calculateTotal().toLocaleString()} <span style={{fontSize: '1rem'}}>VND</span>
-                </span>
+              <div className="total-price-box">
+                <span>등록 요금 참고</span>
+                <strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong>
+                <small>가격 단위·아동 규정·최종 합계는 상담 확인</small>
               </div>
-              
-              <button 
-                type="submit" 
-                className="btn-primary w-100" 
-                disabled={submitting}
-              >
-                {submitting ? '예약 처리 중...' : '예약 신청하기'}
+              <button type="submit" className="btn-primary w-100" disabled={submitting || !selectedCabin}>
+                {submitting ? '문의 접수 중...' : '예약 문의 접수'}
               </button>
+              <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
             </form>
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );

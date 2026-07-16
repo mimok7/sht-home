@@ -1,5 +1,9 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## 여행 안내 서브에이전트
+
+`POST /api/agent`는 고객 메시지를 크루즈 추천, 예약, 이동 전문 역할 중 하나로 라우팅하는 읽기 전용 서브에이전트입니다. 사용 예시와 안전 경계는 [src/lib/agents/README.md](src/lib/agents/README.md)를 참고하세요.
+
 ## Getting Started
 
 First, run the development server:

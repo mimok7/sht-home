@@ -2,6 +2,7 @@ import './globals.css';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import GlobalAlert from '../components/GlobalAlert';
+import TravelAssistant from '../components/TravelAssistant';
 
 export const metadata = {
   title: 'STAY HALONG | 스테이하롱 - 하롱베이 현지 프리미엄 여행사',
@@ -27,6 +28,7 @@ export default function RootLayout({ children }) {
           <GlobalAlert />
         </main>
         <Footer />
+        <TravelAssistant />
       </body>
     </html>
   );

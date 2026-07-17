@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import puppeteer from 'puppeteer';
+import chromium from '@sparticuz/chromium';
 import sharp from 'sharp';
 import { createWorker } from 'tesseract.js';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
@@ -73,8 +74,22 @@ function previewUrl(request, imageUrl, expiresAt) {
   return url.toString();
 }
 
+async function launchArticleBrowser() {
+  // Vercel 함수에는 Puppeteer의 전역 Chrome 캐시가 포함되지 않는다.
+  // 서버리스용 Chromium을 번들에 포함해 명시적으로 실행한다.
+  if (process.env.VERCEL === '1') {
+    chromium.setGraphicsMode = false;
+    return puppeteer.launch({
+      args: await puppeteer.defaultArgs({ args: chromium.args, headless: 'shell' }),
+      executablePath: await chromium.executablePath(),
+      headless: 'shell',
+    });
+  }
+  return puppeteer.launch({ headless: true });
+}
+
 async function readArticle(sourceUrl) {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await launchArticleBrowser();
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000 });

@@ -4,7 +4,7 @@ import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import './product.css';
 
-const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
+const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 
@@ -43,6 +43,7 @@ function buildCabins(rows) {
         id: row.cabin_id,
         name: row.cabin_name,
         nameEn: row.cabin_name_en,
+        imageUrl: row.cabin_image,
         roomArea: row.room_area_text,
         bedType: row.bed_type,
         maxAdults: row.max_adults,
@@ -284,7 +285,7 @@ export default function ProductDetail({ params }) {
                     className={`cabin-card ${selectedCabin?.id === cabin.id ? 'active' : ''}`}
                     onClick={() => setSelectedCabinId(cabin.id)}
                   >
-                    <span className="cabin-image" style={{ backgroundImage: `url(/cabin_${(index % 5) + 1}.png)` }} />
+                    <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
                     <span className="cabin-info">
                       <strong>{cabin.name}</strong>
                       <small>{[cabin.roomArea && `면적 ${cabin.roomArea}`, cabin.bedType && `침대 ${cabin.bedType}`, cabin.maxGuests && `최대 ${cabin.maxGuests}명`].filter(Boolean).join(' · ')}</small>

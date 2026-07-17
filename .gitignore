@@ -53,3 +53,6 @@ next-env.d.ts
 *.txt
 /sql/
 .playwright-profile/
+
+.vercel
+.env*.local

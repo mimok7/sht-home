@@ -5,3 +5,4 @@
 @media(max-width:768px){.container{width:min(100% - 32px,1180px)}.main-content{padding-top:68px}}
 @keyframes globalAlertFadeIn{from{opacity:0}to{opacity:1}}@keyframes globalAlertSlideUp{from{transform:translateY(20px);opacity:0}to{transform:translateY(0);opacity:1}}
 @media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;animation-duration:.01ms!important;transition-duration:.01ms!important}}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:root{--page-title-size:clamp(2.5rem,4vw,4rem)}

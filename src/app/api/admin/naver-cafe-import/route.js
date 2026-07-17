@@ -1,8 +1,6 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
-import sharp from 'sharp';
-import { createWorker } from 'tesseract.js';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 
 export const runtime = 'nodejs';
@@ -39,25 +37,6 @@ function generatedImageName(sourceUrl, index) {
     const readable = baseName.replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
     return readable ? `${String(index + 1).padStart(3, '0')} · ${readable}`.slice(0, 160) : `${String(index + 1).padStart(3, '0')} · 원본 파일`;
   } catch { return `${String(index + 1).padStart(3, '0')} · 원본 파일`; }
-}
-
-async function recognizeText(worker, imageUrl) {
-  try {
-    const response = await fetch(imageUrl, { headers: { Referer: 'https://cafe.naver.com/', 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
-    if (!response.ok) return { text: '', confidence: 0 };
-    const thumbnail = await sharp(Buffer.from(await response.arrayBuffer())).rotate().resize({ width: 720, withoutEnlargement: true }).grayscale().jpeg({ quality: 70 }).toBuffer();
-    const result = await worker.recognize(thumbnail);
-    return { text: cleanText(result.data.text).slice(0, 20000), confidence: Math.round(Number(result.data.confidence || 0)) };
-  } catch (error) {
-    console.warn('[naver-cafe-import] ocr skipped', error?.message || error);
-    return { text: '', confidence: 0 };
-  }
-}
-
-async function extractOcrData(imageUrls) {
-  if (!imageUrls.length || imageUrls.length > 10) badRequest('OCR은 한 번에 최대 10장씩 분석할 수 있습니다.');
-  const worker = await createWorker('kor+eng');
-  try { return Promise.all(imageUrls.map(async (sourceImageUrl) => ({ sourceImageUrl, ...(await recognizeText(worker, sourceImageUrl)) }))); } finally { await worker.terminate(); }
 }
 
 function previewSignature(imageUrl, expiresAt) {
@@ -107,9 +86,9 @@ async function readArticle(sourceUrl) {
     const images = [...new Set(article.images)].filter((value) => {
       try { return new URL(value).hostname.endsWith('.pstatic.net'); } catch { return false; }
     });
-    const description = cleanText(article.description);
-    if (!cleanText(article.title) || !description) badRequest('게시물 제목 또는 본문을 읽지 못했습니다. 공개 게시물인지 확인해 주세요.');
-    return { title: cleanText(article.title), description, images };
+    const title = cleanText(article.title);
+    if (!title) badRequest('게시물 제목을 읽지 못했습니다. 공개 게시물인지 확인해 주세요.');
+    return { title, images };
   } finally {
     await browser.close();
   }
@@ -212,12 +191,7 @@ export async function POST(request) {
     if (body.action === 'preview') {
       const expiresAt = Date.now() + PREVIEW_TTL_MS;
       const images = article.images.map((sourceUrl, index) => ({ sourceUrl, previewUrl: previewUrl(request, sourceUrl, expiresAt), generatedName: generatedImageName(sourceUrl, index) }));
-      return Response.json({ ok: true, article: { title: article.title, description: article.description, imageCount: images.length, images, sourceUrl: source.url } });
-    }
-    if (body.action === 'analyzeOcr') {
-      const imageUrls = Array.isArray(body.imageUrls) ? [...new Set(body.imageUrls.filter((value) => typeof value === 'string'))] : [];
-      if (imageUrls.some((imageUrl) => !article.images.includes(imageUrl))) badRequest('이 게시물의 이미지에서만 OCR 데이터를 추출할 수 있습니다.');
-      return Response.json({ ok: true, extractions: await extractOcrData(imageUrls) });
+      return Response.json({ ok: true, article: { title: article.title, imageCount: images.length, images, sourceUrl: source.url } });
     }
     if (body.action !== 'import') badRequest('지원하지 않는 가져오기 작업입니다.');
     if (typeof body.cruiseId !== 'string' || !body.cruiseId) badRequest('저장할 크루즈를 선택해 주세요.');
@@ -225,13 +199,8 @@ export async function POST(request) {
     if (cruiseError) throw cruiseError;
     if (!cruise) badRequest('저장할 크루즈를 찾을 수 없습니다.');
     const assignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
-    if (assignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !article.images.includes(item.sourceImageUrl) || !['hero', 'cabin', 'ocr', 'delete'].includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 원본 이미지만 선택할 수 있습니다. 새로 미리보기 해 주세요.');
+    if (assignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !article.images.includes(item.sourceImageUrl) || !['hero', 'cabin', 'delete'].includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 원본 이미지만 선택할 수 있습니다. 새로 미리보기 해 주세요.');
     const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin').map((item) => item.sourceImageUrl))];
-    const description = typeof body.description === 'string' ? cleanText(body.description) : article.description;
-    if (body.replaceDescription !== false && !description) badRequest('저장할 상품 설명을 확인해 주세요.');
-    if (description.length > 100000) badRequest('상품 설명은 100,000자 이하로 저장해 주세요.');
-    const ocrExtractions = Array.isArray(body.ocrExtractions) ? body.ocrExtractions : [];
-    if (ocrExtractions.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !article.images.includes(item.sourceImageUrl) || typeof item.text !== 'string' || item.text.length > 20000 || typeof item.use !== 'boolean')) badRequest('OCR 추출 데이터를 다시 확인해 주세요.');
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];
     const cabinNames = new Map();
@@ -266,19 +235,13 @@ export async function POST(request) {
       })));
       if (imageRecordError) throw imageRecordError;
     }
-    const selectedOcr = ocrExtractions.filter((item) => item.use && cleanText(item.text));
-    if (selectedOcr.length) {
-      const { error: ocrError } = await database.from('cruise_cafe_ocr_extractions_v2').insert(selectedOcr.map((item) => ({ cruise_id: cruise.id, source_url: source.url, source_image_url: item.sourceImageUrl, extracted_text: cleanText(item.text), confidence: Number.isFinite(Number(item.confidence)) ? Number(item.confidence) : null })));
-      if (ocrError) throw ocrError;
-    }
     await attachCabinImages(database, cruise.id, copiedWithTarget, article.title);
     const updates = { updated_at: new Date().toISOString() };
-    if (body.replaceDescription !== false) updates.description = description;
     const heroImage = copiedWithTarget.find((image) => image.assignment?.target === 'hero');
     if (heroImage) updates.hero_image = heroImage.publicUrl;
     const { error: updateError } = await database.from('cruises_v2').update(updates).eq('id', cruise.id);
     if (updateError) throw updateError;
-    return Response.json({ ok: true, result: { title: article.title, descriptionSaved: body.replaceDescription !== false, imageCount: copied.length, skippedImageCount: skipped.length, ocrExtractionCount: selectedOcr.length, heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
+    return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, skippedImageCount: skipped.length, heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
   } catch (error) {
     console.error('[naver-cafe-import]', error?.message || error);
     const message = error?.message || '네이버 카페 게시물을 가져오지 못했습니다.';

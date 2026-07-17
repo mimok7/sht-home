@@ -46,6 +46,7 @@ export default function Header() {
 
   const identityLabel = profileName ? `${profileName}님 환영합니다.` : `${user?.email || ''}님 환영합니다.`;
   const accountActions = user ? <><span className="header-user" title={user.email}>{identityLabel}</span><button type="button" className="header-logout" onClick={handleSignOut}>로그아웃</button></> : <Link href="/login">로그인</Link>;
+  const adminLink = <Link href="/admin" className="header-admin">관리자</Link>;
 
   return (
     <header className="header glass">
@@ -58,10 +59,10 @@ export default function Header() {
 
         <nav className={`nav-links ${menuOpen ? 'open' : ''}`} aria-label="주요 메뉴">
           {NAV_ITEMS.map((item) => <Link href={item.href} key={item.href} className={pathname === item.href ? 'active' : ''}>{item.label}</Link>)}
-          <div className="mobile-auth">{accountActions}</div>
+          <div className="mobile-auth">{adminLink}{accountActions}</div>
         </nav>
 
-        <div className="auth-buttons">{accountActions}</div>
+        <div className="auth-buttons">{adminLink}{accountActions}</div>
         <button type="button" className="menu-toggle" aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><i /><i /><i /></button>
       </div>
     </header>

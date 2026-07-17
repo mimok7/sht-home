@@ -1,0 +1,26 @@
+.hero {
+  background: #06272a;
+  color: #fff;
+  padding: 56px 24px 52px;
+  border-bottom: 8px solid var(--acid);
+}
+
+.heroInner {
+  background: transparent;
+}
+
+.hero h1 {
+  font-size: var(--page-title-size);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+@media (max-width: 700px) {
+  .hero {
+    padding: 42px 16px 46px;
+  }
+
+  .hero h1 {
+    font-size: var(--page-title-size);
+  }
+}

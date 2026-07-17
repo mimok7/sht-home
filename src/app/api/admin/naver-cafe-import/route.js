@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 const MEDIA_BUCKET = 'homepage-images';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const IMAGE_TYPES = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp'], ['image/avif', 'avif']]);
+const IMAGE_TYPES = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp'], ['image/avif', 'avif'], ['image/gif', 'gif']]);
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
 
 function badRequest(message) { throw new Error(message); }
@@ -116,10 +116,16 @@ async function readArticle(sourceUrl) {
 }
 
 async function ensureMediaBucket(database) {
+  const bucketOptions = { public: true, fileSizeLimit: MAX_IMAGE_BYTES, allowedMimeTypes: [...IMAGE_TYPES.keys()] };
   const bucket = await database.storage.getBucket(MEDIA_BUCKET);
-  if (!bucket.error) return;
+  if (!bucket.error) {
+    // 기존 버킷도 새로 지원하는 GIF 형식을 허용해야 가져오기 저장이 가능하다.
+    const { error } = await database.storage.updateBucket(MEDIA_BUCKET, bucketOptions);
+    if (error) throw error;
+    return;
+  }
   if (Number(bucket.error.statusCode || bucket.error.status) !== 404) throw bucket.error;
-  const { error } = await database.storage.createBucket(MEDIA_BUCKET, { public: true, fileSizeLimit: MAX_IMAGE_BYTES, allowedMimeTypes: [...IMAGE_TYPES.keys()] });
+  const { error } = await database.storage.createBucket(MEDIA_BUCKET, bucketOptions);
   if (error && Number(error.statusCode || error.status) !== 409) throw error;
 }
 

@@ -63,13 +63,13 @@ function ImagePreview({ src, alt }) {
 function ImageFilePicker({ label, multiple = false, disabled = false, onSelect }) {
   const inputRef = useRef(null);
   return <div className="image-file-picker wide">
-    <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple={multiple} hidden onChange={(event) => {
+    <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" multiple={multiple} hidden onChange={(event) => {
       const files = [...(event.target.files || [])];
       event.target.value = '';
       if (files.length) void onSelect(files);
     }} />
     <button type="button" className="admin-image-upload" onClick={() => inputRef.current?.click()} disabled={disabled}>{disabled ? '이미지 저장 중…' : label}</button>
-    <small>JPG · PNG · WebP · AVIF / 파일당 5MB</small>
+    <small>JPG · PNG · WebP · AVIF · GIF / 파일당 5MB</small>
   </div>;
 }
 

@@ -1,6 +1,7 @@
 begin;
 
-create table public.cruise_cafe_ocr_extractions_v2 (
+-- SQL Editor에서 먼저 생성한 경우에도 배포 이력을 안전하게 맞춘다.
+create table if not exists public.cruise_cafe_ocr_extractions_v2 (
   id uuid primary key default gen_random_uuid(),
   cruise_id uuid not null references public.cruises_v2(id) on delete cascade,
   source_url text not null,
@@ -10,7 +11,7 @@ create table public.cruise_cafe_ocr_extractions_v2 (
   created_at timestamptz not null default now()
 );
 
-create index cruise_cafe_ocr_extractions_v2_cruise_id_created_at_idx
+create index if not exists cruise_cafe_ocr_extractions_v2_cruise_id_created_at_idx
   on public.cruise_cafe_ocr_extractions_v2 (cruise_id, created_at desc);
 
 alter table public.cruise_cafe_ocr_extractions_v2 enable row level security;

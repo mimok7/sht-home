@@ -6,6 +6,7 @@ import './Footer.css';
 export default function Footer() {
   const temporary = usePathname() === '/temp-home';
   const item = (href, label) => temporary ? <span className="footer-disabled">{label}</span> : <Link href={href}>{label}</Link>;
+  const upcomingItem = (label) => <span className="footer-disabled" aria-label={`${label} 서비스 준비 중`}>{label} <small>준비 중</small></span>;
   const externalItem = (href, label) => temporary ? <span className="footer-disabled">{label}</span> : <a href={href} target="_blank" rel="noreferrer">{label}</a>;
   return (
     <footer className="footer">
@@ -20,9 +21,9 @@ export default function Footer() {
           <div className="link-group">
             <h4>서비스</h4>
             {item('/cruises', '하롱베이 크루즈')}
-            {item('/tours', '당일 투어')}
-            {item('/transport', '차량/렌트카')}
-            {item('/hotels', '호텔 예약')}
+            {upcomingItem('당일 투어')}
+            {upcomingItem('차량/렌트카')}
+            {upcomingItem('호텔 예약')}
           </div>
           
           <div className="link-group">

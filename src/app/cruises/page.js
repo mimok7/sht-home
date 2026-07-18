@@ -1,5 +1,5 @@
-import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
+import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
 const FALLBACK_IMAGES = ['/yacht_1.png', '/yacht_2.png', '/yacht_3.png', '/halong-hero.png'];
@@ -50,7 +50,34 @@ function buildCruiseCards(rows) {
       duration: [...cruise.scheduleTypes].map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · '),
       imageUrl: normalizeImagePath(cruise.heroImage) || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length],
     }))
-    .sort((a, b) => (a.minPrice ?? Number.MAX_SAFE_INTEGER) - (b.minPrice ?? Number.MAX_SAFE_INTEGER));
+    .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
+}
+
+async function getCruiseMainImages(cruiseIds) {
+  if (!cruiseIds.length) return new Map();
+  const { data, error } = await supabase
+    .from('cruise_cafe_import_images_v2')
+    .select('id,cruise_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+    .in('cruise_id', cruiseIds)
+    .is('cabin_id', null)
+    .order('sort_order')
+    .order('created_at');
+
+  if (error) {
+    console.error('Failed to load cruise main images:', error.message);
+    return new Map();
+  }
+
+  const imagesByCruise = new Map();
+  for (const row of data || []) {
+    const filename = row.image_name || row.storage_path?.split('/').pop() || '';
+    if (!/^main-/i.test(filename)) continue;
+    const url = supabase.storage.from(row.storage_bucket).getPublicUrl(row.storage_path).data.publicUrl;
+    if (!imagesByCruise.has(row.cruise_id)) imagesByCruise.set(row.cruise_id, []);
+    const images = imagesByCruise.get(row.cruise_id);
+    if (!images.some((image) => image.url === url)) images.push({ id: row.id, url, alt: `${filename} 대표 이미지` });
+  }
+  return imagesByCruise;
 }
 
 async function getCruises() {
@@ -67,6 +94,11 @@ async function getCruises() {
 
 export default async function Cruises() {
   const cruises = await getCruises();
+  const mainImagesByCruise = await getCruiseMainImages(cruises.map((cruise) => cruise.id));
+  const cruiseCards = cruises.map((cruise) => ({
+    ...cruise,
+    mainImages: mainImagesByCruise.get(cruise.id) || [{ id: 'hero', url: cruise.imageUrl, alt: `${cruise.name} 대표 이미지` }],
+  }));
 
   return (
     <div className="page-container">
@@ -78,60 +110,13 @@ export default async function Cruises() {
       </div>
 
       <div className="container py-4">
-        <div className="filter-bar">
-          <div className="filter-group">
-            <select className="filter-select" defaultValue="all" aria-label="일정 필터">
-              <option value="all">일정 전체</option>
-              <option value="DAY">당일 크루즈</option>
-              <option value="1N2D">1박 2일</option>
-              <option value="2N3D">2박 3일</option>
-            </select>
-            <select className="filter-select" defaultValue="all" aria-label="등급 필터">
-              <option value="all">등급 전체</option>
-              <option value="5">5성급 럭셔리</option>
-              <option value="4">4성급 스탠다드</option>
-            </select>
-          </div>
-          <div className="sort-group">
-            <select className="filter-select" defaultValue="price" aria-label="정렬 순서">
-              <option value="price">등록요금 낮은 순</option>
-            </select>
-          </div>
-        </div>
-
-        {cruises.length === 0 ? (
+        {cruiseCards.length === 0 ? (
           <div className="collection-empty">
             <strong>현재 공개된 v2 크루즈가 없습니다.</strong>
             <p>상품 활성화 상태를 확인하거나 현지 데스크에 문의해 주세요.</p>
           </div>
         ) : (
-          <div className="product-list">
-            {cruises.map((cruise) => (
-              <Link href={`/product/${encodeURIComponent(cruise.slug)}`} key={cruise.id} className="product-list-card">
-                <div
-                  className="product-image-box"
-                  style={{ backgroundImage: `url(${cruise.imageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' }}
-                >
-                  <span className="badge">{cruise.category || 'CURATED'}</span>
-                  <div className="duration-tag">{cruise.duration || '일정 확인'}</div>
-                </div>
-                <div className="product-details">
-                  <h2>{cruise.name}</h2>
-                  <p>{cruise.description || cruise.nameEn || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>
-                  <div className="product-meta">
-                    <div className="rating">{cruise.rating ? `★ ${cruise.rating}` : '등급 확인 필요'}</div>
-                    <div className="price">
-                      {cruise.minPrice ? (
-                        <><span>{cruise.minPrice.toLocaleString()} {cruise.currency}</span> 등록요금부터 · 단위 확인 필요</>
-                      ) : (
-                        <span>요금 확인 필요</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
+          <CruiseCollection cruises={cruiseCards} />
         )}
       </div>
     </div>

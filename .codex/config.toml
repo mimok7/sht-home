@@ -1,0 +1,13 @@
+[mcp_servers.playwright]
+args = [
+    "--yes",
+    "@playwright/mcp@0.0.78",
+    "--browser",
+    "chrome",
+    "--user-data-dir",
+    ".playwright-profile",
+]
+command = "npx.cmd"
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp"

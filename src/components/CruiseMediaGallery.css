@@ -1,0 +1,349 @@
+.product-image-button {
+  display: block;
+  padding: 0;
+  border: 0;
+  background-position: center;
+  background-size: cover;
+  text-align: left;
+  cursor: zoom-in;
+}
+
+.product-image-button:hover {
+  filter: saturate(1.08);
+}
+
+.product-image-button:focus-visible,
+.cruise-media-group:focus-visible,
+.cruise-lightbox button:focus-visible {
+  outline: 3px solid var(--acid);
+  outline-offset: 2px;
+}
+
+.image-open-hint {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 0 13px;
+  background: rgba(6, 39, 42, .92);
+  color: #fff;
+  font-size: .66rem;
+  font-weight: 800;
+  letter-spacing: .08em;
+}
+
+.image-open-hint b {
+  color: var(--acid);
+}
+
+.image-count {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  padding: 8px 10px;
+  background: #fff;
+  color: var(--navy);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .1em;
+}
+
+.cruise-media-groups {
+  padding: 24px 0 2px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.cruise-media-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 14px;
+  padding: 0 2px 16px;
+}
+
+.cruise-media-heading > span {
+  color: var(--navy);
+  font-size: .65rem;
+  font-weight: 900;
+  letter-spacing: .14em;
+}
+
+.cruise-media-heading small {
+  color: var(--muted);
+  font-size: .68rem;
+}
+
+.cruise-media-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 2px 2px 20px;
+}
+
+.cruise-media-group {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 126px auto;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: #fff;
+  text-align: left;
+  cursor: zoom-in;
+}
+
+.cruise-media-thumb {
+  background: var(--sand) center / cover no-repeat;
+}
+
+.cruise-media-copy {
+  display: grid;
+  gap: 3px;
+  padding: 11px;
+}
+
+.cruise-media-copy small {
+  color: var(--muted);
+  font-size: .55rem;
+  font-weight: 900;
+  letter-spacing: .12em;
+}
+
+.cruise-media-copy strong {
+  overflow: hidden;
+  color: var(--navy);
+  font-size: .78rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cruise-media-copy i {
+  color: var(--muted);
+  font-size: .62rem;
+  font-style: normal;
+}
+
+.cruise-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 18, 20, .88);
+  backdrop-filter: blur(5px);
+}
+
+.cruise-lightbox-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(1180px, 100%);
+  height: min(880px, calc(100vh - 48px));
+  background: var(--navy);
+  border: 1px solid rgba(255, 255, 255, .24);
+  color: #fff;
+}
+
+.cruise-lightbox-panel > header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+  min-height: 72px;
+  padding: 12px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, .18);
+}
+
+.cruise-lightbox-panel > header > div {
+  display: grid;
+  gap: 3px;
+}
+
+.cruise-lightbox-panel > header span {
+  color: var(--acid);
+  font-size: .58rem;
+  font-weight: 900;
+  letter-spacing: .15em;
+}
+
+.cruise-lightbox-panel > header strong {
+  font-size: .9rem;
+}
+
+.cruise-lightbox-panel > header button {
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .5);
+  background: transparent;
+  color: #fff;
+  font-size: .68rem;
+  font-weight: 800;
+}
+
+.cruise-lightbox-stage {
+  position: relative;
+  min-height: 0;
+  background: #02191b;
+}
+
+.cruise-lightbox-image {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: contain;
+}
+
+.lightbox-nav {
+  position: absolute;
+  top: 50%;
+  width: 50px;
+  height: 58px;
+  transform: translateY(-50%);
+  border: 1px solid rgba(255, 255, 255, .4);
+  background: rgba(6, 39, 42, .88);
+  color: #fff;
+  font-size: 1.2rem;
+}
+
+.lightbox-nav.prev {
+  left: 14px;
+}
+
+.lightbox-nav.next {
+  right: 14px;
+}
+
+.cruise-lightbox-panel > footer {
+  display: grid;
+  gap: 10px;
+  padding: 12px 18px 15px;
+  border-top: 1px solid rgba(255, 255, 255, .18);
+}
+
+.lightbox-thumbnails {
+  display: flex;
+  gap: 7px;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
+}
+
+.lightbox-thumbnails button {
+  flex: 0 0 74px;
+  height: 52px;
+  border: 1px solid rgba(255, 255, 255, .25);
+  background-position: center;
+  background-size: cover;
+  opacity: .55;
+}
+
+.lightbox-thumbnails button.selected {
+  border: 3px solid var(--acid);
+  opacity: 1;
+}
+
+.cruise-lightbox-panel > footer p {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  color: rgba(255, 255, 255, .65);
+  font-size: .64rem;
+}
+
+.cruise-lightbox-panel > footer p strong {
+  color: #fff;
+}
+
+.cruise-lightbox-panel > footer p span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 920px) {
+  .cruise-media-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .cruise-media-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .cruise-media-strip {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+  }
+
+  .cruise-media-group {
+    flex: 0 0 142px;
+    grid-template-rows: 92px auto;
+    scroll-snap-align: start;
+  }
+
+  .cruise-lightbox {
+    padding: 0;
+  }
+
+  .cruise-lightbox-panel {
+    width: 100%;
+    height: 100dvh;
+    border: 0;
+  }
+
+  .cruise-lightbox-panel > header {
+    min-height: 64px;
+    padding: 10px 12px;
+  }
+
+  .cruise-lightbox-panel > header strong {
+    font-size: .75rem;
+  }
+
+  .lightbox-nav {
+    top: auto;
+    bottom: 12px;
+    width: 44px;
+    height: 44px;
+    transform: none;
+  }
+
+  .lightbox-nav.prev {
+    left: 12px;
+  }
+
+  .lightbox-nav.next {
+    right: 12px;
+  }
+
+  .cruise-lightbox-panel > footer {
+    padding: 10px 12px;
+  }
+
+  .lightbox-thumbnails button {
+    flex-basis: 62px;
+    height: 46px;
+  }
+}
+
+@media (max-width: 430px) {
+  .cruise-media-group {
+    flex-basis: 128px;
+  }
+
+  .cruise-media-copy {
+    padding: 8px;
+  }
+}

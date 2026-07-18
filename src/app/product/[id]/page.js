@@ -2,11 +2,18 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
 const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
+const MEDIA_CATEGORY_LABELS = {
+  main: { label: '대표 이미지', eyebrow: 'CRUISE' },
+  exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
+  interior: { label: '인테리어', eyebrow: 'INTERIOR' },
+  menu: { label: '메뉴', eyebrow: 'MENU' },
+};
 
 function positiveNumber(value) {
   const number = Number(value);
@@ -64,6 +71,77 @@ function buildCabins(rows) {
   return [...cabins.values()].sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
 }
 
+function sortMediaImages(left, right) {
+  return Number(right.isPrimary) - Number(left.isPrimary)
+    || Number(left.sortOrder) - Number(right.sortOrder)
+    || String(left.name).localeCompare(String(right.name), undefined, { numeric: true });
+}
+
+function publicStorageUrl(bucket, path) {
+  if (!bucket || !path) return '';
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
+function buildMediaGroups(importRows, cabinImageRows, cabins) {
+  const groups = new Map();
+  const cabinById = new Map(cabins.map((cabin) => [cabin.id, cabin]));
+
+  function addImage(group, image) {
+    if (!image.url) return;
+    if (!groups.has(group.id)) groups.set(group.id, { ...group, images: [] });
+    const images = groups.get(group.id).images;
+    if (!images.some((current) => current.url === image.url)) images.push(image);
+  }
+
+  for (const row of importRows || []) {
+    if (row.cabin_id) continue;
+    const filename = row.image_name || row.storage_path?.split('/').pop() || '';
+    const category = String(filename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase();
+    if (!category || !MEDIA_CATEGORY_LABELS[category]) continue;
+    const label = MEDIA_CATEGORY_LABELS[category];
+    addImage(
+      { id: category, ...label },
+      {
+        id: row.id,
+        url: publicStorageUrl(row.storage_bucket, row.storage_path),
+        alt: `${label.label} ${filename}`,
+        name: filename,
+        sortOrder: row.sort_order,
+        isPrimary: false,
+      }
+    );
+  }
+
+  for (const row of cabinImageRows || []) {
+    const cabin = cabinById.get(row.cabin_id);
+    if (!cabin) continue;
+    const label = cabin.nameEn || cabin.name || '객실';
+    addImage(
+      { id: `cabin-${cabin.id}`, label, eyebrow: 'CABIN' },
+      {
+        id: row.id,
+        url: publicStorageUrl(row.storage_bucket, row.storage_path),
+        alt: row.alt_text || `${label} 객실 이미지`,
+        name: row.storage_path,
+        sortOrder: row.sort_order,
+        isPrimary: row.is_primary,
+      }
+    );
+  }
+
+  const groupOrder = new Map([
+    ['main', 0],
+    ['exterior', 1],
+    ['interior', 2],
+    ['menu', 3],
+    ...cabins.map((cabin, index) => [`cabin-${cabin.id}`, index + 4]),
+  ]);
+
+  return [...groups.values()]
+    .map((group) => ({ ...group, images: group.images.sort(sortMediaImages) }))
+    .sort((left, right) => (groupOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (groupOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+}
+
 function parseFacilities(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.filter(Boolean);
@@ -93,7 +171,9 @@ export default function ProductDetail({ params }) {
   const [loadError, setLoadError] = useState('');
   const [cruise, setCruise] = useState(null);
   const [cabins, setCabins] = useState([]);
+  const [mediaGroups, setMediaGroups] = useState([]);
   const [selectedCabinId, setSelectedCabinId] = useState(null);
+  const [detailCabinId, setDetailCabinId] = useState(null);
   const [selectedSchedule, setSelectedSchedule] = useState('');
   const [date, setDate] = useState('');
   const [adults, setAdults] = useState(2);
@@ -109,6 +189,7 @@ export default function ProductDetail({ params }) {
     async function fetchProduct() {
       setLoading(true);
       setLoadError('');
+      setMediaGroups([]);
       const decodedId = decodeURIComponent(id);
       let result = await supabase
         .from('public_cruise_recommendation_v2')
@@ -139,7 +220,27 @@ export default function ProductDetail({ params }) {
       const schedules = [...new Set(rows.map((row) => row.schedule_type))]
         .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
       const nextCabins = buildCabins(rows);
+      const cabinIds = nextCabins.map((cabin) => cabin.id);
+      const [importsResult, cabinImagesResult] = await Promise.all([
+        supabase
+          .from('cruise_cafe_import_images_v2')
+          .select('id,cabin_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+          .eq('cruise_id', first.cruise_id)
+          .order('created_at')
+          .order('sort_order'),
+        cabinIds.length
+          ? supabase
+            .from('cabin_images_v2')
+            .select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at')
+            .in('cabin_id', cabinIds)
+            .order('sort_order')
+          : Promise.resolve({ data: [], error: null }),
+      ]);
 
+      if (cancelled) return;
+      if (importsResult.error || cabinImagesResult.error) {
+        console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
+      }
       setCruise({
         id: first.cruise_id,
         slug: first.slug,
@@ -153,6 +254,7 @@ export default function ProductDetail({ params }) {
         schedules,
       });
       setCabins(nextCabins);
+      setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins));
       setSelectedSchedule(schedules[0] || '');
       setSelectedCabinId(nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === schedules[0]))?.id || nextCabins[0]?.id || null);
       setLoading(false);
@@ -171,7 +273,29 @@ export default function ProductDetail({ params }) {
     () => chooseRate(selectedCabin, selectedSchedule, date),
     [selectedCabin, selectedSchedule, date]
   );
-  const facilities = parseFacilities(selectedCabin?.facilities);
+  const detailCabin = cabins.find((cabin) => cabin.id === detailCabinId) || null;
+  const detailRate = chooseRate(detailCabin, selectedSchedule, date);
+  const detailFacilities = parseFacilities(detailCabin?.facilities);
+  const archiveGroups = mediaGroups.filter((group) => !group.id.startsWith('cabin-'));
+  const cabinMediaById = new Map(
+    mediaGroups
+      .filter((group) => group.id.startsWith('cabin-'))
+      .map((group) => [group.id.slice('cabin-'.length), group])
+  );
+
+  useEffect(() => {
+    if (!detailCabin) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setDetailCabinId(null);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [detailCabin]);
 
   function handleScheduleChange(event) {
     const scheduleType = event.target.value;
@@ -264,6 +388,19 @@ export default function ProductDetail({ params }) {
             </div>
           </header>
 
+          {archiveGroups.some((group) => group.id !== 'main') && (
+            <section className="product-section product-photo-archive">
+              <CruiseMediaGallery
+                cruiseName={cruise.name}
+                category={cruise.category}
+                duration={duration}
+                heroImage={heroImage}
+                groups={archiveGroups}
+                showMain={false}
+              />
+            </section>
+          )}
+
           <section className="product-section">
             <div className="section-heading-row">
               <h2>객실 및 등록 요금</h2>
@@ -278,59 +415,42 @@ export default function ProductDetail({ params }) {
             <div className="cabins-list">
               {availableCabins.map((cabin, index) => {
                 const rate = chooseRate(cabin, selectedSchedule, date);
+                const cabinMedia = cabinMediaById.get(cabin.id);
                 return (
-                  <button
-                    type="button"
+                  <div
                     key={cabin.id}
                     className={`cabin-card ${selectedCabin?.id === cabin.id ? 'active' : ''}`}
-                    onClick={() => setSelectedCabinId(cabin.id)}
                   >
-                    <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
-                    <span className="cabin-info">
-                      <strong>{cabin.name}</strong>
-                      <small>{[cabin.roomArea && `면적 ${cabin.roomArea}`, cabin.bedType && `침대 ${cabin.bedType}`, cabin.maxGuests && `최대 ${cabin.maxGuests}명`].filter(Boolean).join(' · ')}</small>
-                    </span>
-                    <span className="cabin-price">
-                      <small>등록요금 참고</small>
-                      <strong>{formatVnd(rate?.price_adult, rate?.currency)}</strong>
-                    </span>
-                  </button>
+                    {cabinMedia ? (
+                      <CruiseMediaGallery
+                        cruiseName={cruise.name}
+                        heroImage={cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`}
+                        groups={[cabinMedia]}
+                        mainGroupId={cabinMedia.id}
+                        mainClassName="cabin-image cabin-gallery-trigger"
+                        showArchive={false}
+                        showMainMeta={false}
+                      />
+                    ) : (
+                      <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
+                    )}
+                    <button type="button" className="cabin-select-button" onClick={() => setSelectedCabinId(cabin.id)}>
+                      <span className="cabin-info">
+                        <strong>{cabin.name}</strong>
+                        <small>{[cabin.roomArea && `면적 ${cabin.roomArea}`, cabin.bedType && `침대 ${cabin.bedType}`, cabin.maxGuests && `최대 ${cabin.maxGuests}명`].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <span className="cabin-price">
+                        <small>등록요금 참고</small>
+                        <strong>{formatVnd(rate?.price_adult, rate?.currency)}</strong>
+                      </span>
+                    </button>
+                    <button type="button" className="cabin-detail-button" onClick={() => { setSelectedCabinId(cabin.id); setDetailCabinId(cabin.id); }}>상세 안내 <span>↗</span></button>
+                  </div>
                 );
               })}
             </div>
           </section>
 
-          {selectedCabin && (
-            <section className="cabin-detail">
-              <h2>{selectedCabin.name} 객실 안내</h2>
-              {selectedCabin.nameEn && <p className="cabin-name-en">{selectedCabin.nameEn}</p>}
-              <div className="feature-list">
-                {cabinFeatures(selectedCabin).map((feature) => <span key={feature}>{feature}</span>)}
-              </div>
-              {selectedCabin.specialAmenities && (
-                <div className="amenity-note">
-                  <strong>스페셜 어메니티</strong>
-                  <p>{selectedCabin.specialAmenities}</p>
-                </div>
-              )}
-              {facilities.length > 0 && (
-                <div className="facility-block">
-                  <strong>등록 시설</strong>
-                  <div>{facilities.map((facility) => <span key={facility}>{facility}</span>)}</div>
-                </div>
-              )}
-              <div className="rate-reference">
-                <strong>선택 조건의 등록 요금</strong>
-                <dl>
-                  <div><dt>기준 등록값</dt><dd>{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</dd></div>
-                  <div><dt>아동 등록값</dt><dd>{formatVnd(selectedRate?.price_child, selectedRate?.currency)}</dd></div>
-                  <div><dt>유아 등록값</dt><dd>{formatVnd(selectedRate?.price_infant, selectedRate?.currency)}</dd></div>
-                  <div><dt>유효 기간</dt><dd>{selectedRate ? `${selectedRate.valid_from} ~ ${selectedRate.valid_to}` : '선택일 적용 요금 없음'}</dd></div>
-                  <div><dt>가격 단위</dt><dd>{selectedRate?.price_basis === 'unknown' || !selectedRate ? '상담 확인 필요' : selectedRate.price_basis}</dd></div>
-                </dl>
-              </div>
-            </section>
-          )}
         </main>
 
         <aside className="product-sidebar">
@@ -379,6 +499,35 @@ export default function ProductDetail({ params }) {
           </div>
         </aside>
       </div>
+
+      {detailCabin && (
+        <div className="cabin-detail-modal" role="dialog" aria-modal="true" aria-labelledby="cabin-detail-title" onClick={(event) => { if (event.target === event.currentTarget) setDetailCabinId(null); }}>
+          <section className="cabin-detail-modal-panel">
+            <header>
+              <div><span>CABIN DETAIL</span><h2 id="cabin-detail-title">{detailCabin.name} 객실 안내</h2></div>
+              <button type="button" onClick={() => setDetailCabinId(null)} aria-label="객실 상세 안내 닫기">닫기 ×</button>
+            </header>
+            <div className="cabin-detail-modal-content">
+              {detailCabin.nameEn && <p className="cabin-name-en">{detailCabin.nameEn}</p>}
+              <div className="feature-list">
+                {cabinFeatures(detailCabin).map((feature) => <span key={feature}>{feature}</span>)}
+              </div>
+              {detailCabin.specialAmenities && <div className="amenity-note"><strong>스페셜 어메니티</strong><p>{detailCabin.specialAmenities}</p></div>}
+              {detailFacilities.length > 0 && <div className="facility-block"><strong>등록 시설</strong><div>{detailFacilities.map((facility) => <span key={facility}>{facility}</span>)}</div></div>}
+              <div className="rate-reference">
+                <strong>선택 조건의 등록 요금</strong>
+                <dl>
+                  <div><dt>기준 등록값</dt><dd>{formatVnd(detailRate?.price_adult, detailRate?.currency)}</dd></div>
+                  <div><dt>아동 등록값</dt><dd>{formatVnd(detailRate?.price_child, detailRate?.currency)}</dd></div>
+                  <div><dt>유아 등록값</dt><dd>{formatVnd(detailRate?.price_infant, detailRate?.currency)}</dd></div>
+                  <div><dt>유효 기간</dt><dd>{detailRate ? `${detailRate.valid_from} ~ ${detailRate.valid_to}` : '선택일 적용 요금 없음'}</dd></div>
+                  <div><dt>가격 단위</dt><dd>{detailRate?.price_basis === 'unknown' || !detailRate ? '상담 확인 필요' : detailRate.price_basis}</dd></div>
+                </dl>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

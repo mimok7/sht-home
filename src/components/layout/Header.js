@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { platformSupabase } from '@/lib/platform-supabase';
+import { supabase } from '@/lib/supabase';
 import './Header.css';
 
 const NAV_ITEMS = [
@@ -33,13 +34,22 @@ export default function Header() {
       const { data } = await platformSupabase.from('users').select('name').eq('id', nextUser.id).maybeSingle();
       if (mounted) setProfileName(data?.name || nextUser.user_metadata?.full_name || nextUser.user_metadata?.name || '');
     }
-    platformSupabase.auth.getSession().then(({ data }) => loadIdentity(data.session));
-    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, session) => { void loadIdentity(session); });
-    return () => { mounted = false; listener.subscription.unsubscribe(); };
+    let homepageListener;
+    async function loadSessions() {
+      const { data: homepage } = await supabase.auth.getSession();
+      if (homepage.session) return loadIdentity(homepage.session);
+      const { data: platform } = await platformSupabase.auth.getSession();
+      return loadIdentity(platform.session);
+    }
+    void loadSessions();
+    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, session) => { if (session) void loadIdentity(session); });
+    const { data: homepageAuthListener } = supabase.auth.onAuthStateChange((_event, session) => { if (session) void loadIdentity(session); else void loadSessions(); });
+    homepageListener = homepageAuthListener;
+    return () => { mounted = false; listener.subscription.unsubscribe(); homepageListener?.subscription.unsubscribe(); };
   }, []);
 
   async function handleSignOut() {
-    await platformSupabase.auth.signOut();
+    await Promise.all([platformSupabase.auth.signOut(), supabase.auth.signOut()]);
     setUser(null);
     setProfileName('');
   }

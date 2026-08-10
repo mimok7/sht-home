@@ -94,6 +94,7 @@ function CabinImageGallery({ images, busy, onUpload, onSetPrimary, onRemove }) {
 
 export default function AdminCruiseManager({ importOnly = false }) {
   const [session, setSession] = useState(undefined);
+  const [authClient, setAuthClient] = useState(null);
   const [operator, setOperator] = useState(null);
   const [data, setData] = useState(blankData);
   const [selectedId, setSelectedId] = useState('');
@@ -116,7 +117,8 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const cafeImageClickRef = useRef({ index: null, shiftKey: false });
 
   const adminRequest = useCallback(async (path, options = {}) => {
-    const { data: authData } = await platformSupabase.auth.getSession();
+    if (!authClient) throw new Error('운영자 로그인이 필요합니다.');
+    const { data: authData } = await authClient.auth.getSession();
     const token = authData.session?.access_token;
     if (!token) throw new Error('운영자 로그인이 필요합니다.');
     const response = await fetch(path, {
@@ -127,7 +129,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '관리자 요청에 실패했습니다.');
     return result;
-  }, []);
+  }, [authClient]);
 
   const load = useCallback(async () => {
     setLoading(true); setError('');
@@ -146,9 +148,18 @@ export default function AdminCruiseManager({ importOnly = false }) {
   }, [adminRequest, catalogService]);
 
   useEffect(() => {
-    platformSupabase.auth.getSession().then(({ data: result }) => setSession(result.session));
-    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, nextSession) => setSession(nextSession));
-    return () => listener.subscription.unsubscribe();
+    let mounted = true;
+    async function resolveSession() {
+      const [{ data: homepage }, { data: platform }] = await Promise.all([supabase.auth.getSession(), platformSupabase.auth.getSession()]);
+      if (!mounted) return;
+      const activeClient = homepage.session ? supabase : platform.session ? platformSupabase : null;
+      setAuthClient(activeClient);
+      setSession(homepage.session || platform.session || null);
+    }
+    void resolveSession();
+    const { data: homepageListener } = supabase.auth.onAuthStateChange(() => { void resolveSession(); });
+    const { data: platformListener } = platformSupabase.auth.onAuthStateChange(() => { void resolveSession(); });
+    return () => { mounted = false; homepageListener.subscription.unsubscribe(); platformListener.subscription.unsubscribe(); };
   }, []);
   useEffect(() => { if (session) void Promise.resolve().then(load); }, [session, load]);
 

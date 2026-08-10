@@ -13,18 +13,34 @@ function getPlatformConfig() {
   return url && key ? { url, key } : null;
 }
 
+function getHomepageAuthConfig() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  return url && key ? { url, key } : null;
+}
+
 export function getHomepageDatabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
   return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 }
 
-// 플랫폼의 users.role만 운영 권한 판단에 사용한다. 브라우저가 바꿀 수 있는
-// user_metadata는 권한 판단에 절대 사용하지 않는다.
+// 홈페이지 전용 운영자는 홈페이지 Auth의 서버가 부여한 app_metadata 역할을
+// 사용한다. 플랫폼 운영자는 기존 플랫폼 users.role 검증을 유지한다.
 export async function getHomepageOperator(request) {
   const token = getBearerToken(request);
+  const homepageConfig = getHomepageAuthConfig();
+  if (!token) return null;
+
+  if (homepageConfig) {
+    const homepage = createClient(homepageConfig.url, homepageConfig.key, { auth: { persistSession: false, autoRefreshToken: false } });
+    const { data: homepageAuth } = await homepage.auth.getUser(token);
+    const homepageRole = homepageAuth.user?.app_metadata?.role || '';
+    if (OPERATOR_ROLES.has(homepageRole)) return { id: homepageAuth.user.id, role: homepageRole };
+  }
+
   const config = getPlatformConfig();
-  if (!token || !config) return null;
+  if (!config) return null;
 
   const verifier = createClient(config.url, config.key, { auth: { persistSession: false, autoRefreshToken: false } });
   const { data: authData, error: authError } = await verifier.auth.getUser(token);

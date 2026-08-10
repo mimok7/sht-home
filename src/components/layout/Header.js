@@ -61,19 +61,17 @@ export default function Header() {
   return (
     <header className="header glass">
       <div className="container header-content">
-        {temporary ? (
-          <div className="logo"><Image className="logo-mark" src="/images/cruises/logo2.png" alt="SH" width={187} height={183} /><span>STAY <b>HALONG</b><small>CURATED BAY JOURNEYS</small></span></div>
-        ) : (
-          <Link href="/" className="logo"><Image className="logo-mark" src="/images/cruises/logo2.png" alt="SH" width={187} height={183} /><span>STAY <b>HALONG</b><small>CURATED BAY JOURNEYS</small></span></Link>
-        )}
+        <Link href="/" className="logo"><Image className="logo-mark" src="/images/cruises/logo2.png" alt="SH" width={187} height={183} /><span>STAY <b>HALONG</b><small>CURATED BAY JOURNEYS</small></span></Link>
 
-        <nav className={`nav-links ${menuOpen ? 'open' : ''}`} aria-label="주요 메뉴">
-          {NAV_ITEMS.map((item) => <Link href={item.href} key={item.href} className={pathname === item.href ? 'active' : ''}>{item.label}</Link>)}
-          <div className="mobile-auth">{adminLink}{accountActions}</div>
-        </nav>
+        {!temporary && <>
+          <nav className={`nav-links ${menuOpen ? 'open' : ''}`} aria-label="주요 메뉴">
+            {NAV_ITEMS.map((item) => <Link href={item.href} key={item.href} className={pathname === item.href ? 'active' : ''}>{item.label}</Link>)}
+            <div className="mobile-auth">{adminLink}{accountActions}</div>
+          </nav>
 
-        <div className="auth-buttons">{adminLink}{accountActions}</div>
-        <button type="button" className="menu-toggle" aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><i /><i /><i /></button>
+          <div className="auth-buttons">{adminLink}{accountActions}</div>
+          <button type="button" className="menu-toggle" aria-label={menuOpen ? '메뉴 닫기' : '메뉴 열기'} aria-expanded={menuOpen} onClick={() => setMenuOpen((open) => !open)}><i /><i /><i /></button>
+        </>}
       </div>
     </header>
   );

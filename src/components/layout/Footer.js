@@ -36,8 +36,8 @@ export default function Footer() {
           
           <div className="link-group contact-info">
             <h4>Contact Us</h4>
-            <p><strong>카카오톡:</strong> 스테이하롱</p>
-            <p><strong>영업시간:</strong> 09:00 - 23:00</p>
+            <p><strong>카카오톡 채널 :</strong> 스테이하롱</p>
+            <p><strong>영업시간 :</strong> 09:00 - 24:00</p>
           </div>
         </div>
       </div>

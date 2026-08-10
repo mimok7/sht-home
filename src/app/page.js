@@ -10,12 +10,11 @@ export default function Home() {
           <h1>하롱베이,<br /><span>머무는 여행이<br />되다.</span></h1>
           <p className={styles.description}>배 한 척이 여행의 분위기를 바꿉니다. 현지에서 직접 보고 고른 크루즈로 복잡한 선택은 줄이고, 좋은 순간은 더 오래 남겨보세요.</p>
           <div className={styles.actions}>
-            <a href="https://cafe.naver.com/f-e/cafes/31003053/menus/792?viewType=I" className={styles.yellowButton} target="_blank" rel="noreferrer">내 크루즈 찾기 <span>↗</span></a>
-            <a href="https://customer.stayhalong.com/" className={styles.yellowButton} target="_blank" rel="noreferrer">예약하기 <span>↗</span></a>
-          </div>
-          <div className={styles.contactActions}>
+            <a href="https://customer.stayhalong.com/signup" className={styles.yellowButton} target="_blank" rel="noreferrer">신규 예약 하기 <span>↗</span></a>
+            <a href="https://customer.stayhalong.com/" className={styles.yellowButton} target="_blank" rel="noreferrer">예약 추가/확인 하기 <span>↗</span></a>
             <a href="http://pf.kakao.com/_zvsxaG/chat" className={styles.yellowButton} target="_blank" rel="noreferrer">카톡 상담 <span>↗</span></a>
-            <a href="https://www.youtube.com/@Realhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">유튜브 <span>↗</span></a>
+            <a href="https://cafe.naver.com/f-e/cafes/31003053/menus/792?viewType=I" className={styles.yellowButton} target="_blank" rel="noreferrer">내 크루즈 찾기 <span>↗</span></a>
+            <a href="https://www.youtube.com/@Realhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">유투브 <span>↗</span></a>
           </div>
           <div className={styles.meta}><span><b>23</b> CURATED CRUISES</span><span><b>KR</b> 현지 한국어 상담</span></div>
         </div>

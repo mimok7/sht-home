@@ -26,7 +26,15 @@ export async function GET(request) { try { const { database } = await operatorAn
 export async function POST(request) { try {
   const { operator, database } = await operatorAndDatabase(request);
   if ((request.headers.get('content-type') || '').includes('application/json')) {
-    const body = await request.json(); const content = String(body.content || '').trim();
+    const body = await request.json();
+    if (body.action === 'update-status') {
+      const status = String(body.status || '');
+      if (!body.requestId || !['open', 'in_progress', 'done'].includes(status)) throw new Error('변경할 상태를 선택해 주세요.');
+      const { data, error } = await database.from('admin_change_requests').update({ status }).eq('id', body.requestId).select().single();
+      if (error) throw error;
+      return Response.json({ request: data });
+    }
+    const content = String(body.content || '').trim();
     if (body.action !== 'comment' || !body.requestId || !content) throw new Error('댓글 내용을 입력해 주세요.');
     const { data, error } = await database.from('admin_change_request_comments').insert({ request_id: body.requestId, author_id: operator.id, author_email: operator.email || '관리자', content }).select().single();
     if (error) throw error; return Response.json({ comment: data });

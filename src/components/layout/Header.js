@@ -20,7 +20,7 @@ export default function Header() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [profileName, setProfileName] = useState('');
-  const temporary = pathname === '/temp-home';
+  const temporary = pathname === '/';
 
   useEffect(() => { queueMicrotask(() => setMenuOpen(false)); }, [pathname]);
 

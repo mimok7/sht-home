@@ -1,20 +1,7 @@
 import Image from 'next/image';
-import Link from 'next/link';
-import { supabase } from '@/lib/supabase';
 import styles from './page.module.css';
 
-export const revalidate = 300;
-
-async function getActiveCruiseCount() {
-  const { count, error } = await supabase
-    .from('cruises_v2')
-    .select('*', { count: 'exact', head: true })
-    .eq('is_active', true);
-  return error ? null : count;
-}
-
-export default async function Home() {
-  const activeCruiseCount = await getActiveCruiseCount();
+export default function Home() {
   return (
     <div className={styles.home}>
       <section className={styles.hero}>
@@ -30,7 +17,7 @@ export default async function Home() {
             <a href="http://pf.kakao.com/_zvsxaG/chat" className={styles.yellowButton} target="_blank" rel="noreferrer">카톡 상담 <span>↗</span></a>
             <a href="https://www.youtube.com/@Realhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">유튜브 <span>↗</span></a>
           </div>
-          <div className={styles.meta}><span><b>{activeCruiseCount ?? '—'}</b> CURATED CRUISES</span><span><b>KR</b> 현지 한국어 상담</span></div>
+          <div className={styles.meta}><span><b>23</b> CURATED CRUISES</span><span><b>KR</b> 현지 한국어 상담</span></div>
         </div>
 
         <div className={styles.heroImage} style={{ backgroundColor: 'var(--deep)' }}>
@@ -67,11 +54,11 @@ export default async function Home() {
         <div className={styles.routeCopy}>
           <small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2>
           <ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol>
-          <Link href="/cruises" className={styles.darkButton}>여정 시작하기　→</Link>
+          <span className={`${styles.darkButton} ${styles.disabledAction}`}>여정 시작하기　→</span>
         </div>
       </section>
 
-      <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><Link href="/cruises">크루즈 컬렉션 보기　↗</Link></section>
+      <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><span className={styles.disabledAction}>크루즈 컬렉션 보기　↗</span></section>
     </div>
   );
 }

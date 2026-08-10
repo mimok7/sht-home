@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { platformSupabase } from '@/lib/platform-supabase';
 import { supabase } from '@/lib/supabase';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
+import ChangeRequestPanel from './ChangeRequestPanel';
 
 const TAGS = ['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury'];
 const DEFAULT_CAFE_URL = 'https://cafe.naver.com/f-e/cafes/31003053/articles/4918?boardtype=I&menuid=792&referrerAllArticles=false';
@@ -36,6 +37,7 @@ const CRUISE_OPERATION_GROUP = {
   ],
 };
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
+const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }] };
 
 const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], rates: [], tags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [] };
 const string = (value) => value ?? '';
@@ -103,7 +105,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const [activePanel, setActivePanel] = useState(importOnly ? 'naver-import' : 'profile');
   const [catalogSection, setCatalogSection] = useState('product');
   const [expandedRateCabinId, setExpandedRateCabinId] = useState('');
-  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, 'catalog-management': false, cruise: true, system: false });
+  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, 'catalog-management': false, cruise: true, requests: false, system: false });
   const [selectedUnmatchedRate, setSelectedUnmatchedRate] = useState('');
   const [cruiseForm, setCruiseForm] = useState(null);
   const [message, setMessage] = useState('');
@@ -123,7 +125,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     if (!token) throw new Error('운영자 로그인이 필요합니다.');
     const response = await fetch(path, {
       ...options,
-      headers: { Authorization: `Bearer ${token}`, ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
+      headers: { Authorization: `Bearer ${token}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
       cache: 'no-store',
     });
     const result = await response.json().catch(() => ({}));
@@ -403,7 +405,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
       const isOpening = !current[groupId];
       if (groupId === 'catalog-selection') return { ...current, 'catalog-selection': isOpening, 'catalog-management': isOpening ? current['catalog-management'] : false };
       if (groupId === 'catalog-management') return { ...current, 'catalog-selection': true, 'catalog-management': isOpening, cruise: false, system: false };
-      return { 'catalog-selection': false, 'catalog-management': false, cruise: groupId === 'cruise' && isOpening, system: groupId === 'system' && isOpening };
+      return { 'catalog-selection': false, 'catalog-management': false, cruise: groupId === 'cruise' && isOpening, requests: groupId === 'requests' && isOpening, system: groupId === 'system' && isOpening };
     });
   }
   function isMenuItemSelected(item) {
@@ -427,7 +429,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   if (session === undefined) return <div className="admin-state">관리자 권한을 확인하고 있습니다.</div>;
   if (!session) return <div className="admin-state"><p>이 페이지는 로그인한 운영자만 사용할 수 있습니다.</p><Link className="btn-primary" href="/login?next=/admin">운영자 로그인</Link></div>;
 
-  const requiresCruiseSelection = !importOnly && !['catalog', 'members'].includes(activePanel);
+  const requiresCruiseSelection = !importOnly && !['catalog', 'members', 'change-requests'].includes(activePanel);
   const activeCatalogManagementGroup = {
     id: 'catalog-management', label: `${CATALOG_SERVICE_LABELS[catalogService]} 관리`,
     items: [
@@ -438,6 +440,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const visibleMenuGroups = [
     CATALOG_SELECTION_GROUP,
     ...(activePanel === 'catalog' ? [activeCatalogManagementGroup] : [CRUISE_OPERATION_GROUP]),
+    CHANGE_REQUEST_GROUP,
     ...(operator?.role === 'admin' ? [SYSTEM_MENU_GROUP] : []),
   ];
 
@@ -477,6 +480,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
         {error && <p className="admin-notice error">{error}</p>}{message && <p className="admin-notice success">{message}</p>}
         {loading ? <p className="admin-loading">데이터를 불러오는 중…</p> : ((requiresCruiseSelection && !selectedCruise) || (activePanel === 'catalog' && !selectedCatalogProduct)) ? <p className="admin-loading">표시할 관리 데이터가 없습니다.</p> : <div className="admin-workspace" data-active={activePanel}>
           {operator?.role === 'admin' && <section className="admin-section admin-panel" data-panel="members"><div className="admin-section-title"><span>07 / MEMBERS & ACCESS</span><h2>회원 및 권한 관리</h2><p>회원가입한 계정의 상태와 역할을 지정합니다.</p></div><div className="role-list">{data.roles.map((role) => <form key={role.id} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`role-${role.id}`, 'updateMemberRole', role.id, { permissions: { manage_members: values.get('manage_members') === 'on', manage_cruises: values.get('manage_cruises') === 'on' } }); }}><div><strong>{role.label}</strong><small>{role.description}</small></div><label className="check"><input name="manage_members" type="checkbox" defaultChecked={Boolean(role.permissions?.manage_members)} /> 회원 관리</label><label className="check"><input name="manage_cruises" type="checkbox" defaultChecked={Boolean(role.permissions?.manage_cruises)} /> 크루즈 관리</label><button disabled={saving === `role-${role.id}`}>{saving === `role-${role.id}` ? '저장 중…' : '권한 저장'}</button></form>)}</div><div className="member-list">{data.members.map((member) => <form key={member.id} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`member-${member.id}`, 'updateMember', member.id, { role_id: values.get('role_id'), status: values.get('status') }); }}><div><strong>{member.display_name || '이름 없음'}</strong><small>{member.email} · {member.phone || '연락처 없음'}</small></div><select name="role_id" defaultValue={member.role_id}>{data.roles.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select><select name="status" defaultValue={member.status}><option value="active">활성</option><option value="suspended">정지</option></select><button disabled={saving === `member-${member.id}`}>{saving === `member-${member.id}` ? '저장 중…' : '회원 저장'}</button></form>)}</div></section>}
+          <ChangeRequestPanel adminRequest={adminRequest} active={activePanel === 'change-requests'} />
           <section className="admin-section admin-panel" data-panel="profile"><div className="admin-section-title"><span>01 / CRUISE PROFILE</span><h2>기본 소개 및 공개 상태</h2><a href={selectedCruise?.slug ? `/product/${encodeURIComponent(selectedCruise.slug)}` : '#'} target="_blank" rel="noreferrer">공개 화면 보기 ↗</a></div>
             <div className="rate-only-source"><div><span>RATE TABLE ONLY</span><strong>인포 테이블에 없는 요금 크루즈</strong><p>선택하면 비공개 초안과 일정이 생성됩니다. 객실과 설명을 추가한 뒤 공개하세요.</p></div><div><select value={selectedUnmatchedRate} onChange={(event) => setSelectedUnmatchedRate(event.target.value)}><option value="">요금 전용 크루즈 선택 ({data.unmatchedRates.length})</option>{data.unmatchedRates.map((source) => <option value={source.legacy_name} key={source.legacy_name}>{source.legacy_name} · 요금 {source.rate_count}건 · {(source.schedule_types || []).join(', ')}</option>)}</select><button type="button" className="admin-save" onClick={addCruiseFromRateOnlySource} disabled={!selectedUnmatchedRate || saving === 'rate-only-cruise'}>{saving === 'rate-only-cruise' ? '추가 중…' : '관리 크루즈로 추가 →'}</button></div></div>
             <form onSubmit={(event) => { event.preventDefault(); save('cruise', 'updateCruise', selectedId, { ...cruiseForm, star_rating: numeric(cruiseForm.star_rating) }); }} className="admin-form profile-form">

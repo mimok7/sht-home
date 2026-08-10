@@ -36,7 +36,7 @@ export async function getHomepageOperator(request) {
     const homepage = createClient(homepageConfig.url, homepageConfig.key, { auth: { persistSession: false, autoRefreshToken: false } });
     const { data: homepageAuth } = await homepage.auth.getUser(token);
     const homepageRole = homepageAuth.user?.app_metadata?.role || '';
-    if (OPERATOR_ROLES.has(homepageRole)) return { id: homepageAuth.user.id, role: homepageRole };
+    if (OPERATOR_ROLES.has(homepageRole)) return { id: homepageAuth.user.id, email: homepageAuth.user.email || '', role: homepageRole };
   }
 
   const config = getPlatformConfig();
@@ -58,5 +58,5 @@ export async function getHomepageOperator(request) {
   if (profileError) return null;
 
   const role = profile?.role || authData.user.app_metadata?.role || '';
-  return OPERATOR_ROLES.has(role) ? { id: authData.user.id, role } : null;
+  return OPERATOR_ROLES.has(role) ? { id: authData.user.id, email: authData.user.email || '', role } : null;
 }

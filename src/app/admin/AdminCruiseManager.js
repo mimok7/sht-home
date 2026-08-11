@@ -120,14 +120,22 @@ export default function AdminCruiseManager({ importOnly = false }) {
 
   const adminRequest = useCallback(async (path, options = {}) => {
     if (!authClient) throw new Error('운영자 로그인이 필요합니다.');
+    const { raw = false, ...fetchOptions } = options;
     const { data: authData } = await authClient.auth.getSession();
     const token = authData.session?.access_token;
     if (!token) throw new Error('운영자 로그인이 필요합니다.');
     const response = await fetch(path, {
-      ...options,
-      headers: { Authorization: `Bearer ${token}`, ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) },
+      ...fetchOptions,
+      headers: { Authorization: `Bearer ${token}`, ...(fetchOptions.body && !(fetchOptions.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(fetchOptions.headers || {}) },
       cache: 'no-store',
     });
+    if (raw) {
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({}));
+        throw new Error(result.error || '관리자 요청에 실패했습니다.');
+      }
+      return response;
+    }
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || '관리자 요청에 실패했습니다.');
     return result;

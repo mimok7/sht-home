@@ -7,6 +7,12 @@ export const dynamic = 'force-dynamic';
 
 const PRICE_UNITS = new Set(['per_adult', 'per_person', 'per_room', 'per_vehicle', 'unknown']);
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
+const CATALOG_DETAIL_FIELDS = {
+  hotel: ['location', 'star_rating'],
+  airport: ['route_from', 'route_to', 'vehicle_type', 'max_capacity', 'recommended_capacity', 'duration'],
+  tour: ['location', 'duration', 'starting_point', 'meeting_time', 'guide_language', 'group_type'],
+  vehicle: ['vehicle_type', 'route_from', 'route_to', 'capacity', 'way_type', 'duration_hours'],
+};
 
 function errorResponse(error, fallback = '관리자 데이터를 처리하지 못했습니다.') {
   console.error('[homepage-admin]', error?.message || error);
@@ -66,7 +72,7 @@ async function getUnmatchedRateCruises(database) {
 
 async function getDashboard(database, role) {
   const queries = [
-    database.from('cruises_v2').select('id,slug,code,name_ko,name_en,description,category,star_rating,hero_image,is_active,updated_at').order('name_ko'),
+    database.from('cruises_v2').select('id,slug,code,legacy_name,name_ko,name_en,description,category,star_rating,hero_image,is_active,updated_at').order('name_ko'),
     database.from('cruise_itineraries_v2').select('id,cruise_id,schedule_type,nights,description,is_active').order('schedule_type'),
     database.from('cabins_v2').select('id,cruise_id,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,is_active').order('name_ko'),
     database.from('cabin_images_v2').select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at').order('sort_order'),
@@ -159,6 +165,30 @@ async function updateCatalogPrice(database, id, values) {
   if (error) throw error;
 }
 
+async function updateCatalogDetails(database, id, values) {
+  const serviceType = values?.service_type;
+  const fields = CATALOG_DETAIL_FIELDS[serviceType];
+  if (!fields) throw new Error('서비스 상세 정보 유형을 확인해 주세요.');
+  const serviceDetails = Object.fromEntries(fields.map((field) => [field, nullableText(values[field])]));
+  const { data: current, error: currentError } = await database
+    .from('catalog_products_v2')
+    .select('service_type,metadata,manual_override')
+    .eq('id', id)
+    .eq('source', 'sht-platform')
+    .single();
+  if (currentError) throw currentError;
+  if (current.service_type !== serviceType) throw new Error('선택한 상품의 서비스 유형이 일치하지 않습니다.');
+  const { error } = await database
+    .from('catalog_products_v2')
+    .update({
+      metadata: { ...(current.metadata || {}), ...serviceDetails },
+      manual_override: { ...(current.manual_override || {}), service_details: serviceDetails },
+      updated_at: todayIso(),
+    })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 async function createRateOnlyCruise(database, source) {
   const suffix = randomUUID().slice(0, 8);
   const { data: created, error: createError } = await database
@@ -182,6 +212,7 @@ async function mutate(database, operator, body) {
   const { action, id, values } = body || {};
   if (action === 'updateCatalogProduct') return updateCatalogProduct(database, id, values || {});
   if (action === 'updateCatalogPrice') return updateCatalogPrice(database, id, values || {});
+  if (action === 'updateCatalogDetails') return updateCatalogDetails(database, id, values || {});
   if (action === 'createRateOnlyCruise') return { createdCruiseId: await createRateOnlyCruise(database, values || {}) };
   if (action === 'updateCruise') {
     const { error } = await database.from('cruises_v2').update({ ...pick(values || {}, ['name_ko', 'name_en', 'description', 'category', 'star_rating', 'hero_image', 'is_active']), updated_at: todayIso() }).eq('id', id);

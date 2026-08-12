@@ -8,7 +8,6 @@ import { romanizeKoreanName } from '@/lib/koreanRomanization';
 import ChangeRequestPanel from './ChangeRequestPanel';
 
 const TAGS = ['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury'];
-const DEFAULT_CAFE_URL = 'https://cafe.naver.com/f-e/cafes/31003053/articles/4918?boardtype=I&menuid=792&referrerAllArticles=false';
 const IMAGE_NAME_PRESETS = [
   { value: 'exterior', label: '익스테리어 (exterior)' },
   { value: 'interior', label: '인테리어 (interior)' },
@@ -16,14 +15,20 @@ const IMAGE_NAME_PRESETS = [
 ];
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const CATALOG_SERVICE_LABELS = { cruise: '크루즈', hotel: '호텔', airport: '공항', tour: '투어', vehicle: '차량' };
+const CATALOG_SERVICE_DETAIL_FIELDS = {
+  hotel: [['location', '위치'], ['star_rating', '호텔 등급']],
+  airport: [['route_from', '출발지'], ['route_to', '도착지'], ['vehicle_type', '차량 유형'], ['max_capacity', '최대 인원'], ['recommended_capacity', '권장 인원'], ['duration', '예상 소요시간']],
+  tour: [['location', '지역'], ['duration', '소요시간'], ['starting_point', '출발·집결 장소'], ['meeting_time', '집결 시간'], ['guide_language', '가이드 언어'], ['group_type', '그룹 유형']],
+  vehicle: [['vehicle_type', '차량 유형'], ['route_from', '출발지'], ['route_to', '도착지'], ['capacity', '탑승 정원'], ['way_type', '운행 방식'], ['duration_hours', '이용 시간']],
+};
 const CATALOG_SELECTION_GROUP = {
-  id: 'catalog-selection', label: '홈페이지 상품 관리',
+  id: 'catalog-selection', label: '서비스',
   items: [
-    { id: 'catalog-cruise', label: '크루즈 상품', catalogService: 'cruise' },
-    { id: 'catalog-hotel', label: '호텔 상품', catalogService: 'hotel' },
-    { id: 'catalog-airport', label: '공항 상품', catalogService: 'airport' },
-    { id: 'catalog-tour', label: '투어 상품', catalogService: 'tour' },
-    { id: 'catalog-vehicle', label: '차량 상품', catalogService: 'vehicle' },
+    { id: 'catalog-cruise', label: '크루즈', catalogService: 'cruise' },
+    { id: 'catalog-hotel', label: '호텔', catalogService: 'hotel' },
+    { id: 'catalog-airport', label: '공항', catalogService: 'airport' },
+    { id: 'catalog-tour', label: '투어', catalogService: 'tour' },
+    { id: 'catalog-vehicle', label: '차량', catalogService: 'vehicle' },
   ],
 };
 const CRUISE_OPERATION_GROUP = {
@@ -36,6 +41,7 @@ const CRUISE_OPERATION_GROUP = {
     { id: 'rates', label: '요금 관리' },
   ],
 };
+const CRUISE_OPERATION_PANEL_IDS = new Set(CRUISE_OPERATION_GROUP.items.map((item) => item.id));
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
 const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }, { id: 'change-request-status', label: '수정 신청 현황' }, { id: 'change-request-completed', label: '수정 완료 내역' }] };
 
@@ -112,7 +118,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState('');
-  const [cafeUrl, setCafeUrl] = useState(DEFAULT_CAFE_URL);
+  const [cafeUrl, setCafeUrl] = useState('');
   const [cafePreview, setCafePreview] = useState(null);
   const [cafeBulkTarget, setCafeBulkTarget] = useState('');
   const [cafeImportToast, setCafeImportToast] = useState('');
@@ -195,6 +201,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     return cabins.map((cabin) => ({ cabin, rates: grouped.get(cabin.id) || [] })).filter((group) => group.rates.length > 0);
   }, [cabins, rates]);
   const selectedTags = useMemo(() => data.tags.filter((tag) => tag.cruise_id === selectedId), [data.tags, selectedId]);
+  const cafeImportCruises = useMemo(() => cafePreview?.cruises?.length ? cafePreview.cruises : data.cruises, [cafePreview, data.cruises]);
   const catalogProducts = useMemo(() => data.catalogProducts.filter((product) => product.service_type === catalogService), [data.catalogProducts, catalogService]);
   const selectedCatalogProduct = useMemo(() => catalogProducts.find((product) => product.id === selectedCatalogId) || null, [catalogProducts, selectedCatalogId]);
   const catalogPrices = useMemo(() => data.catalogPrices.filter((price) => price.product_id === selectedCatalogId), [data.catalogPrices, selectedCatalogId]);
@@ -383,7 +390,13 @@ export default function AdminCruiseManager({ importOnly = false }) {
     });
   }
 
-  function selectCruise(id) { setSelectedId(id); setMessage(''); setError(''); }
+  function selectCruise(id) {
+    setSelectedId(id);
+    const cruise = data.cruises.find((item) => item.id === id);
+    const catalogProduct = data.catalogProducts.find((product) => product.service_type === 'cruise' && (product.source_key === cruise?.legacy_name || product.source_key === cruise?.name_ko || product.name_ko === cruise?.name_ko));
+    setSelectedCatalogId(catalogProduct?.id || '');
+    setMessage(''); setError('');
+  }
   async function createCabin() {
     const nameKo = window.prompt('새 객실명을 입력해 주세요.');
     if (!nameKo?.trim()) return;
@@ -396,12 +409,12 @@ export default function AdminCruiseManager({ importOnly = false }) {
     setCatalogService(service);
     setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === service)?.id || '');
     setCatalogSection('product');
-    setExpandedMenuGroups({ 'catalog-selection': true, 'catalog-management': true, cruise: false, system: false });
+    setExpandedMenuGroups({ 'catalog-selection': true, 'catalog-management': true, cruise: service === 'cruise', requests: false, system: false });
     setMessage(''); setError('');
   }
   function openAdminMenu(item, groupId) {
     if (item.catalogService) {
-      setActivePanel('catalog');
+      setActivePanel(item.catalogService === 'cruise' ? 'profile' : 'catalog');
       selectCatalogService(item.catalogService);
       return;
     }
@@ -411,6 +424,10 @@ export default function AdminCruiseManager({ importOnly = false }) {
       setExpandedMenuGroups({ 'catalog-selection': true, 'catalog-management': true, cruise: false, system: false });
       setMessage(''); setError('');
       return;
+    }
+    if (groupId === CRUISE_OPERATION_GROUP.id) {
+      setCatalogService('cruise');
+      setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === 'cruise')?.id || '');
     }
     setExpandedMenuGroups({ 'catalog-selection': false, 'catalog-management': false, cruise: groupId === 'cruise', requests: groupId === 'requests', system: groupId === 'system' });
     setActivePanel(item.id);
@@ -427,7 +444,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   function isMenuItemSelected(item) {
     if (item.catalogSection) return activePanel === 'catalog' && catalogSection === item.catalogSection;
     return item.catalogService
-      ? activePanel === 'catalog' && catalogService === item.catalogService
+      ? catalogService === item.catalogService && (activePanel === 'catalog' || (item.catalogService === 'cruise' && CRUISE_OPERATION_PANEL_IDS.has(activePanel)))
       : activePanel === item.id;
   }
 
@@ -447,15 +464,16 @@ export default function AdminCruiseManager({ importOnly = false }) {
 
   const requiresCruiseSelection = !importOnly && !['catalog', 'members', 'change-requests', 'change-request-status', 'change-request-completed'].includes(activePanel);
   const activeCatalogManagementGroup = {
-    id: 'catalog-management', label: `${CATALOG_SERVICE_LABELS[catalogService]} 관리`,
+    id: 'catalog-management', label: '관리',
     items: [
       { id: 'catalog-product', label: '상품 기본 정보', catalogSection: 'product' },
+      ...(catalogService === 'cruise' ? [] : [{ id: 'catalog-details', label: '서비스 상세 정보', catalogSection: 'details' }]),
       { id: 'catalog-prices', label: '상품 요금 관리', catalogSection: 'prices' },
     ],
   };
+  const activeServiceMenuItems = catalogService === 'cruise' ? CRUISE_OPERATION_GROUP.items : activeCatalogManagementGroup.items;
   const visibleMenuGroups = [
     CATALOG_SELECTION_GROUP,
-    ...(activePanel === 'catalog' ? [activeCatalogManagementGroup] : [CRUISE_OPERATION_GROUP]),
     CHANGE_REQUEST_GROUP,
     ...(operator?.role === 'admin' ? [SYSTEM_MENU_GROUP] : []),
   ];
@@ -471,11 +489,25 @@ export default function AdminCruiseManager({ importOnly = false }) {
         </> : <>
         {visibleMenuGroups.map((group) => {
           const groupIsActive = group.items.some(isMenuItemSelected);
-          const isExpanded = expandedMenuGroups[group.id];
+          const isServiceNavigationGroup = group.id === 'catalog-selection';
+          const isProductNavigationGroup = isServiceNavigationGroup;
+          const isExpanded = isProductNavigationGroup || expandedMenuGroups[group.id];
+          if (isServiceNavigationGroup) return <div className={`admin-menu-group${groupIsActive ? ' has-selected' : ''}`} key={group.id}>
+            <div className="admin-menu-group-toggle"><span>{group.label}</span><b aria-hidden="true">−</b></div>
+            <div className="admin-menu-items" id={`admin-menu-${group.id}`}>
+              {group.items.map((item, index) => {
+                const selected = isMenuItemSelected(item);
+                return <div className="admin-service-menu-item" key={item.id}>
+                  <button type="button" className={selected ? 'selected' : ''} onClick={() => openAdminMenu(item, group.id)}><i>{String.fromCharCode(65 + index)}</i>{item.label}</button>
+                  {selected && <div className="admin-service-submenu" aria-label={`${item.label} 하위 메뉴`}>{activeServiceMenuItems.map((subItem, subIndex) => <button type="button" key={subItem.id} className={isMenuItemSelected(subItem) ? 'selected' : ''} onClick={() => openAdminMenu(subItem, catalogService === 'cruise' ? 'cruise' : 'catalog-management')}><i>{subIndex + 1}</i>{subItem.label}</button>)}</div>}
+                </div>;
+              })}
+            </div>
+          </div>;
           return <div className={`admin-menu-group${groupIsActive ? ' has-selected' : ''}`} key={group.id}>
-            <button type="button" className="admin-menu-group-toggle" aria-expanded={isExpanded} aria-controls={`admin-menu-${group.id}`} onClick={() => toggleMenuGroup(group.id)}>
-              <span>{group.label}</span><b aria-hidden="true">{isExpanded ? '−' : '+'}</b>
-            </button>
+            {isProductNavigationGroup
+              ? <div className="admin-menu-group-toggle"><span>{group.label}</span><b aria-hidden="true">−</b></div>
+              : <button type="button" className="admin-menu-group-toggle" aria-expanded={isExpanded} aria-controls={`admin-menu-${group.id}`} onClick={() => toggleMenuGroup(group.id)}><span>{group.label}</span><b aria-hidden="true">{isExpanded ? '−' : '+'}</b></button>}
             <div className="admin-menu-items" id={`admin-menu-${group.id}`} hidden={!isExpanded}>
               {group.items.map((item, index) => <button type="button" key={item.id} className={isMenuItemSelected(item) ? 'selected' : ''} onClick={() => openAdminMenu(item, group.id)}><i>{String(index + 1).padStart(2, '0')}</i>{item.label}</button>)}
             </div>
@@ -512,7 +544,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
               <div><span>IMAGE PREVIEW</span><strong>{cafePreview.title}</strong><small>저장할 이미지를 선택하고 대표 이미지 또는 객실 이미지로 지정하세요.</small></div>
               <section className={`cafe-import-cruise-match ${cafePreview.cruiseMatch?.status || 'unmatched'}`} aria-label="저장할 크루즈 확인">
                 <div><span>{cafePreview.cruiseMatch?.status === 'matched' ? 'AUTO MATCHED' : cafePreview.cruiseMatch?.status === 'manual' ? 'MANUALLY SELECTED' : 'CONFIRM CRUISE'}</span><strong>{cafePreview.cruiseMatch?.status === 'matched' ? `${cafePreview.cruiseMatch.cruise.nameKo} 자동 분류` : cafePreview.cruiseMatch?.status === 'manual' ? `${data.cruises.find((cruise) => cruise.id === selectedId)?.name_ko || '크루즈'} 관리자 선택` : cafePreview.cruiseMatch?.status === 'ambiguous' ? '크루즈 자동 분류 보류' : '크루즈를 선택해 주세요'}</strong><small>{cafePreview.cruiseMatch?.status === 'matched' ? `제목의 “${cafePreview.cruiseMatch.matchedName}”과 정확히 일치했습니다.` : cafePreview.cruiseMatch?.status === 'manual' ? '관리자가 선택한 크루즈로 이미지를 저장합니다.' : '자동 분류 결과와 관계없이 저장할 크루즈를 직접 선택해야 합니다.'}</small></div>
-                <label>저장할 크루즈<select value={selectedId} onChange={(event) => { const cruiseId = event.target.value; setSelectedId(cruiseId); setCafePreview({ ...cafePreview, cruiseMatch: { ...cafePreview.cruiseMatch, status: cruiseId ? 'manual' : 'unmatched' }, cruiseConfirmed: Boolean(cruiseId) }); setError(''); }}><option value="">저장할 크루즈를 선택하세요</option>{data.cruises.map((cruise) => <option key={cruise.id} value={cruise.id}>{cruise.name_ko}{cruise.name_en ? ` · ${cruise.name_en}` : ''}</option>)}</select></label>
+                <label>저장할 크루즈<select value={selectedId} onChange={(event) => { const cruiseId = event.target.value; setSelectedId(cruiseId); setCafePreview({ ...cafePreview, cruiseMatch: { ...cafePreview.cruiseMatch, status: cruiseId ? 'manual' : 'unmatched' }, cruiseConfirmed: Boolean(cruiseId) }); setError(''); }}><option value="">저장할 크루즈를 선택하세요</option>{cafeImportCruises.map((cruise) => <option key={cruise.id} value={cruise.id}>{cruise.name_ko}{cruise.name_en ? ` · ${cruise.name_en}` : ''}</option>)}</select></label>
               </section>
               <div className="cafe-import-image-heading"><strong>저장/추출 대상 {cafePreview.imageAssignments.filter((item) => item.target && item.target !== 'delete').length} / {cafePreview.imageCount}장</strong><small>이미지를 체크하세요. 첫 이미지 선택 후 Shift+클릭하면 연속 선택됩니다.</small></div>
               <div className="cafe-import-bulk cafe-import-bulk-sticky"><label className="check"><input type="checkbox" checked={cafePreview.selectedImageUrls.length === cafePreview.images.length && cafePreview.images.length > 0} onChange={(event) => setCafePreview({ ...cafePreview, selectedImageUrls: event.target.checked ? cafePreview.images.map((image) => image.sourceUrl) : [], lastSelectedImageIndex: null })} /> 전체 선택</label><select value={cafeBulkTarget} disabled={saving === 'naver-import'} onChange={(event) => { const target = event.target.value; setCafeBulkTarget(target && applyCafeImageTarget(target) ? target : ''); }}><option value="" disabled>선택 이미지 지정</option><option value="main">대표 이미지로 지정</option>{IMAGE_NAME_PRESETS.map((item) => <option value={`preset:${item.value}`} key={item.value}>{item.label} 이미지명 지정</option>)}{cabins.filter((cabin) => !(cafePreview.hiddenCabinIds || []).includes(cabin.id)).map((cabin) => { const englishName = englishCabinName(cabin); return <option value={`cabin:${cabin.id}`} key={cabin.id} disabled={!englishName}>{englishName ? `${englishName} 객실 이미지로 지정` : `${cabin.name_ko || '객실'} · 객실명 입력 필요`}</option>; })}</select><button type="button" className="admin-save" disabled={saving === 'naver-import' || !cafeBulkTarget || !cafePreview.selectedImageUrls.length} onClick={() => { const selected = new Set(cafePreview.selectedImageUrls); void saveCafeImageAssignments(cafePreview, cafePreview.imageAssignments.filter((item) => selected.has(item.sourceImageUrl) && ['hero', 'cabin', 'gallery'].includes(item.target))); }}>{saving === 'naver-import' ? '이미지 저장 중…' : '선택 이미지 저장'}</button><button type="button" className="admin-delete" disabled={saving === 'naver-import' || !cafePreview.selectedImageUrls.length} onClick={() => { applyCafeImageTarget('delete'); setCafeBulkTarget(''); }}>선택 이미지 삭제</button></div>
@@ -524,12 +556,13 @@ export default function AdminCruiseManager({ importOnly = false }) {
           <section className="admin-section admin-panel" data-panel="cabins"><div className="admin-section-title"><span>04 / CABINS</span><h2>객실 정보</h2><p>객실의 특징은 추천 태그와 고객 안내에 사용됩니다.</p></div><div className="cabin-add-action"><button type="button" className="admin-save" onClick={() => { void createCabin(); }} disabled={saving === 'cabin-create'}>{saving === 'cabin-create' ? '객실 추가 중…' : '객실 추가'}</button></div><div className="cabin-editor">{cabins.map((cabin) => <CabinForm key={cabin.id} cabin={cabin} images={cabinImagesByCabin.get(cabin.id) || []} saving={saving === `cabin-${cabin.id}`} imageBusy={saving === `image-upload-cabin-gallery-${cabin.id}` || saving.startsWith('cabin-image-')} onSave={(values) => save(`cabin-${cabin.id}`, 'updateCabin', cabin.id, values)} onUpload={(files) => uploadImages('cabin-gallery', cabin.id, files)} onSetPrimary={(imageId) => changeCabinImage('setCabinPrimaryImage', imageId)} onRemove={(imageId) => changeCabinImage('removeCabinImage', imageId)} />)}</div></section>
           <section className="admin-section admin-panel" data-panel="rates"><div className="admin-section-title"><span>05 / RATES</span><h2>등록 요금 및 적용 기간</h2><p>객실명을 누르면 해당 객실의 요금만 펼쳐집니다. 금액은 VND 기준이며, 공개 여부를 끄면 고객 화면에서 제외됩니다.</p></div><div className="rate-cabin-groups">{ratesByCabin.map(({ cabin, rates: cabinRates }, index) => { const isExpanded = expandedRateCabinId === cabin.id; const panelId = `rate-cabin-panel-${cabin.id}`; return <section className="rate-cabin-group" data-expanded={isExpanded} key={cabin.id}><button type="button" className="rate-cabin-group-heading" aria-expanded={isExpanded} aria-controls={panelId} onClick={() => setExpandedRateCabinId((current) => current === cabin.id ? '' : cabin.id)}><span>{String(index + 1).padStart(2, '0')} / CABIN RATES</span><span className="rate-cabin-group-name"><strong>{cabin.name_ko || '객실명 없음'}</strong>{englishCabinName(cabin) && <small>{englishCabinName(cabin)}</small>}</span><span className="rate-cabin-group-count">{cabinRates.length}건 <i aria-hidden="true">{isExpanded ? '−' : '+'}</i></span></button>{isExpanded && <div className="rate-editor" id={panelId}>{cabinRates.map((rate) => <RateForm key={rate.id} rate={rate} itinerary={itineraryById.get(rate.itinerary_id)} saving={saving === `rate-${rate.id}`} onSave={(values) => save(`rate-${rate.id}`, 'updateRate', rate.id, values)} />)}</div>}</section>; })}</div></section>
           <section className="admin-section admin-panel" data-panel="catalog">
-            <div className="admin-section-title"><span>06 / HOMEPAGE CATALOG</span><h2>{CATALOG_SERVICE_LABELS[catalogService]} 홈페이지 상품 관리</h2><p>플랫폼 원본은 읽기 전용입니다. 이 화면에서 저장한 홈페이지용 표현과 요금은 다음 동기화 후에도 유지됩니다.</p></div>
+            <div className="admin-section-title"><span>06 / HOMEPAGE CATALOG</span><h2>{CATALOG_SERVICE_LABELS[catalogService]} 관리</h2><p>플랫폼 원본은 읽기 전용입니다. 이 화면에서 저장한 홈페이지용 표현과 요금은 다음 동기화 후에도 유지됩니다.</p></div>
             <div className="catalog-select-panel">
               <label>서비스<select value={catalogService} onChange={(event) => selectCatalogService(event.target.value)}>{[['cruise', '크루즈'], ['hotel', '호텔'], ['tour', '투어'], ['vehicle', '차량'], ['airport', '공항']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label>수정할 상품<select value={selectedCatalogId} onChange={(event) => setSelectedCatalogId(event.target.value)}><option value="">상품을 선택하세요</option>{catalogProducts.map((product) => <option key={product.id} value={product.id}>{product.name_ko}{product.is_active ? '' : ' (비공개)'}</option>)}</select></label>
             </div>
             {selectedCatalogProduct && <>{catalogSection === 'product' && <CatalogProductForm product={selectedCatalogProduct} saving={saving === `catalog-product-${selectedCatalogProduct.id}`} imageBusy={saving === `image-upload-catalog-hero-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('catalog-hero', selectedCatalogProduct.id, files)} />}
+              {catalogSection === 'details' && <CatalogDetailsForm product={selectedCatalogProduct} saving={saving === `catalog-details-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} />}
               {catalogSection === 'prices' && <><div className="catalog-price-heading"><span>PRICE DATA</span><strong>상품 요금 {catalogPrices.length}건</strong></div>
                 <div className="rate-editor">{catalogPrices.map((price) => <CatalogPriceForm key={price.id} price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values)} />)}</div>
               </>}
@@ -583,6 +616,24 @@ function CatalogProductForm({ product, onSave, onUpload, saving, imageBusy }) {
     <label className="wide">홈페이지 상품 설명<textarea rows="5" value={form.description || ''} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
     <label className="check wide"><input type="checkbox" checked={Boolean(form.is_active)} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} /> 홈페이지에 공개</label>
     <button className="admin-save wide" disabled={saving}>{saving ? '저장 중…' : '홈페이지 상품 저장 →'}</button>
+  </form>;
+}
+
+function CatalogDetailsForm({ product, onSave, saving }) {
+  const fields = CATALOG_SERVICE_DETAIL_FIELDS[product.service_type];
+  const sourceValues = product.metadata || {};
+  const overrideValues = product.manual_override?.service_details || {};
+  const initialValues = Object.fromEntries(fields.map(([key]) => [key, overrideValues[key] ?? sourceValues[key] ?? '']));
+  const [form, setForm] = useState(initialValues);
+  useEffect(() => {
+    const metadata = product.metadata || {};
+    const overrides = product.manual_override?.service_details || {};
+    queueMicrotask(() => setForm(Object.fromEntries(fields.map(([key]) => [key, overrides[key] ?? metadata[key] ?? '']))));
+  }, [product, fields]);
+  return <form className="admin-form catalog-details-form" onSubmit={(event) => { event.preventDefault(); onSave({ service_type: product.service_type, ...form }); }}>
+    <div className="catalog-source wide"><span>SERVICE DETAILS</span><strong>{CATALOG_SERVICE_LABELS[product.service_type]} 상세 정보</strong><small>관리자가 저장한 값은 플랫폼 원본 동기화 이후에도 유지됩니다.</small></div>
+    {fields.map(([key, label]) => <label key={key}>{label}<input value={form[key] || ''} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></label>)}
+    <button className="admin-save wide" disabled={saving}>{saving ? '저장 중…' : '서비스 상세 정보 저장 →'}</button>
   </form>;
 }
 

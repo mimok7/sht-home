@@ -237,7 +237,7 @@ export async function POST(request) {
       if (cruisesError) throw cruisesError;
       const expiresAt = Date.now() + PREVIEW_TTL_MS;
       const images = article.images.map((sourceUrl, index) => ({ sourceUrl, previewUrl: previewUrl(request, sourceUrl, expiresAt), generatedName: generatedImageName(sourceUrl, index) }));
-      return Response.json({ ok: true, article: { title: article.title, imageCount: images.length, images, sourceUrl: source.url, cruiseMatch: classifyCruise(article.title, cruises) } });
+      return Response.json({ ok: true, article: { title: article.title, imageCount: images.length, images, sourceUrl: source.url, cruises: cruises || [], cruiseMatch: classifyCruise(article.title, cruises) } });
     }
     if (body.action !== 'import') badRequest('지원하지 않는 가져오기 작업입니다.');
     if (typeof body.cruiseId !== 'string' || !body.cruiseId) badRequest('저장할 크루즈를 선택해 주세요.');

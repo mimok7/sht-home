@@ -204,6 +204,18 @@ async function mutate(database, operator, body) {
     if (error) throw error;
     return null;
   }
+  if (action === 'createCabin') {
+    const nameKo = nullableText(values?.name_ko);
+    const maxAdults = nullableInteger(values?.max_adults);
+    const maxGuests = nullableInteger(values?.max_guests);
+    if (!id || !nameKo || maxAdults === null || maxAdults < 1 || maxGuests === null || maxGuests < maxAdults) throw new Error('객실명과 최대 인원을 확인해 주세요.');
+    const { data: existing, error: existingError } = await database.from('cabins_v2').select('id').eq('cruise_id', id).eq('name_ko', nameKo).maybeSingle();
+    if (existingError) throw existingError;
+    if (existing) throw new Error('같은 이름의 객실이 이미 있습니다.');
+    const { error } = await database.from('cabins_v2').insert({ cruise_id: id, name_ko: nameKo, max_adults: maxAdults, max_guests: maxGuests, is_active: false });
+    if (error) throw error;
+    return null;
+  }
   if (action === 'updateRate') {
     const fields = pick(values || {}, ['valid_during', 'price_basis', 'price_adult', 'price_child', 'price_infant', 'price_single', 'price_extra_bed', 'season_name', 'single_available', 'extra_bed_available', 'is_active']);
     const { error } = await database.from('rate_plans_v2').update({ ...fields, updated_at: todayIso() }).eq('id', id);
@@ -246,7 +258,7 @@ export async function PATCH(request) {
     const result = await mutate(database, operator, body);
     return Response.json({ ok: true, result });
   } catch (error) {
-    const status = /확인해 주세요|이후여야|관리자만/.test(error?.message || '') ? 400 : 500;
+    const status = /확인해 주세요|이후여야|관리자만|같은 이름/.test(error?.message || '') ? 400 : 500;
     if (status === 400) return Response.json({ error: error.message }, { status });
     return errorResponse(error, '변경 사항을 저장하지 못했습니다.');
   }

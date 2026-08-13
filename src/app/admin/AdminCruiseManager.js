@@ -45,7 +45,7 @@ const CRUISE_OPERATION_PANEL_IDS = new Set(CRUISE_OPERATION_GROUP.items.map((ite
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
 const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }, { id: 'change-request-status', label: '수정 신청 현황' }, { id: 'change-request-completed', label: '수정 완료 내역' }] };
 
-const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], rates: [], tags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [] };
+const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], rates: [], tags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [], hotelRoomDetails: [] };
 const string = (value) => value ?? '';
 const numeric = (value) => (value === '' || value === null ? null : Number(value));
 const fileStem = (value, fallback = 'cabin') => String(value || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
@@ -168,9 +168,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
     async function resolveSession() {
       const [{ data: homepage }, { data: platform }] = await Promise.all([supabase.auth.getSession(), platformSupabase.auth.getSession()]);
       if (!mounted) return;
-      const activeClient = homepage.session ? supabase : platform.session ? platformSupabase : null;
+      const activeClient = platform.session ? platformSupabase : homepage.session ? supabase : null;
       setAuthClient(activeClient);
-      setSession(homepage.session || platform.session || null);
+      setSession(platform.session || homepage.session || null);
     }
     void resolveSession();
     const { data: homepageListener } = supabase.auth.onAuthStateChange(() => { void resolveSession(); });
@@ -205,6 +205,14 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const catalogProducts = useMemo(() => data.catalogProducts.filter((product) => product.service_type === catalogService), [data.catalogProducts, catalogService]);
   const selectedCatalogProduct = useMemo(() => catalogProducts.find((product) => product.id === selectedCatalogId) || null, [catalogProducts, selectedCatalogId]);
   const catalogPrices = useMemo(() => data.catalogPrices.filter((price) => price.product_id === selectedCatalogId), [data.catalogPrices, selectedCatalogId]);
+  const hotelRooms = useMemo(() => {
+    if (catalogService !== 'hotel') return [];
+    const priceBySourceId = new Map(catalogPrices.filter((price) => price.source_table === 'hotel_price').map((price) => [String(price.source_id), price]));
+    return data.hotelRoomDetails
+      .filter((detail) => detail.product_id === selectedCatalogId)
+      .map((detail) => ({ detail, room: detail.payload || {}, price: priceBySourceId.get(String(detail.source_id)) || null }))
+      .sort((left, right) => String(left.room.room_name || left.room.room_type || '').localeCompare(String(right.room.room_name || right.room.room_type || ''), 'ko'));
+  }, [catalogService, catalogPrices, data.hotelRoomDetails, selectedCatalogId]);
 
   useEffect(() => { queueMicrotask(() => setCruiseForm(selectedCruise ? editableCruise(selectedCruise) : null)); }, [selectedCruise]);
   useEffect(() => {
@@ -467,6 +475,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     id: 'catalog-management', label: '관리',
     items: [
       { id: 'catalog-product', label: '상품 기본 정보', catalogSection: 'product' },
+      ...(catalogService === 'hotel' ? [{ id: 'catalog-rooms', label: '객실 관리', catalogSection: 'rooms' }] : []),
       ...(catalogService === 'cruise' ? [] : [{ id: 'catalog-details', label: '서비스 상세 정보', catalogSection: 'details' }]),
       { id: 'catalog-prices', label: '상품 요금 관리', catalogSection: 'prices' },
     ],
@@ -479,7 +488,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   ];
 
   return <div className="admin-page">
-    <header className="admin-masthead"><div className="container"><span>STAY HALONG / OPERATIONS{operator ? ` · ${operator.role.toUpperCase()}` : ''}</span><h1>{importOnly ? '데이터 가져오기' : '데이터 관리'}</h1><p>{importOnly ? '카페 게시물의 본문과 이미지를 검토한 뒤 홈페이지 데이터로 저장합니다.' : '크루즈 운영 정보와 플랫폼에서 가져온 홈페이지용 상품 데이터를 수정합니다.'}</p></div></header>
+    <header className="admin-masthead"><div className="container"><span>STAY HALONG / OPERATIONS{operator ? ` · ${operator.role.toUpperCase()}` : ''}</span><h1>{importOnly ? '데이터 가져오기' : '데이터 관리'}</h1><p>{importOnly ? '카페 게시물의 본문과 이미지를 검토한 뒤 플랫폼 상품 데이터로 저장합니다.' : '기존 화면에서 수정하며 모든 서비스 상품은 플랫폼 DB에 저장됩니다.'}</p></div></header>
     <div className="admin-shell container">
       <aside className="admin-sidebar" aria-label="관리 메뉴">
         <span>ADMIN MENU</span>
@@ -563,6 +572,10 @@ export default function AdminCruiseManager({ importOnly = false }) {
             </div>
             {selectedCatalogProduct && <>{catalogSection === 'product' && <CatalogProductForm product={selectedCatalogProduct} saving={saving === `catalog-product-${selectedCatalogProduct.id}`} imageBusy={saving === `image-upload-catalog-hero-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('catalog-hero', selectedCatalogProduct.id, files)} />}
               {catalogSection === 'details' && <CatalogDetailsForm product={selectedCatalogProduct} saving={saving === `catalog-details-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} />}
+              {catalogSection === 'rooms' && <section className="hotel-room-manager" aria-label="호텔 객실 관리">
+                <div className="catalog-price-heading"><span>PLATFORM HOTEL ROOMS</span><strong>객실 {hotelRooms.length}건</strong><small>객실 기본 정보는 플랫폼 원본에서 동기화됩니다. 이 화면에서는 홈페이지에 표시할 객실 요금을 조정할 수 있습니다.</small></div>
+                {hotelRooms.length === 0 ? <p className="admin-loading">동기화된 객실 데이터가 없습니다.</p> : <div className="rate-editor">{hotelRooms.map(({ detail, room, price }) => <HotelRoomForm key={detail.id} room={room} price={price} saving={price ? saving === `catalog-price-${price.id}` : false} onSave={price ? (values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values) : null} />)}</div>}
+              </section>}
               {catalogSection === 'prices' && <><div className="catalog-price-heading"><span>PRICE DATA</span><strong>상품 요금 {catalogPrices.length}건</strong></div>
                 <div className="rate-editor">{catalogPrices.map((price) => <CatalogPriceForm key={price.id} price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values)} />)}</div>
               </>}
@@ -641,4 +654,15 @@ function CatalogPriceForm({ price, onSave, saving }) {
   const [form, setForm] = useState({ ...price, valid_from: price.valid_from || '', valid_to: price.valid_to || '' });
   useEffect(() => { queueMicrotask(() => setForm({ ...price, valid_from: price.valid_from || '', valid_to: price.valid_to || '' })); }, [price]);
   return <form onSubmit={(event) => { event.preventDefault(); onSave({ label: form.label || '', price_amount: numeric(form.price_amount), currency: form.currency || 'VND', price_unit: form.price_unit, min_guests: numeric(form.min_guests), max_guests: numeric(form.max_guests), valid_from: form.valid_from, valid_to: form.valid_to, is_active: Boolean(form.is_active) }); }}><header><b>{form.label || '요금 이름 없음'}</b><label className="check"><input type="checkbox" checked={Boolean(form.is_active)} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} /> 홈페이지 공개</label></header><div className="rate-grid"><label>요금명<input value={form.label || ''} onChange={(event) => setForm({ ...form, label: event.target.value })} /></label><label>금액<input type="number" min="0" value={form.price_amount ?? ''} onChange={(event) => setForm({ ...form, price_amount: event.target.value })} /></label><label>통화<input value={form.currency || 'VND'} maxLength="3" onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></label><label>요금 단위<select value={form.price_unit} onChange={(event) => setForm({ ...form, price_unit: event.target.value })}>{[['per_adult', '성인 1인'], ['per_person', '1인'], ['per_room', '객실'], ['per_vehicle', '차량'], ['unknown', '확인 필요']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>최소 인원<input type="number" min="1" value={form.min_guests ?? ''} onChange={(event) => setForm({ ...form, min_guests: event.target.value })} /></label><label>최대 인원<input type="number" min="1" value={form.max_guests ?? ''} onChange={(event) => setForm({ ...form, max_guests: event.target.value })} /></label><label>적용 시작<input type="date" value={form.valid_from || ''} onChange={(event) => setForm({ ...form, valid_from: event.target.value })} /></label><label>적용 종료<input type="date" value={form.valid_to || ''} onChange={(event) => setForm({ ...form, valid_to: event.target.value })} /></label></div><button className="admin-save" disabled={saving}>{saving ? '저장 중…' : '홈페이지 요금 저장 →'}</button></form>;
+}
+
+function HotelRoomForm({ room, price, onSave, saving }) {
+  const roomName = room.room_name || room.room_type || '객실명 없음';
+  const detailItems = [
+    ['객실 유형', room.room_type], ['객실 구분', room.room_category], ['최대 투숙', room.occupancy_max ? `${room.occupancy_max}명` : null],
+    ['조식', room.include_breakfast === true ? '포함' : room.include_breakfast === false ? '미포함' : null],
+    ['추가 인원', room.extra_person_price != null ? `${Number(room.extra_person_price).toLocaleString('ko-KR')} VND` : null], ['아동 정책', room.child_policy],
+    ['요일', room.weekday_type], ['시즌', room.season_name], ['적용 기간', room.start_date || room.end_date ? `${room.start_date || '-'} ~ ${room.end_date || '-'}` : null],
+  ].filter(([, value]) => value !== null && value !== undefined && value !== '');
+  return <article className="hotel-room-card"><header><div><span>ROOM / {room.hotel_price_code || '-'}</span><b>{roomName}</b></div><small>{room.hotel_name || ''}</small></header><dl className="hotel-room-details">{detailItems.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{room.notes && <p className="hotel-room-notes">{room.notes}</p>}{price ? <CatalogPriceForm price={price} onSave={onSave} saving={saving} /> : <p className="admin-notice error">이 객실의 홈페이지 요금 레코드를 찾지 못했습니다. 플랫폼 동기화를 다시 실행해 주세요.</p>}</article>;
 }

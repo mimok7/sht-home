@@ -1,18 +1,73 @@
 // 플랫폼 운영자 권한을 검증해 홈페이지용 v2 데이터를 안전하게 관리하는 API다.
-import { randomUUID } from 'node:crypto';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const PRICE_UNITS = new Set(['per_adult', 'per_person', 'per_room', 'per_vehicle', 'unknown']);
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
-const CATALOG_DETAIL_FIELDS = {
-  hotel: ['location', 'star_rating'],
-  airport: ['route_from', 'route_to', 'vehicle_type', 'max_capacity', 'recommended_capacity', 'duration'],
-  tour: ['location', 'duration', 'starting_point', 'meeting_time', 'guide_language', 'group_type'],
-  vehicle: ['vehicle_type', 'route_from', 'route_to', 'capacity', 'way_type', 'duration_hours'],
-};
+const PLATFORM_PRODUCT_ACTIONS = new Set([
+  'updateCatalogProduct', 'updateCatalogPrice', 'updateCatalogDetails', 'createRateOnlyCruise',
+  'updateCruise', 'updateItinerary', 'updateCabin', 'createCabin', 'updateRate',
+  'upsertCruiseTag',
+]);
+
+function bearerToken(request) {
+  const header = request.headers.get('authorization') || '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+async function cruiseSource(database, cruiseId) {
+  const { data, error } = await database.from('cruises_v2').select('legacy_name,name_ko').eq('id', cruiseId).maybeSingle();
+  if (error) throw error;
+  const cruiseName = data?.legacy_name || data?.name_ko;
+  if (!cruiseName) throw new Error('플랫폼 크루즈 원본을 찾을 수 없습니다.');
+  return { cruiseName };
+}
+
+async function platformMutationSource(database, action, id, values) {
+  if (action === 'createRateOnlyCruise') return { cruiseName: nullableText(values?.legacy_name) };
+  if (action === 'updateCruise' || action === 'createCabin' || action === 'upsertCruiseTag') return cruiseSource(database, id);
+  if (action === 'updateItinerary') {
+    const { data, error } = await database.from('cruise_itineraries_v2').select('cruise_id,schedule_type').eq('id', id).maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 일정 원본을 찾을 수 없습니다.');
+    return { ...(await cruiseSource(database, data.cruise_id)), scheduleType: data.schedule_type };
+  }
+  if (action === 'updateCabin') {
+    const { data, error } = await database.from('cabins_v2').select('cruise_id,legacy_room_name,name_ko').eq('id', id).maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 객실 원본을 찾을 수 없습니다.');
+    return { ...(await cruiseSource(database, data.cruise_id)), roomName: data.legacy_room_name || data.name_ko };
+  }
+  if (action === 'updateRate') {
+    const { data, error } = await database.from('rate_plans_v2').select('source_rate_id').eq('id', id).maybeSingle();
+    if (error || !data?.source_rate_id) throw error || new Error('플랫폼 요금 원본을 찾을 수 없습니다.');
+    return { sourceId: String(data.source_rate_id) };
+  }
+  if (action === 'updateCatalogProduct' || action === 'updateCatalogDetails') {
+    const { data, error } = await database.from('catalog_products_v2').select('service_type,source_key').eq('id', id).eq('source', 'sht-platform').maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 상품 원본을 찾을 수 없습니다.');
+    return { serviceType: data.service_type, sourceKey: data.source_key };
+  }
+  if (action === 'updateCatalogPrice') {
+    const { data, error } = await database.from('catalog_prices_v2').select('source_table,source_id').eq('id', id).eq('source', 'sht-platform').maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 요금 원본을 찾을 수 없습니다.');
+    return { sourceTable: data.source_table, sourceId: String(data.source_id) };
+  }
+  throw new Error('지원하지 않는 플랫폼 상품 작업입니다.');
+}
+
+async function forwardPlatformMutation(request, database, body) {
+  const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
+  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
+  const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: body.action, source, values: body.values || {} }),
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '플랫폼 DB 저장에 실패했습니다.');
+  return result;
+}
 
 function errorResponse(error, fallback = '관리자 데이터를 처리하지 못했습니다.') {
   console.error('[homepage-admin]', error?.message || error);
@@ -24,23 +79,8 @@ function nullableText(value) {
   return text || null;
 }
 
-function nullableNumber(value) {
-  if (value === '' || value === null || value === undefined) return null;
-  const number = Number(value);
-  return Number.isFinite(number) ? number : null;
-}
-
-function nullableInteger(value) {
-  const number = nullableNumber(value);
-  return number === null || Number.isInteger(number) ? number : null;
-}
-
 function pick(source, keys) {
   return Object.fromEntries(keys.filter((key) => Object.hasOwn(source, key)).map((key) => [key, source[key]]));
-}
-
-function todayIso() {
-  return new Date().toISOString();
 }
 
 async function getUnmatchedRateCruises(database) {
@@ -80,6 +120,7 @@ async function getDashboard(database, role) {
     database.from('cruise_tags_v2').select('cruise_id,tag,evidence,is_active').order('tag'),
     database.from('catalog_products_v2').select('id,service_type,source,source_key,name_ko,description,category,image_url,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('name_ko'),
     database.from('catalog_prices_v2').select('id,product_id,source_table,source_id,label,price_amount,currency,price_unit,min_guests,max_guests,valid_from,valid_to,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('source_table'),
+    database.from('catalog_product_details_v2').select('product_id,source_table,source_id,payload,source_updated_at,is_active').eq('source', 'sht-platform').eq('source_table', 'hotel_price').order('source_updated_at', { ascending: false }),
   ];
   if (role === 'admin') {
     queries.push(
@@ -91,7 +132,7 @@ async function getDashboard(database, role) {
   const failed = results.find((result) => result.error);
   if (failed) throw failed.error;
 
-  const [cruises, itineraries, cabins, cabinImages, rates, tags, catalogProducts, catalogPrices, members, roles] = results;
+  const [cruises, itineraries, cabins, cabinImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, members, roles] = results;
   return {
     cruises: (cruises.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     itineraries: itineraries.data || [],
@@ -101,158 +142,15 @@ async function getDashboard(database, role) {
     tags: tags.data || [],
     catalogProducts: (catalogProducts.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     catalogPrices: catalogPrices.data || [],
+    hotelRoomDetails: hotelRoomDetails.data || [],
     members: members?.data || [],
     roles: roles?.data || [],
     unmatchedRates: await getUnmatchedRateCruises(database),
   };
 }
 
-async function updateCatalogProduct(database, id, values) {
-  const name = nullableText(values.name_ko);
-  if (!name || typeof values.is_active !== 'boolean') throw new Error('상품명과 공개 상태를 확인해 주세요.');
-  const allowed = {
-    name_ko: name,
-    description: nullableText(values.description),
-    category: nullableText(values.category),
-    image_url: nullableText(values.image_url),
-    is_active: values.is_active,
-  };
-  const { data: current, error: currentError } = await database
-    .from('catalog_products_v2')
-    .select('manual_override')
-    .eq('id', id)
-    .eq('source', 'sht-platform')
-    .single();
-  if (currentError) throw currentError;
-  const { error } = await database
-    .from('catalog_products_v2')
-    .update({ manual_override: { ...(current.manual_override || {}), ...allowed }, updated_at: todayIso() })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-async function updateCatalogPrice(database, id, values) {
-  const priceUnit = values.price_unit;
-  const currency = nullableText(values.currency)?.toUpperCase();
-  const minGuests = nullableInteger(values.min_guests);
-  const maxGuests = nullableInteger(values.max_guests);
-  if (!PRICE_UNITS.has(priceUnit) || !currency || typeof values.is_active !== 'boolean' || (minGuests !== null && minGuests < 1) || (maxGuests !== null && maxGuests < 1) || (minGuests !== null && maxGuests !== null && minGuests > maxGuests)) {
-    throw new Error('요금 단위, 통화, 인원 범위를 확인해 주세요.');
-  }
-  const allowed = {
-    label: nullableText(values.label),
-    price_amount: nullableNumber(values.price_amount),
-    currency,
-    price_unit: priceUnit,
-    min_guests: minGuests,
-    max_guests: maxGuests,
-    valid_from: nullableText(values.valid_from),
-    valid_to: nullableText(values.valid_to),
-    is_active: values.is_active,
-  };
-  if (allowed.valid_from && allowed.valid_to && allowed.valid_from > allowed.valid_to) throw new Error('요금 적용 종료일은 시작일 이후여야 합니다.');
-  const { data: current, error: currentError } = await database
-    .from('catalog_prices_v2')
-    .select('manual_override')
-    .eq('id', id)
-    .eq('source', 'sht-platform')
-    .single();
-  if (currentError) throw currentError;
-  const { error } = await database
-    .from('catalog_prices_v2')
-    .update({ manual_override: { ...(current.manual_override || {}), ...allowed }, updated_at: todayIso() })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-async function updateCatalogDetails(database, id, values) {
-  const serviceType = values?.service_type;
-  const fields = CATALOG_DETAIL_FIELDS[serviceType];
-  if (!fields) throw new Error('서비스 상세 정보 유형을 확인해 주세요.');
-  const serviceDetails = Object.fromEntries(fields.map((field) => [field, nullableText(values[field])]));
-  const { data: current, error: currentError } = await database
-    .from('catalog_products_v2')
-    .select('service_type,metadata,manual_override')
-    .eq('id', id)
-    .eq('source', 'sht-platform')
-    .single();
-  if (currentError) throw currentError;
-  if (current.service_type !== serviceType) throw new Error('선택한 상품의 서비스 유형이 일치하지 않습니다.');
-  const { error } = await database
-    .from('catalog_products_v2')
-    .update({
-      metadata: { ...(current.metadata || {}), ...serviceDetails },
-      manual_override: { ...(current.manual_override || {}), service_details: serviceDetails },
-      updated_at: todayIso(),
-    })
-    .eq('id', id);
-  if (error) throw error;
-}
-
-async function createRateOnlyCruise(database, source) {
-  const suffix = randomUUID().slice(0, 8);
-  const { data: created, error: createError } = await database
-    .from('cruises_v2')
-    .insert({ legacy_name: source.legacy_name, name_ko: source.legacy_name, slug: `manual-${suffix}`, code: `MANUAL-${suffix.toUpperCase()}`, is_active: false })
-    .select('id')
-    .single();
-  if (createError) throw createError;
-  const scheduleRows = (source.schedule_types || [])
-    .filter((scheduleType) => SCHEDULE_TYPES.has(scheduleType))
-    .map((scheduleType) => ({ cruise_id: created.id, schedule_type: scheduleType, nights: scheduleType === 'DAY' ? 0 : scheduleType === '1N2D' ? 1 : 2, is_active: false }));
-  const [aliasResult, itineraryResult] = await Promise.all([
-    database.from('cruise_aliases_v2').upsert({ alias: source.legacy_name, cruise_id: created.id }),
-    scheduleRows.length ? database.from('cruise_itineraries_v2').insert(scheduleRows) : Promise.resolve({ error: null }),
-  ]);
-  if (aliasResult.error || itineraryResult.error) throw aliasResult.error || itineraryResult.error;
-  return created.id;
-}
-
 async function mutate(database, operator, body) {
   const { action, id, values } = body || {};
-  if (action === 'updateCatalogProduct') return updateCatalogProduct(database, id, values || {});
-  if (action === 'updateCatalogPrice') return updateCatalogPrice(database, id, values || {});
-  if (action === 'updateCatalogDetails') return updateCatalogDetails(database, id, values || {});
-  if (action === 'createRateOnlyCruise') return { createdCruiseId: await createRateOnlyCruise(database, values || {}) };
-  if (action === 'updateCruise') {
-    const { error } = await database.from('cruises_v2').update({ ...pick(values || {}, ['name_ko', 'name_en', 'description', 'category', 'star_rating', 'hero_image', 'is_active']), updated_at: todayIso() }).eq('id', id);
-    if (error) throw error;
-    return null;
-  }
-  if (action === 'upsertCruiseTag') {
-    const { error } = await database.from('cruise_tags_v2').upsert({ cruise_id: id, tag: values?.tag, evidence: nullableText(values?.evidence), is_active: Boolean(values?.is_active) }, { onConflict: 'cruise_id,tag' });
-    if (error) throw error;
-    return null;
-  }
-  if (action === 'updateItinerary') {
-    const { error } = await database.from('cruise_itineraries_v2').update({ description: nullableText(values?.description), is_active: Boolean(values?.is_active), updated_at: todayIso() }).eq('id', id);
-    if (error) throw error;
-    return null;
-  }
-  if (action === 'updateCabin') {
-    const fields = pick(values || {}, ['name_ko', 'name_en', 'image_url', 'room_area_text', 'bed_type', 'max_adults', 'max_guests', 'has_balcony', 'is_vip', 'has_butler', 'is_recommended', 'connecting_available', 'extra_bed_available', 'facilities', 'special_amenities', 'is_active']);
-    const { error } = await database.from('cabins_v2').update({ ...fields, updated_at: todayIso() }).eq('id', id);
-    if (error) throw error;
-    return null;
-  }
-  if (action === 'createCabin') {
-    const nameKo = nullableText(values?.name_ko);
-    const maxAdults = nullableInteger(values?.max_adults);
-    const maxGuests = nullableInteger(values?.max_guests);
-    if (!id || !nameKo || maxAdults === null || maxAdults < 1 || maxGuests === null || maxGuests < maxAdults) throw new Error('객실명과 최대 인원을 확인해 주세요.');
-    const { data: existing, error: existingError } = await database.from('cabins_v2').select('id').eq('cruise_id', id).eq('name_ko', nameKo).maybeSingle();
-    if (existingError) throw existingError;
-    if (existing) throw new Error('같은 이름의 객실이 이미 있습니다.');
-    const { error } = await database.from('cabins_v2').insert({ cruise_id: id, name_ko: nameKo, max_adults: maxAdults, max_guests: maxGuests, is_active: false });
-    if (error) throw error;
-    return null;
-  }
-  if (action === 'updateRate') {
-    const fields = pick(values || {}, ['valid_during', 'price_basis', 'price_adult', 'price_child', 'price_infant', 'price_single', 'price_extra_bed', 'season_name', 'single_available', 'extra_bed_available', 'is_active']);
-    const { error } = await database.from('rate_plans_v2').update({ ...fields, updated_at: todayIso() }).eq('id', id);
-    if (error) throw error;
-    return null;
-  }
   if (operator.role !== 'admin') throw new Error('회원과 권한은 관리자만 변경할 수 있습니다.');
   if (action === 'updateMember') {
     const { error } = await database.from('member_profiles').update(pick(values || {}, ['role_id', 'status'])).eq('id', id);
@@ -286,10 +184,13 @@ export async function PATCH(request) {
   if (!database) return Response.json({ error: '홈페이지 관리자 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
   try {
     const body = await request.json();
+    if (PLATFORM_PRODUCT_ACTIONS.has(body?.action)) {
+      return Response.json(await forwardPlatformMutation(request, database, body));
+    }
     const result = await mutate(database, operator, body);
     return Response.json({ ok: true, result });
   } catch (error) {
-    const status = /확인해 주세요|이후여야|관리자만|같은 이름/.test(error?.message || '') ? 400 : 500;
+    const status = /확인해 주세요|이후여야|관리자만|같은 이름|플랫폼|지원하지/.test(error?.message || '') ? 400 : 500;
     if (status === 400) return Response.json({ error: error.message }, { status });
     return errorResponse(error, '변경 사항을 저장하지 못했습니다.');
   }

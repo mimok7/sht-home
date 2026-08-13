@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
@@ -178,32 +178,22 @@ async function copyImages(database, cruiseId, imageUrls) {
   };
 }
 
-async function attachCabinImages(database, cruiseId, images, fallbackAltText) {
-  const cabinImages = images.filter((image) => image.assignment?.target === 'cabin');
-  if (!cabinImages.length) return;
-  const cabinIds = [...new Set(cabinImages.map((image) => image.assignment.cabinId))];
-  const { data: existing, error: existingError } = await database.from('cabin_images_v2').select('cabin_id,sort_order,is_primary').in('cabin_id', cabinIds);
-  if (existingError) throw existingError;
-  const state = new Map(cabinIds.map((id) => [id, { sortOrder: -1, hasPrimary: false }]));
-  for (const image of existing || []) {
-    const item = state.get(image.cabin_id);
-    item.sortOrder = Math.max(item.sortOrder, image.sort_order);
-    item.hasPrimary ||= image.is_primary;
-  }
-  const rows = cabinImages.map((image) => {
-    const item = state.get(image.assignment.cabinId);
-    const isPrimary = !item.hasPrimary;
-    item.hasPrimary ||= isPrimary;
-    item.sortOrder += 1;
-    return { cabin_id: image.assignment.cabinId, storage_bucket: MEDIA_BUCKET, storage_path: image.path, alt_text: cleanText(image.assignment.imageName || fallbackAltText).slice(0, 160) || null, sort_order: item.sortOrder, is_primary: isPrimary };
+function bearerToken(request) {
+  const header = request.headers.get('authorization') || '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+async function forwardPlatformImages(request, cruiseName, images) {
+  const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
+  const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'upsertImages', source: { cruiseName }, values: { images } }),
+    cache: 'no-store',
   });
-  const { data: inserted, error: insertError } = await database.from('cabin_images_v2').insert(rows).select('id,cabin_id,storage_path,is_primary');
-  if (insertError) throw insertError;
-  if ((inserted || []).length !== rows.length) throw new Error('객실 이미지 저장 결과를 확인하지 못했습니다.');
-  const firstPrimaryByCabin = rows.filter((row) => row.is_primary);
-  const updates = await Promise.all(firstPrimaryByCabin.map((row) => database.from('cabins_v2').update({ image_url: database.storage.from(MEDIA_BUCKET).getPublicUrl(row.storage_path).data.publicUrl, updated_at: new Date().toISOString() }).eq('id', row.cabin_id).eq('cruise_id', cruiseId).select('id').maybeSingle()));
-  const failedUpdate = updates.find((result) => result.error || !result.data);
-  if (failedUpdate) throw failedUpdate.error || new Error('객실 대표 이미지 반영 결과를 확인하지 못했습니다.');
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '플랫폼 이미지 저장에 실패했습니다.');
+  return result;
 }
 
 export async function GET(request) {
@@ -241,7 +231,7 @@ export async function POST(request) {
     }
     if (body.action !== 'import') badRequest('지원하지 않는 가져오기 작업입니다.');
     if (typeof body.cruiseId !== 'string' || !body.cruiseId) badRequest('저장할 크루즈를 선택해 주세요.');
-    const { data: cruise, error: cruiseError } = await database.from('cruises_v2').select('id').eq('id', body.cruiseId).maybeSingle();
+    const { data: cruise, error: cruiseError } = await database.from('cruises_v2').select('id,legacy_name,name_ko').eq('id', body.cruiseId).maybeSingle();
     if (cruiseError) throw cruiseError;
     if (!cruise) badRequest('저장할 크루즈를 찾을 수 없습니다.');
     const assignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
@@ -250,15 +240,25 @@ export async function POST(request) {
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];
     const cabinNames = new Map();
+    const cabinImageState = new Map(cabinIds.map((id) => [id, { sortOrder: -1, hasPrimary: false }]));
     if (cabinAssignments.some((item) => typeof item.cabinId !== 'string' || !item.cabinId)) badRequest('객실 사진의 저장 대상을 선택해 주세요.');
     if (cabinIds.length) {
-      const { data: cabins, error: cabinsError } = await database.from('cabins_v2').select('id,name_ko,name_en').eq('cruise_id', cruise.id).in('id', cabinIds);
+      const [{ data: cabins, error: cabinsError }, { data: existingCabinImages, error: existingCabinImagesError }] = await Promise.all([
+        database.from('cabins_v2').select('id,name_ko,name_en,legacy_room_name').eq('cruise_id', cruise.id).in('id', cabinIds),
+        database.from('cabin_images_v2').select('cabin_id,sort_order,is_primary').in('cabin_id', cabinIds),
+      ]);
       if (cabinsError) throw cabinsError;
+      if (existingCabinImagesError) throw existingCabinImagesError;
       if ((cabins || []).length !== cabinIds.length) badRequest('선택한 크루즈에 속한 객실만 사진 저장 대상으로 지정할 수 있습니다.');
       for (const cabin of cabins || []) {
         const storageName = englishCabinName(cabin);
         if (!storageName) badRequest('객실 이미지 파일명에 사용할 객실명이 없습니다. 객실명을 확인해 주세요.');
-        cabinNames.set(cabin.id, { nameKo: cabin.name_ko, nameEn: cabin.name_en, storageName });
+        cabinNames.set(cabin.id, { nameKo: cabin.name_ko, nameEn: cabin.name_en, roomName: cabin.legacy_room_name || cabin.name_ko, storageName });
+      }
+      for (const image of existingCabinImages || []) {
+        const state = cabinImageState.get(image.cabin_id);
+        state.sortOrder = Math.max(state.sortOrder, Number(image.sort_order) || 0);
+        state.hasPrimary ||= Boolean(image.is_primary);
       }
     }
     const { data: existingImportImages, error: existingImportImagesError } = await database.from('cruise_cafe_import_images_v2').select('storage_path').eq('cruise_id', cruise.id);
@@ -287,23 +287,31 @@ export async function POST(request) {
         : assignment?.target === 'cabin' ? `${cabinNames.get(assignment?.cabinId)?.nameKo || '크루즈'} 객실 사진 ${index + 1}` : article.title);
       return { ...image, assignment: { ...assignment, imageName: imageName.slice(0, 160) } };
     });
-    let savedRecords = [];
-    if (copied.length) {
-      const { data: insertedRecords, error: imageRecordError } = await database.from('cruise_cafe_import_images_v2').insert(copiedWithTarget.map((image, index) => ({
-        cruise_id: cruise.id, cabin_id: image.assignment?.target === 'cabin' ? image.assignment.cabinId : null, source_url: source.url, source_image_url: image.sourceImageUrl, image_name: image.assignment?.imageName || null, storage_bucket: MEDIA_BUCKET, storage_path: image.path, sort_order: index,
-      }))).select('id,source_image_url,storage_path');
-      if (imageRecordError) throw imageRecordError;
-      if ((insertedRecords || []).length !== copiedWithTarget.length) throw new Error('가져온 이미지 저장 결과를 확인하지 못했습니다.');
-      savedRecords = insertedRecords;
+    const platformImages = [];
+    for (const [index, image] of copiedWithTarget.entries()) {
+      const cabin = image.assignment?.target === 'cabin' ? cabinNames.get(image.assignment.cabinId) : null;
+      platformImages.push({
+        id: randomUUID(), collection: 'cafe_import', roomName: cabin?.roomName || null,
+        sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
+        imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path, sortOrder: index,
+        isPrimary: image.assignment?.target === 'hero',
+      });
+      if (cabin) {
+        const state = cabinImageState.get(image.assignment.cabinId);
+        const isPrimary = !state.hasPrimary;
+        state.hasPrimary ||= isPrimary;
+        state.sortOrder += 1;
+        platformImages.push({
+          id: randomUUID(), collection: 'cabin_gallery', roomName: cabin.roomName,
+          sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
+          imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path,
+          sortOrder: state.sortOrder, isPrimary,
+        });
+      }
     }
-    await attachCabinImages(database, cruise.id, copiedWithTarget, article.title);
-    const updates = { updated_at: new Date().toISOString() };
+    if (platformImages.length) await forwardPlatformImages(request, cruise.legacy_name || cruise.name_ko, platformImages);
     const heroImage = copiedWithTarget.find((image) => image.assignment?.target === 'hero');
-    if (heroImage) updates.hero_image = heroImage.publicUrl;
-    const { data: updatedCruise, error: updateError } = await database.from('cruises_v2').update(updates).eq('id', cruise.id).select('id').maybeSingle();
-    if (updateError) throw updateError;
-    if (!updatedCruise) throw new Error('크루즈 이미지 반영 결과를 확인하지 못했습니다.');
-    return Response.json({ ok: true, result: { title: article.title, imageCount: savedRecords.length, savedImageUrls: savedRecords.map((row) => row.source_image_url), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
+    return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
   } catch (error) {
     console.error('[naver-cafe-import]', error?.message || error);
     const message = error?.message || '네이버 카페 게시물을 가져오지 못했습니다.';

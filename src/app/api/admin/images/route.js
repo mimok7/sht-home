@@ -26,6 +26,42 @@ function publicUrl(database, path) {
   return database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
+function bearerToken(request) {
+  const header = request.headers.get('authorization') || '';
+  return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+}
+
+async function platformImageSource(database, target, entityId) {
+  if (target === 'catalog-hero') {
+    const { data, error } = await database.from('catalog_products_v2').select('service_type,source_key').eq('id', entityId).eq('source', 'sht-platform').maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 상품 원본을 찾을 수 없습니다.');
+    return { serviceType: data.service_type, sourceKey: data.source_key };
+  }
+  if (target === 'cruise-hero') {
+    const { data, error } = await database.from('cruises_v2').select('legacy_name,name_ko').eq('id', entityId).maybeSingle();
+    if (error || !data) throw error || new Error('플랫폼 크루즈 원본을 찾을 수 없습니다.');
+    return { cruiseName: data.legacy_name || data.name_ko };
+  }
+  const { data: cabin, error: cabinError } = await database.from('cabins_v2').select('cruise_id,legacy_room_name,name_ko').eq('id', entityId).maybeSingle();
+  if (cabinError || !cabin) throw cabinError || new Error('플랫폼 객실 원본을 찾을 수 없습니다.');
+  const { data: cruise, error: cruiseError } = await database.from('cruises_v2').select('legacy_name,name_ko').eq('id', cabin.cruise_id).maybeSingle();
+  if (cruiseError || !cruise) throw cruiseError || new Error('플랫폼 크루즈 원본을 찾을 수 없습니다.');
+  return { cruiseName: cruise.legacy_name || cruise.name_ko, roomName: cabin.legacy_room_name || cabin.name_ko };
+}
+
+async function forwardPlatformImage(request, source, action, values = {}) {
+  const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
+  const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action, source, values }),
+    cache: 'no-store',
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || '플랫폼 이미지 저장에 실패했습니다.');
+  return result;
+}
+
 function targetPrefix(target, entityId) {
   const config = TARGETS[target];
   return config ? `${config.folder}/${entityId}/` : '';
@@ -96,111 +132,6 @@ async function assertStoredObject(database, path) {
   if (!data) throw new Error('Storage에 업로드된 이미지를 찾을 수 없습니다.');
 }
 
-async function completeCabinImage(database, cabinId, path, altText) {
-  const [{ data: primary, error: primaryError }, { data: lastImage, error: orderError }] = await Promise.all([
-    database.from('cabin_images_v2').select('id').eq('cabin_id', cabinId).eq('is_primary', true).maybeSingle(),
-    database.from('cabin_images_v2').select('sort_order').eq('cabin_id', cabinId).order('sort_order', { ascending: false }).limit(1).maybeSingle(),
-  ]);
-  if (primaryError || orderError) throw primaryError || orderError;
-
-  const isPrimary = !primary;
-  const { data: image, error } = await database
-    .from('cabin_images_v2')
-    .insert({
-      cabin_id: cabinId,
-      storage_bucket: MEDIA_BUCKET,
-      storage_path: path,
-      alt_text: typeof altText === 'string' ? altText.trim() || null : null,
-      sort_order: (lastImage?.sort_order || 0) + (lastImage ? 1 : 0),
-      is_primary: isPrimary,
-    })
-    .select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at')
-    .single();
-  if (error) throw error;
-
-  if (isPrimary) {
-    const { error: cabinError } = await database.from('cabins_v2').update({ image_url: publicUrl(database, path), updated_at: new Date().toISOString() }).eq('id', cabinId);
-    if (cabinError) throw cabinError;
-  }
-  return image;
-}
-
-async function completeUpload(database, values) {
-  const { target, entityId, path, altText } = values || {};
-  if (!TARGETS[target] || typeof entityId !== 'string') throw new Error('이미지 저장 대상을 확인해 주세요.');
-  await assertTargetEntity(database, target, entityId);
-  assertExpectedPath(target, entityId, path);
-  await assertStoredObject(database, path);
-
-  if (target === 'cabin-gallery') return { image: await completeCabinImage(database, entityId, path, altText) };
-
-  const column = target === 'cruise-hero' ? 'hero_image' : 'image_url';
-  if (target === 'catalog-hero') {
-    const { data: current, error: currentError } = await database.from('catalog_products_v2').select('manual_override').eq('id', entityId).single();
-    if (currentError) throw currentError;
-    const { error } = await database.from('catalog_products_v2').update({ manual_override: { ...(current.manual_override || {}), image_url: publicUrl(database, path) }, updated_at: new Date().toISOString() }).eq('id', entityId);
-    if (error) throw error;
-    return { imageUrl: publicUrl(database, path) };
-  }
-
-  const { error } = await database.from('cruises_v2').update({ [column]: publicUrl(database, path), updated_at: new Date().toISOString() }).eq('id', entityId);
-  if (error) throw error;
-  return { imageUrl: publicUrl(database, path) };
-}
-
-async function setCabinPrimaryImage(database, imageId) {
-  const { data: image, error: imageError } = await database
-    .from('cabin_images_v2')
-    .select('id,cabin_id,storage_bucket,storage_path')
-    .eq('id', imageId)
-    .single();
-  if (imageError) throw imageError;
-  if (image.storage_bucket !== MEDIA_BUCKET) throw new Error('지원하지 않는 이미지 저장소입니다.');
-
-  const { error: clearError } = await database.from('cabin_images_v2').update({ is_primary: false, updated_at: new Date().toISOString() }).eq('cabin_id', image.cabin_id).eq('is_primary', true);
-  if (clearError) throw clearError;
-  const { error: primaryError } = await database.from('cabin_images_v2').update({ is_primary: true, updated_at: new Date().toISOString() }).eq('id', image.id);
-  if (primaryError) throw primaryError;
-  const { error: cabinError } = await database.from('cabins_v2').update({ image_url: publicUrl(database, image.storage_path), updated_at: new Date().toISOString() }).eq('id', image.cabin_id);
-  if (cabinError) throw cabinError;
-}
-
-async function removeCabinImage(database, imageId) {
-  const { data: image, error: imageError } = await database
-    .from('cabin_images_v2')
-    .select('id,cabin_id,storage_bucket,storage_path,is_primary')
-    .eq('id', imageId)
-    .single();
-  if (imageError) throw imageError;
-  if (image.storage_bucket !== MEDIA_BUCKET) throw new Error('지원하지 않는 이미지 저장소입니다.');
-
-  const { data: replacement, error: replacementError } = await database
-    .from('cabin_images_v2')
-    .select('id,storage_path')
-    .eq('cabin_id', image.cabin_id)
-    .neq('id', image.id)
-    .order('sort_order')
-    .order('created_at')
-    .limit(1)
-    .maybeSingle();
-  if (replacementError) throw replacementError;
-
-  const { error: storageError } = await database.storage.from(MEDIA_BUCKET).remove([image.storage_path]);
-  if (storageError) throw storageError;
-  const { error: deleteError } = await database.from('cabin_images_v2').delete().eq('id', image.id);
-  if (deleteError) throw deleteError;
-
-  if (image.is_primary && replacement) {
-    const { error: replacementError } = await database.from('cabin_images_v2').update({ is_primary: true, updated_at: new Date().toISOString() }).eq('id', replacement.id);
-    if (replacementError) throw replacementError;
-    const { error: cabinError } = await database.from('cabins_v2').update({ image_url: publicUrl(database, replacement.storage_path), updated_at: new Date().toISOString() }).eq('id', image.cabin_id);
-    if (cabinError) throw cabinError;
-  } else if (image.is_primary) {
-    const { error: cabinError } = await database.from('cabins_v2').update({ image_url: null, updated_at: new Date().toISOString() }).eq('id', image.cabin_id);
-    if (cabinError) throw cabinError;
-  }
-}
-
 function failureResponse(error, fallback) {
   console.error('[homepage-admin-images]', error?.message || error);
   const message = error?.message || '';
@@ -227,14 +158,38 @@ export async function PATCH(request) {
   if (!database) return Response.json({ error: '홈페이지 관리자 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
   try {
     const body = await request.json();
-    if (body.action === 'completeUpload') return Response.json({ ok: true, result: await completeUpload(database, body) });
+    if (body.action === 'completeUpload') {
+      const { target, entityId, path, altText } = body;
+      if (!TARGETS[target] || typeof entityId !== 'string') throw new Error('이미지 저장 대상을 확인해 주세요.');
+      await assertTargetEntity(database, target, entityId);
+      assertExpectedPath(target, entityId, path);
+      await assertStoredObject(database, path);
+      const source = await platformImageSource(database, target, entityId);
+      const imageUrl = publicUrl(database, path);
+      let isPrimary = target === 'cruise-hero';
+      if (target === 'cabin-gallery') {
+        const { data: currentPrimary, error: primaryError } = await database.from('cabin_images_v2')
+          .select('id').eq('cabin_id', entityId).eq('is_primary', true).limit(1).maybeSingle();
+        if (primaryError) throw primaryError;
+        isPrimary = !currentPrimary;
+      }
+      const result = await forwardPlatformImage(request, source, 'upsertImage', {
+        collection: target === 'cabin-gallery' ? 'cabin_gallery' : 'cafe_import', imageUrl,
+        imageName: altText || null, storageBucket: MEDIA_BUCKET, storagePath: path,
+        isPrimary,
+      });
+      return Response.json({ ok: true, result: { ...result, imageUrl } });
+    }
     if (body.action === 'setCabinPrimaryImage') {
-      await setCabinPrimaryImage(database, body.imageId);
-      return Response.json({ ok: true });
+      return Response.json({ ok: true, result: await forwardPlatformImage(request, { imageId: body.imageId }, 'setPrimaryImage') });
     }
     if (body.action === 'removeCabinImage') {
-      await removeCabinImage(database, body.imageId);
-      return Response.json({ ok: true });
+      const { data: image, error } = await database.from('cabin_images_v2').select('storage_bucket,storage_path').eq('id', body.imageId).maybeSingle();
+      if (error || !image) throw error || new Error('삭제할 이미지를 찾을 수 없습니다.');
+      const result = await forwardPlatformImage(request, { imageId: body.imageId }, 'removeImage');
+      const { error: storageError } = await database.storage.from(image.storage_bucket).remove([image.storage_path]);
+      if (storageError) throw storageError;
+      return Response.json({ ok: true, result });
     }
     return Response.json({ error: '지원하지 않는 이미지 작업입니다.' }, { status: 400 });
   } catch (error) {

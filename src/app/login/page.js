@@ -18,15 +18,13 @@ export default function Login() {
     event.preventDefault();
     setSubmitting(true);
     setError('');
-    let { data: authData, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
-    let authClient = supabase;
-    const homepageRole = authData?.user?.app_metadata?.role || '';
-    if (signInError || !['admin', 'manager'].includes(homepageRole)) {
-      if (!signInError) await supabase.auth.signOut();
-      const platformSignIn = await platformSupabase.auth.signInWithPassword({ email, password });
-      authData = platformSignIn.data;
-      signInError = platformSignIn.error;
-      authClient = platformSupabase;
+    let { data: authData, error: signInError } = await platformSupabase.auth.signInWithPassword({ email, password });
+    let authClient = platformSupabase;
+    if (signInError) {
+      const homepageSignIn = await supabase.auth.signInWithPassword({ email, password });
+      authData = homepageSignIn.data;
+      signInError = homepageSignIn.error;
+      authClient = supabase;
     }
     setSubmitting(false);
     if (signInError) {

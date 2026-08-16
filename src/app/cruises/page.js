@@ -5,7 +5,9 @@ import './cruises.css';
 const FALLBACK_IMAGES = ['/yacht_1.png', '/yacht_2.png', '/yacht_3.png', '/halong-hero.png'];
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 
-export const revalidate = 300;
+// 관리자에서 공개 상태를 변경한 직후에도 목록이 이전 캐시를 보여주지 않도록
+// 공개 크루즈 상태는 요청마다 최신값을 조회한다.
+export const dynamic = 'force-dynamic';
 
 function normalizeImagePath(imageUrl) {
   return imageUrl
@@ -13,10 +15,27 @@ function normalizeImagePath(imageUrl) {
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
 }
 
-function buildCruiseCards(rows) {
+function buildCruiseCards(cruiseRows, recommendationRows) {
   const cruises = new Map();
 
-  for (const row of rows) {
+  for (const row of cruiseRows) {
+    cruises.set(row.id, {
+      id: row.id,
+      slug: row.slug,
+      name: row.name_ko,
+      nameEn: row.name_en,
+      description: row.description,
+      category: row.category,
+      rating: row.star_rating,
+      heroImage: row.hero_image,
+      minPrice: null,
+      currency: 'VND',
+      scheduleTypes: new Set(),
+      tags: new Set(),
+    });
+  }
+
+  for (const row of recommendationRows) {
     if (!row.cruise_id || !row.cruise_name) continue;
     if (!cruises.has(row.cruise_id)) {
       cruises.set(row.cruise_id, {
@@ -36,7 +55,7 @@ function buildCruiseCards(rows) {
     }
 
     const cruise = cruises.get(row.cruise_id);
-    cruise.scheduleTypes.add(row.schedule_type);
+    if (row.schedule_type) cruise.scheduleTypes.add(row.schedule_type);
     for (const tag of row.tags || []) cruise.tags.add(tag);
     if (Number.isFinite(row.price_adult) && row.price_adult > 0 && (cruise.minPrice === null || row.price_adult < cruise.minPrice)) {
       cruise.minPrice = row.price_adult;
@@ -81,15 +100,25 @@ async function getCruiseMainImages(cruiseIds) {
 }
 
 async function getCruises() {
-  const { data, error } = await supabase
-    .from('public_cruise_recommendation_v2')
-    .select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,schedule_type,currency,price_adult,tags');
+  const [cruiseResult, recommendationResult] = await Promise.all([
+    supabase
+      .from('cruises_v2')
+      .select('id,slug,name_ko,name_en,description,category,star_rating,hero_image')
+      .eq('is_active', true)
+      .order('name_ko'),
+    supabase
+      .from('public_cruise_recommendation_v2')
+      .select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,schedule_type,currency,price_adult,tags'),
+  ]);
 
-  if (error) {
-    console.error('Failed to load v2 cruise collection:', error.message);
+  if (cruiseResult.error) {
+    console.error('Failed to load active v2 cruises:', cruiseResult.error.message);
     return [];
   }
-  return buildCruiseCards(data || []);
+  if (recommendationResult.error) {
+    console.error('Failed to load v2 cruise prices:', recommendationResult.error.message);
+  }
+  return buildCruiseCards(cruiseResult.data || [], recommendationResult.data || []);
 }
 
 export default async function Cruises() {

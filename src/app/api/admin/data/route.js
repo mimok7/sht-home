@@ -1,5 +1,7 @@
 // 플랫폼 운영자 권한을 검증해 홈페이지용 v2 데이터를 안전하게 관리하는 API다.
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
+import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -10,6 +12,8 @@ const PLATFORM_PRODUCT_ACTIONS = new Set([
   'updateCruise', 'updateItinerary', 'updateCabin', 'createCabin', 'updateRate',
   'upsertCruiseTag',
 ]);
+const CRUISE_CACHE_FIELDS = ['name_ko', 'name_en', 'description', 'category', 'star_rating', 'hero_image', 'is_active'];
+const ITINERARY_CACHE_FIELDS = ['description', 'is_active'];
 
 function bearerToken(request) {
   const header = request.headers.get('authorization') || '';
@@ -55,18 +59,93 @@ async function platformMutationSource(database, action, id, values) {
   throw new Error('지원하지 않는 플랫폼 상품 작업입니다.');
 }
 
-async function forwardPlatformMutation(request, database, body) {
+async function sendPlatformMutation(token, source, body) {
   const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
-  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
   const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: body.action, source, values: body.values || {} }),
     cache: 'no-store',
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || '플랫폼 DB 저장에 실패했습니다.');
   return result;
+}
+
+async function forwardPlatformMutation(request, database, body) {
+  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
+  const result = await sendPlatformMutation(bearerToken(request), source, body);
+  await mirrorCruiseUpdate(database, body);
+  return result;
+}
+
+async function updateCruiseImmediately(request, database, body) {
+  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
+  const token = bearerToken(request);
+  await mirrorCruiseUpdate(database, body);
+
+  after(async () => {
+    try {
+      await sendPlatformMutation(token, source, body);
+    } catch (error) {
+      console.error('[homepage-admin] delayed platform sync failed', error?.message || error);
+    }
+  });
+
+  return { ok: true, syncPending: true };
+}
+
+async function updateItineraryImmediately(request, database, body) {
+  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
+  const token = bearerToken(request);
+  await mirrorItineraryUpdate(database, body);
+
+  after(async () => {
+    try {
+      await sendPlatformMutation(token, source, body);
+    } catch (error) {
+      console.error('[homepage-admin] delayed itinerary sync failed', error?.message || error);
+    }
+  });
+
+  return { ok: true, syncPending: true };
+}
+
+// 플랫폼이 원본이지만, 공개 상태 변경은 다음 전체 동기화를 기다리지 않고
+// 홈페이지의 공개 목록에 즉시 반영한다. 이후 동기화도 플랫폼의 같은 값을 다시 적용한다.
+async function mirrorCruiseUpdate(database, body) {
+  if (body?.action !== 'updateCruise' || !body.id) return;
+  const values = pick(body.values || {}, CRUISE_CACHE_FIELDS);
+  if (!Object.keys(values).length) return;
+
+  const { error } = await database
+    .from('cruises_v2')
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq('id', body.id);
+  if (error) throw error;
+
+  revalidatePath('/cruises');
+  revalidatePath('/temp-home');
+  revalidatePath('/product/[id]', 'page');
+}
+
+// 일정 저장은 플랫폼의 전체 카탈로그 동기화를 기다리지 않고 공개 화면에 즉시 반영한다.
+async function mirrorItineraryUpdate(database, body) {
+  if (body?.action !== 'updateItinerary' || !body.id) return;
+  const values = pick(body.values || {}, ITINERARY_CACHE_FIELDS);
+  if (!Object.keys(values).length) return;
+
+  const { data, error } = await database
+    .from('cruise_itineraries_v2')
+    .update({ ...values, updated_at: new Date().toISOString() })
+    .eq('id', body.id)
+    .select('id')
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('수정할 일정을 찾을 수 없습니다.');
+
+  revalidatePath('/cruises');
+  revalidatePath('/product/[id]', 'page');
 }
 
 function errorResponse(error, fallback = '관리자 데이터를 처리하지 못했습니다.') {
@@ -184,6 +263,12 @@ export async function PATCH(request) {
   if (!database) return Response.json({ error: '홈페이지 관리자 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
   try {
     const body = await request.json();
+    if (body?.action === 'updateCruise') {
+      return Response.json(await updateCruiseImmediately(request, database, body));
+    }
+    if (body?.action === 'updateItinerary') {
+      return Response.json(await updateItineraryImmediately(request, database, body));
+    }
     if (PLATFORM_PRODUCT_ACTIONS.has(body?.action)) {
       return Response.json(await forwardPlatformMutation(request, database, body));
     }

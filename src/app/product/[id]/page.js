@@ -418,19 +418,22 @@ export default function ProductDetail({ params }) {
                     key={cabin.id}
                     className={`cabin-card ${selectedCabin?.id === cabin.id ? 'active' : ''}`}
                   >
-                    {cabinMedia ? (
-                      <CruiseMediaGallery
-                        cruiseName={cruise.name}
-                        heroImage={cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`}
-                        groups={[cabinMedia]}
-                        mainGroupId={cabinMedia.id}
-                        mainClassName="cabin-image cabin-gallery-trigger"
-                        showArchive={false}
-                        showMainMeta={false}
-                      />
-                    ) : (
-                      <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
-                    )}
+                    <div className="cabin-media-actions">
+                      {cabinMedia ? (
+                        <CruiseMediaGallery
+                          cruiseName={cruise.name}
+                          heroImage={cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`}
+                          groups={[cabinMedia]}
+                          mainGroupId={cabinMedia.id}
+                          mainClassName="cabin-image cabin-gallery-trigger"
+                          showArchive={false}
+                          showMainMeta={false}
+                        />
+                      ) : (
+                        <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
+                      )}
+                      <button type="button" className="cabin-detail-button" onClick={() => { setSelectedCabinId(cabin.id); setDetailCabinId(cabin.id); }}>상세 안내 <span>↗</span></button>
+                    </div>
                     <button type="button" className="cabin-select-button" onClick={() => setSelectedCabinId(cabin.id)}>
                       <span className="cabin-info">
                         <strong>{cabin.name}</strong>
@@ -441,7 +444,6 @@ export default function ProductDetail({ params }) {
                         <strong>{formatVnd(rate?.price_adult, rate?.currency)}</strong>
                       </span>
                     </button>
-                    <button type="button" className="cabin-detail-button" onClick={() => { setSelectedCabinId(cabin.id); setDetailCabinId(cabin.id); }}>상세 안내 <span>↗</span></button>
                   </div>
                 );
               })}

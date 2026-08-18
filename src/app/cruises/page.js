@@ -15,7 +15,7 @@ function normalizeImagePath(imageUrl) {
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
 }
 
-function buildCruiseCards(cruiseRows, recommendationRows) {
+function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
   const cruises = new Map();
 
   for (const row of cruiseRows) {
@@ -55,11 +55,16 @@ function buildCruiseCards(cruiseRows, recommendationRows) {
     }
 
     const cruise = cruises.get(row.cruise_id);
-    if (row.schedule_type) cruise.scheduleTypes.add(row.schedule_type);
     for (const tag of row.tags || []) cruise.tags.add(tag);
     if (Number.isFinite(row.price_adult) && row.price_adult > 0 && (cruise.minPrice === null || row.price_adult < cruise.minPrice)) {
       cruise.minPrice = row.price_adult;
       cruise.currency = row.currency || 'VND';
+    }
+  }
+
+  for (const row of itineraryRows) {
+    if (row.cruise_id && row.schedule_type && cruises.has(row.cruise_id)) {
+      cruises.get(row.cruise_id).scheduleTypes.add(row.schedule_type);
     }
   }
 
@@ -100,12 +105,16 @@ async function getCruiseMainImages(cruiseIds) {
 }
 
 async function getCruises() {
-  const [cruiseResult, recommendationResult] = await Promise.all([
+  const [cruiseResult, itineraryResult, recommendationResult] = await Promise.all([
     supabase
       .from('cruises_v2')
       .select('id,slug,name_ko,name_en,description,category,star_rating,hero_image')
       .eq('is_active', true)
       .order('name_ko'),
+    supabase
+      .from('cruise_itineraries_v2')
+      .select('cruise_id,schedule_type')
+      .eq('is_active', true),
     supabase
       .from('public_cruise_recommendation_v2')
       .select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,schedule_type,currency,price_adult,tags'),
@@ -118,7 +127,11 @@ async function getCruises() {
   if (recommendationResult.error) {
     console.error('Failed to load v2 cruise prices:', recommendationResult.error.message);
   }
-  return buildCruiseCards(cruiseResult.data || [], recommendationResult.data || []);
+  if (itineraryResult.error) {
+    console.error('Failed to load active v2 itineraries:', itineraryResult.error.message);
+  }
+  const itineraryRows = itineraryResult.error ? recommendationResult.data || [] : itineraryResult.data || [];
+  return buildCruiseCards(cruiseResult.data || [], itineraryRows, recommendationResult.data || []);
 }
 
 export default async function Cruises() {

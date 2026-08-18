@@ -25,6 +25,7 @@ const SERVICE_FLOWS = {
   hotel: [
     { id: 'date', label: '투숙 일정', type: 'date', title: '언제 투숙하나요?', description: '선택한 날짜에 적용 가능한 요금을 우선 확인합니다.' },
     { id: 'guests', label: '투숙 인원', type: 'counter', title: '몇 분이 함께 투숙하나요?', description: '객실별 수용 인원이 등록된 경우 가능한 객실만 남깁니다.', counterLabel: '투숙 인원', min: 1, max: 12 },
+    { id: 'location', label: '숙소 위치', type: 'options', title: '어느 지역의 숙소를 찾으세요?', description: '원하는 위치를 선택하면 상담 시 숙소 추천에 반영합니다.', options: [['halong-bay', '하롱베이', '바다와 크루즈 이동 편의'], ['bai-chay', '바이짜이', '식당과 관광지 접근성'], ['tuan-chau', '투안차우', '크루즈 선착장과 가까운 위치'], ['city', '하롱 시내', '현지 이동과 생활 편의'], ['anywhere', '위치 무관', '객실과 가격을 우선 비교']] },
     { id: 'room', label: '객실 선호', type: 'options', title: '어떤 객실을 찾으세요?', description: '선호 조건은 상담 요청에 함께 전달됩니다.', options: [['standard', '기본 객실', '합리적인 숙박'], ['family', '가족 객실', '여러 명이 함께'], ['premium', '프리미엄 객실', '뷰와 편의 우선']] },
   ],
   tour: [

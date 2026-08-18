@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import './CruiseMediaGallery.css';
 
 function uniqueImages(images) {
@@ -104,7 +105,7 @@ export default function CruiseMediaGallery({
         </section>
       )}
 
-      {activeGroup && activeImage && (
+      {typeof document !== 'undefined' && activeGroup && activeImage && createPortal(
         <div className="cruise-lightbox" role="dialog" aria-modal="true" aria-label={`${cruiseName} ${activeGroup.label} 이미지`} onClick={(event) => { if (event.target === event.currentTarget) closeGallery(); }}>
           <div className="cruise-lightbox-panel">
             <header>
@@ -129,7 +130,8 @@ export default function CruiseMediaGallery({
               <p><strong>{activeIndex + 1} / {activeGroup.images.length}</strong><span>{activeImage.alt}</span></p>
             </footer>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

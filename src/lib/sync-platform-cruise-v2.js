@@ -14,7 +14,9 @@ function displayText(value) {
 
 function number(value) {
   if (value === '' || value === null || value === undefined) return null;
-  const parsed = Number(value);
+  const parsed = typeof value === 'string'
+    ? Number(value.match(/-?\d+(?:\.\d+)?/)?.[0])
+    : Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -97,8 +99,8 @@ export async function syncPlatformCruiseV2(database, catalogs) {
       name_ko: text(content.name_ko) || name,
       name_en: text(content.name_en) || text(source.name) || existing?.name_en || null,
       description: text(content.description) || text(source.description),
-      category: text(content.category) || text(source.category),
-      star_rating: sourceRating === null ? null : Math.max(0, Math.min(5, sourceRating)),
+      category: null,
+      star_rating: sourceRating === null ? null : Math.max(0, Math.min(6, sourceRating)),
       hero_image: text(content.hero_image) || text(source.cruise_image) || existing?.hero_image || null,
       is_active: content.is_active === undefined ? true : Boolean(content.is_active),
       updated_at: now,

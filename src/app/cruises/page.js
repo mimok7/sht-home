@@ -25,7 +25,6 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
       name: row.name_ko,
       nameEn: row.name_en,
       description: row.description,
-      category: row.category,
       rating: row.star_rating,
       heroImage: row.hero_image,
       minPrice: null,
@@ -44,7 +43,6 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
         name: row.cruise_name,
         nameEn: row.cruise_name_en,
         description: row.description,
-        category: row.category,
         rating: row.star_rating,
         heroImage: row.hero_image,
         minPrice: null,
@@ -108,7 +106,7 @@ async function getCruises() {
   const [cruiseResult, itineraryResult, recommendationResult] = await Promise.all([
     supabase
       .from('cruises_v2')
-      .select('id,slug,name_ko,name_en,description,category,star_rating,hero_image')
+      .select('id,slug,name_ko,name_en,description,star_rating,hero_image')
       .eq('is_active', true)
       .order('name_ko'),
     supabase
@@ -117,7 +115,7 @@ async function getCruises() {
       .eq('is_active', true),
     supabase
       .from('public_cruise_recommendation_v2')
-      .select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,schedule_type,currency,price_adult,tags'),
+      .select('cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,schedule_type,currency,price_adult,tags'),
   ]);
 
   if (cruiseResult.error) {

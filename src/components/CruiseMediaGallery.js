@@ -14,7 +14,6 @@ function uniqueImages(images) {
 
 export default function CruiseMediaGallery({
   cruiseName,
-  category,
   duration,
   heroImage,
   displayImage,
@@ -84,7 +83,6 @@ export default function CruiseMediaGallery({
           aria-label={`${cruiseName} ${mainGroup.label} 이미지 크게 보기`}
         >
           {showMainMeta && <>
-            <span className="badge">{category || 'CURATED'}</span>
             <span className="duration-tag">{duration || '일정 확인'}</span>
             <span className="image-open-hint">크게 보기 <b>↗</b></span>
             {mainGroup.images.length > 1 && <span className="image-count">{mainGroup.images.length} IMAGES</span>}

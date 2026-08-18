@@ -14,18 +14,9 @@ const IMAGE_NAME_PRESETS = [
   { value: 'menu', label: '메뉴소개 (menu)' },
 ];
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
-const CRUISE_CATEGORY_OPTIONS = [
-  { value: '', label: '미설정', description: '홈페이지에서 기본 분류로 표시합니다.' },
-  { value: '데이크루즈', label: '데이크루즈', description: '숙박 없이 당일에 운항하는 상품입니다.' },
-  { value: '스탠다드', label: '스탠다드', description: '기본 시설과 서비스를 갖춘 일반 상품입니다.' },
-  { value: '프리미엄', label: '프리미엄', description: '상위 시설·객실·서비스를 강조할 상품입니다.' },
-  { value: '오버나이트 크루즈', label: '오버나이트 크루즈', description: '1박 이상 선상 숙박이 포함된 상품입니다.' },
-];
 const CRUISE_RATING_OPTIONS = [
-  { value: '', label: '미설정', description: '별점 정보를 표시하지 않습니다.' },
-  { value: '3', label: '3성급', description: '기본 서비스 중심의 상품입니다.' },
-  { value: '4', label: '4성급', description: '상위 편의시설과 서비스를 제공하는 상품입니다.' },
   { value: '5', label: '5성급', description: '최상위 시설과 서비스를 제공하는 상품입니다.' },
+  { value: '6', label: '6성급', description: '최고 수준의 시설과 맞춤형 서비스를 제공하는 상품입니다.' },
 ];
 const CATALOG_SERVICE_LABELS = { cruise: '크루즈', hotel: '호텔', airport: '공항', tour: '투어', vehicle: '차량' };
 const CATALOG_SERVICE_DETAIL_FIELDS = {
@@ -49,7 +40,6 @@ const CRUISE_OPERATION_GROUP = {
   items: [
     { id: 'profile', label: '기본 정보' },
     { id: 'tags', label: '추천 기준' },
-    { id: 'itinerary', label: '일정 관리' },
     { id: 'cabins', label: '객실 관리' },
     { id: 'rates', label: '요금 관리' },
   ],
@@ -74,7 +64,7 @@ function dateRange(start, end) {
 function editableCruise(cruise) {
   return {
     name_ko: string(cruise.name_ko), name_en: string(cruise.name_en),
-    description: string(cruise.description), category: string(cruise.category),
+    description: string(cruise.description),
     star_rating: string(cruise.star_rating), hero_image: string(cruise.hero_image),
     is_active: Boolean(cruise.is_active),
   };
@@ -556,8 +546,8 @@ export default function AdminCruiseManager({ importOnly = false }) {
           <section className="admin-section admin-panel" data-panel="profile"><div className="admin-section-title"><span>01 / CRUISE PROFILE</span><h2>기본 소개 및 공개 상태</h2><a href={selectedCruise?.slug ? `/product/${encodeURIComponent(selectedCruise.slug)}` : '#'} target="_blank" rel="noreferrer">공개 화면 보기 ↗</a></div>
             <div className="rate-only-source"><div><span>RATE TABLE ONLY</span><strong>인포 테이블에 없는 요금 크루즈</strong><p>선택하면 비공개 초안과 일정이 생성됩니다. 객실과 설명을 추가한 뒤 공개하세요.</p></div><div><select value={selectedUnmatchedRate} onChange={(event) => setSelectedUnmatchedRate(event.target.value)}><option value="">요금 전용 크루즈 선택 ({data.unmatchedRates.length})</option>{data.unmatchedRates.map((source) => <option value={source.legacy_name} key={source.legacy_name}>{source.legacy_name} · 요금 {source.rate_count}건 · {(source.schedule_types || []).join(', ')}</option>)}</select><button type="button" className="admin-save" onClick={addCruiseFromRateOnlySource} disabled={!selectedUnmatchedRate || saving === 'rate-only-cruise'}>{saving === 'rate-only-cruise' ? '추가 중…' : '관리 크루즈로 추가 →'}</button></div></div>
             <form onSubmit={(event) => { event.preventDefault(); save('cruise', 'updateCruise', selectedId, { ...cruiseForm, star_rating: numeric(cruiseForm.star_rating) }); }} className="admin-form profile-form">
-              <section className="cruise-classification-guide wide" aria-labelledby="cruise-classification-title"><header><span>DISPLAY RULES</span><strong id="cruise-classification-title">등급·카테고리 설정 기준</strong><p>카테고리는 상품의 여행 형태와 서비스 수준을, 등급은 홈페이지의 별점 표기를 정합니다. 아래 목록에서 하나씩 선택한 뒤 저장하세요.</p></header><dl><div><dt>카테고리</dt><dd>{CRUISE_CATEGORY_OPTIONS.map((option) => <span key={option.value || 'empty'}><b>{option.label}</b>{option.description}</span>)}</dd></div><div><dt>등급</dt><dd>{CRUISE_RATING_OPTIONS.map((option) => <span key={option.value || 'empty'}><b>{option.label}</b>{option.description}</span>)}</dd></div></dl></section>
-              <label>국문 상품명<input value={cruiseForm?.name_ko || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, name_ko: event.target.value })} required /></label><label>영문 상품명<input value={cruiseForm?.name_en || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, name_en: event.target.value })} /></label><label>카테고리<select value={cruiseForm?.category || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, category: event.target.value })}>{CRUISE_CATEGORY_OPTIONS.map((option) => <option value={option.value} key={option.value || 'empty'}>{option.label}</option>)}</select></label><label>등급<select value={cruiseForm?.star_rating || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, star_rating: event.target.value })}>{CRUISE_RATING_OPTIONS.map((option) => <option value={option.value} key={option.value || 'empty'}>{option.label}</option>)}</select></label><label className="wide">대표 이미지 경로 또는 URL<input value={cruiseForm?.hero_image || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, hero_image: event.target.value })} placeholder="https:// 또는 /images/cruises/..." /></label><ImageFilePicker label="대표 이미지 선택" disabled={saving === `image-upload-cruise-hero-${selectedId}`} onSelect={(files) => uploadImages('cruise-hero', selectedId, files)} /><ImagePreview src={cruiseForm?.hero_image} alt={`${cruiseForm?.name_ko || '크루즈'} 대표 이미지`} /><label className="wide">상품 설명<textarea rows="5" value={cruiseForm?.description || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, description: event.target.value })} /></label><label className="check wide"><input type="checkbox" checked={Boolean(cruiseForm?.is_active)} onChange={(event) => setCruiseForm({ ...cruiseForm, is_active: event.target.checked })} /> 공개 상품으로 노출</label><button className="admin-save wide" disabled={saving === 'cruise'}>{saving === 'cruise' ? '저장 중…' : '기본 정보 저장 →'}</button></form>
+              <section className="cruise-rating-guide wide" aria-labelledby="cruise-rating-title"><header><span>DISPLAY RULES</span><strong id="cruise-rating-title">등급 설정 기준</strong><p>등급은 홈페이지에 표시하는 별점입니다. 5성급 또는 6성급을 선택한 뒤 저장하세요. 상품 구분은 일정으로 안내하므로 카테고리는 사용하지 않습니다.</p></header><dl><div><dt>등급</dt><dd>{CRUISE_RATING_OPTIONS.map((option) => <span key={option.value}><b>{option.label}</b>{option.description}</span>)}</dd></div></dl></section>
+              <label>국문 상품명<input value={cruiseForm?.name_ko || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, name_ko: event.target.value })} required /></label><label>영문 상품명<input value={cruiseForm?.name_en || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, name_en: event.target.value })} /></label><label className="wide">등급<select value={cruiseForm?.star_rating || '5'} onChange={(event) => setCruiseForm({ ...cruiseForm, star_rating: event.target.value })}>{CRUISE_RATING_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label><label className="wide">대표 이미지 경로 또는 URL<input value={cruiseForm?.hero_image || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, hero_image: event.target.value })} placeholder="https:// 또는 /images/cruises/..." /></label><ImageFilePicker label="대표 이미지 선택" disabled={saving === `image-upload-cruise-hero-${selectedId}`} onSelect={(files) => uploadImages('cruise-hero', selectedId, files)} /><ImagePreview src={cruiseForm?.hero_image} alt={`${cruiseForm?.name_ko || '크루즈'} 대표 이미지`} /><label className="wide">상품 설명<textarea rows="5" value={cruiseForm?.description || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, description: event.target.value })} /></label><label className="check wide"><input type="checkbox" checked={Boolean(cruiseForm?.is_active)} onChange={(event) => setCruiseForm({ ...cruiseForm, is_active: event.target.checked })} /> 공개 상품으로 노출</label><button className="admin-save wide" disabled={saving === 'cruise'}>{saving === 'cruise' ? '저장 중…' : '기본 정보 저장 →'}</button></form>
           </section>
           <section className="admin-section admin-panel" data-panel="naver-import">
             <div className="admin-section-title"><span>CAFE IMPORT</span><h2>데이터 가져오기</h2><p>본문과 사진을 검토한 뒤, 확인한 데이터만 저장합니다.</p></div>

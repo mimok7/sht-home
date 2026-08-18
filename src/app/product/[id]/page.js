@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
-const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
+const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const MEDIA_CATEGORY_LABELS = {
@@ -247,7 +247,6 @@ export default function ProductDetail({ params }) {
         name: first.cruise_name,
         nameEn: first.cruise_name_en,
         description: first.description,
-        category: first.category,
         rating: first.star_rating,
         heroImage: first.hero_image,
         tags: first.tags || [],
@@ -382,7 +381,6 @@ export default function ProductDetail({ params }) {
             {cruise.nameEn && <p className="product-subtitle">{cruise.nameEn}</p>}
             <p className="product-desc">{cruise.description || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>
             <div className="product-facts">
-              {cruise.category && <span>{cruise.category}</span>}
               {cruise.rating && <span>★ {cruise.rating}</span>}
               {cruise.tags.map((tag) => <span key={tag}>#{tag}</span>)}
             </div>
@@ -392,7 +390,6 @@ export default function ProductDetail({ params }) {
             <section className="product-section product-photo-archive">
               <CruiseMediaGallery
                 cruiseName={cruise.name}
-                category={cruise.category}
                 duration={duration}
                 heroImage={heroImage}
                 groups={archiveGroups}

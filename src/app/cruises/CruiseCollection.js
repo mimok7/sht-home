@@ -17,7 +17,6 @@ function RotatingCruiseImage({ cruise }) {
   return (
     <CruiseMediaGallery
       cruiseName={cruise.name}
-      category={cruise.category}
       duration={cruise.duration}
       heroImage={cruise.imageUrl}
       displayImage={images[imageIndex]?.url}
@@ -48,7 +47,7 @@ export default function CruiseCollection({ cruises }) {
             <option value="all">일정 전체</option><option value="DAY">당일 크루즈</option><option value="1N2D">1박 2일</option><option value="2N3D">2박 3일</option>
           </select>
           <select className="filter-select" value={rating} onChange={(event) => setRating(event.target.value)} aria-label="등급 필터">
-            <option value="all">등급 전체</option><option value="5">5성급 럭셔리</option><option value="4">4성급 스탠다드</option>
+            <option value="all">등급 전체</option><option value="6">6성급 프리미엄</option><option value="5">5성급 럭셔리</option>
           </select>
         </div>
         <div className="sort-group">

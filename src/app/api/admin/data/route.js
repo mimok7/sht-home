@@ -12,7 +12,7 @@ const PLATFORM_PRODUCT_ACTIONS = new Set([
   'updateCruise', 'updateItinerary', 'updateCabin', 'createCabin', 'updateRate',
   'upsertCruiseTag',
 ]);
-const CRUISE_CACHE_FIELDS = ['name_ko', 'name_en', 'description', 'category', 'star_rating', 'hero_image', 'is_active'];
+const CRUISE_CACHE_FIELDS = ['name_ko', 'name_en', 'description', 'star_rating', 'hero_image', 'is_active'];
 const ITINERARY_CACHE_FIELDS = ['description', 'is_active'];
 
 function bearerToken(request) {

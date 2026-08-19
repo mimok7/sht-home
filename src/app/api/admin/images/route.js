@@ -166,7 +166,13 @@ export async function PATCH(request) {
       await assertStoredObject(database, path);
       const source = await platformImageSource(database, target, entityId);
       const imageUrl = publicUrl(database, path);
-      let isPrimary = target === 'cruise-hero';
+      let isPrimary = false;
+      if (target === 'cruise-hero') {
+        const { data: currentPrimary, error: primaryError } = await database.from('cruise_cafe_import_images_v2')
+          .select('id').eq('cruise_id', entityId).is('cabin_id', null).eq('is_primary', true).limit(1).maybeSingle();
+        if (primaryError) throw primaryError;
+        isPrimary = !currentPrimary;
+      }
       if (target === 'cabin-gallery') {
         const { data: currentPrimary, error: primaryError } = await database.from('cabin_images_v2')
           .select('id').eq('cabin_id', entityId).eq('is_primary', true).limit(1).maybeSingle();
@@ -183,12 +189,23 @@ export async function PATCH(request) {
     if (body.action === 'setCabinPrimaryImage') {
       return Response.json({ ok: true, result: await forwardPlatformImage(request, { imageId: body.imageId }, 'setPrimaryImage') });
     }
+    if (body.action === 'setCruisePrimaryImage') {
+      return Response.json({ ok: true, result: await forwardPlatformImage(request, { imageId: body.imageId }, 'setPrimaryImage') });
+    }
     if (body.action === 'removeCabinImage') {
       const { data: image, error } = await database.from('cabin_images_v2').select('storage_bucket,storage_path').eq('id', body.imageId).maybeSingle();
       if (error || !image) throw error || new Error('삭제할 이미지를 찾을 수 없습니다.');
       const result = await forwardPlatformImage(request, { imageId: body.imageId }, 'removeImage');
       const { error: storageError } = await database.storage.from(image.storage_bucket).remove([image.storage_path]);
       if (storageError) throw storageError;
+      return Response.json({ ok: true, result });
+    }
+    if (body.action === 'removeCruiseImage') {
+      const { data: image, error } = await database.from('cruise_cafe_import_images_v2').select('storage_bucket,storage_path').eq('id', body.imageId).maybeSingle();
+      if (error || !image) throw error || new Error('삭제할 이미지를 찾을 수 없습니다.');
+      const result = await forwardPlatformImage(request, { imageId: body.imageId }, 'removeImage');
+      const { error: storageError } = await database.storage.from(image.storage_bucket).remove([image.storage_path]);
+      if (storageError && storageStatus(storageError) !== 404) throw storageError;
       return Response.json({ ok: true, result });
     }
     return Response.json({ error: '지원하지 않는 이미지 작업입니다.' }, { status: 400 });

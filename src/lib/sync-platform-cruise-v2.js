@@ -364,7 +364,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
       cabinImageRows.push({ id: row.id, cabin_id: cabin.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, alt_text: text(row.image_name), sort_order: number(row.sort_order) || 0, is_primary: Boolean(row.is_primary), updated_at: now });
     }
     if (row.collection === 'cafe_import' && row.storage_bucket && row.storage_path) {
-      cafeImageRows.push({ id: row.id, cruise_id: cruise.id, cabin_id: cabin?.id || null, source_url: text(row.source_url) || row.image_url, source_image_url: text(row.source_image_url) || row.image_url, image_name: text(row.image_name), storage_bucket: row.storage_bucket, storage_path: row.storage_path, sort_order: number(row.sort_order) || 0 });
+      cafeImageRows.push({ id: row.id, cruise_id: cruise.id, cabin_id: cabin?.id || null, source_url: text(row.source_url) || row.image_url, source_image_url: text(row.source_image_url) || row.image_url, image_name: text(row.image_name), storage_bucket: row.storage_bucket, storage_path: row.storage_path, sort_order: number(row.sort_order) || 0, is_primary: Boolean(row.is_primary) });
     }
   }
   const [cachedCabinImages, cachedCafeImages] = await Promise.all([

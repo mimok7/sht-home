@@ -48,7 +48,7 @@ const CRUISE_OPERATION_PANEL_IDS = new Set(CRUISE_OPERATION_GROUP.items.map((ite
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
 const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }, { id: 'change-request-status', label: '수정 신청 현황' }, { id: 'change-request-completed', label: '수정 완료 내역' }] };
 
-const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], rates: [], tags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [], hotelRoomDetails: [] };
+const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], cruiseImages: [], rates: [], tags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [], hotelRoomDetails: [] };
 const string = (value) => value ?? '';
 const numeric = (value) => (value === '' || value === null ? null : Number(value));
 const fileStem = (value, fallback = 'cabin') => String(value || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
@@ -100,6 +100,18 @@ function CabinImageGallery({ images, busy, onUpload, onSetPrimary, onRemove }) {
         <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
       </figure>;
     })}</div>}
+  </section>;
+}
+
+function CruiseImageGallery({ images, busy, onSetPrimary, onRemove }) {
+  return <section className="cabin-image-gallery wide" aria-label="크루즈 업로드 이미지 관리">
+    <div className="cabin-image-gallery-heading"><div><span>CRUISE GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>대표 이미지는 한 장만 지정됩니다. 다른 이미지를 대표로 바꾸거나 삭제할 수 있습니다.</small></div></div>
+    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => {
+      const imageUrl = supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
+      return <figure key={image.id} className="cabin-gallery-image" role="img" aria-label={image.image_name || `크루즈 이미지 ${index + 1}`} style={{ backgroundImage: `url(${imageUrl})` }}>
+        <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
+      </figure>;
+    })}</div> : <p className="admin-gallery-empty">업로드된 크루즈 이미지가 없습니다. 위의 대표 이미지 선택에서 이미지를 추가하세요.</p>}
   </section>;
 }
 
@@ -195,6 +207,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
     for (const current of images.values()) current.sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order || left.created_at.localeCompare(right.created_at));
     return images;
   }, [data.cabinImages]);
+  const cruiseImages = useMemo(() => (data.cruiseImages || [])
+    .filter((image) => image.cruise_id === selectedId && !image.cabin_id)
+    .sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order || left.created_at.localeCompare(right.created_at)), [data.cruiseImages, selectedId]);
   const cabinById = useMemo(() => new Map(cabins.map((cabin) => [cabin.id, cabin])), [cabins]);
   const itineraryById = useMemo(() => new Map(itineraries.map((itinerary) => [itinerary.id, itinerary])), [itineraries]);
   const rates = useMemo(() => data.rates.filter((rate) => cabinById.has(rate.cabin_id)), [data.rates, cabinById]);
@@ -277,6 +292,20 @@ export default function AdminCruiseManager({ importOnly = false }) {
       await load();
     } catch (imageError) {
       setError(imageError.message || '객실 이미지를 변경하지 못했습니다.');
+    } finally {
+      setSaving('');
+    }
+  }
+
+  async function changeCruiseImage(action, imageId) {
+    const label = `cruise-image-${action}-${imageId}`;
+    setSaving(label); setMessage(''); setError('');
+    try {
+      await adminRequest('/api/admin/images', { method: 'PATCH', body: JSON.stringify({ action, imageId }) });
+      setMessage(action === 'setCruisePrimaryImage' ? '대표 이미지를 변경했습니다.' : '크루즈 이미지를 삭제했습니다.');
+      await load();
+    } catch (imageError) {
+      setError(imageError.message || '크루즈 이미지를 변경하지 못했습니다.');
     } finally {
       setSaving('');
     }
@@ -551,7 +580,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
               <label>영문 상품명<input value={cruiseForm?.name_en || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, name_en: event.target.value })} /></label>
               <label className="profile-rating">등급<select value={cruiseForm?.star_rating || '5'} onChange={(event) => setCruiseForm({ ...cruiseForm, star_rating: event.target.value })}>{CRUISE_RATING_OPTIONS.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}</select></label>
               <section className="profile-itinerary-list" aria-labelledby="profile-itinerary-title"><span id="profile-itinerary-title">공개 일정 선택</span><div>{itineraries.map((itinerary) => { const isSavingItinerary = saving === `itinerary-${itinerary.id}`; return <button type="button" key={itinerary.id} className={itinerary.is_active ? 'is-active' : ''} onClick={() => save(`itinerary-${itinerary.id}`, 'updateItinerary', itinerary.id, { is_active: true })} disabled={isSavingItinerary || itinerary.is_active} aria-pressed={itinerary.is_active}><strong>{SCHEDULE_LABELS[itinerary.schedule_type]}</strong><small>{isSavingItinerary ? '공개 중…' : itinerary.is_active ? '선택됨 · 공개' : '선택해 공개'}</small></button>; })}</div></section>
-              <label className="wide">대표 이미지 경로 또는 URL<input value={cruiseForm?.hero_image || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, hero_image: event.target.value })} placeholder="https:// 또는 /images/cruises/..." /></label><ImageFilePicker label="대표 이미지 선택" disabled={saving === `image-upload-cruise-hero-${selectedId}`} onSelect={(files) => uploadImages('cruise-hero', selectedId, files)} /><ImagePreview src={cruiseForm?.hero_image} alt={`${cruiseForm?.name_ko || '크루즈'} 대표 이미지`} /><label className="wide">상품 설명<textarea rows="5" value={cruiseForm?.description || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, description: event.target.value })} /></label><label className="check wide"><input type="checkbox" checked={Boolean(cruiseForm?.is_active)} onChange={(event) => setCruiseForm({ ...cruiseForm, is_active: event.target.checked })} /> 공개 상품으로 노출</label><button className="admin-save wide" disabled={saving === 'cruise'}>{saving === 'cruise' ? '저장 중…' : '기본 정보 저장 →'}</button></form>
+              <label className="wide">대표 이미지 경로 또는 URL<input value={cruiseForm?.hero_image || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, hero_image: event.target.value })} placeholder="https:// 또는 /images/cruises/..." /></label><ImageFilePicker label="대표 이미지 선택" disabled={saving === `image-upload-cruise-hero-${selectedId}`} onSelect={(files) => uploadImages('cruise-hero', selectedId, files)} /><ImagePreview src={cruiseForm?.hero_image} alt={`${cruiseForm?.name_ko || '크루즈'} 대표 이미지`} /><CruiseImageGallery images={cruiseImages} busy={saving.startsWith('cruise-image-') || saving === `image-upload-cruise-hero-${selectedId}`} onSetPrimary={(imageId) => changeCruiseImage('setCruisePrimaryImage', imageId)} onRemove={(imageId) => changeCruiseImage('removeCruiseImage', imageId)} /><label className="wide">상품 설명<textarea rows="5" value={cruiseForm?.description || ''} onChange={(event) => setCruiseForm({ ...cruiseForm, description: event.target.value })} /></label><label className="check wide"><input type="checkbox" checked={Boolean(cruiseForm?.is_active)} onChange={(event) => setCruiseForm({ ...cruiseForm, is_active: event.target.checked })} /> 공개 상품으로 노출</label><button className="admin-save wide" disabled={saving === 'cruise'}>{saving === 'cruise' ? '저장 중…' : '기본 정보 저장 →'}</button></form>
           </section>
           <section className="admin-section admin-panel" data-panel="naver-import">
             <div className="admin-section-title"><span>CAFE IMPORT</span><h2>데이터 가져오기</h2><p>본문과 사진을 검토한 뒤, 확인한 데이터만 저장합니다.</p></div>

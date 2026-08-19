@@ -195,6 +195,7 @@ async function getDashboard(database, role) {
     database.from('cruise_itineraries_v2').select('id,cruise_id,schedule_type,nights,description,is_active').order('schedule_type'),
     database.from('cabins_v2').select('id,cruise_id,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,is_active').order('name_ko'),
     database.from('cabin_images_v2').select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at').order('sort_order'),
+    database.from('cruise_cafe_import_images_v2').select('id,cruise_id,cabin_id,storage_bucket,storage_path,image_name,sort_order,is_primary,created_at').order('sort_order'),
     database.from('rate_plans_v2').select('id,cabin_id,itinerary_id,valid_during,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,extra_bed_available,season_name,is_active').order('created_at'),
     database.from('cruise_tags_v2').select('cruise_id,tag,evidence,is_active').order('tag'),
     database.from('catalog_products_v2').select('id,service_type,source,source_key,name_ko,description,category,image_url,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('name_ko'),
@@ -211,12 +212,13 @@ async function getDashboard(database, role) {
   const failed = results.find((result) => result.error);
   if (failed) throw failed.error;
 
-  const [cruises, itineraries, cabins, cabinImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, members, roles] = results;
+  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, members, roles] = results;
   return {
     cruises: (cruises.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     itineraries: itineraries.data || [],
     cabins: cabins.data || [],
     cabinImages: cabinImages.data || [],
+    cruiseImages: cruiseImages.data || [],
     rates: rates.data || [],
     tags: tags.data || [],
     catalogProducts: (catalogProducts.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),

@@ -41,6 +41,13 @@ function pickLatest(rows) {
 }
 
 function findCabin(rate, cabins, aliasCabins = new Map()) {
+  // 괄호 안의 인원·층수는 서로 다른 객실/요금일 수 있다. 정규화 전에
+  // 원본 객실명이 정확히 일치하는지 우선 확인해 2인·3인, 2층·3층 요금이
+  // 하나의 객실로 합쳐지는 일을 막는다.
+  const rawNames = [text(rate.room_type), text(rate.room_type_en)].filter(Boolean);
+  const rawExact = cabins.filter((cabin) => rawNames.includes(text(cabin.legacy_room_name)) || rawNames.includes(text(cabin.name_ko)) || rawNames.includes(text(cabin.name_en)));
+  if (rawExact.length === 1) return rawExact[0];
+
   const aliases = [rate.room_type, rate.room_type_en].map(normalized).filter(Boolean);
   if (!aliases.length) return null;
   const aliased = aliases.map((alias) => aliasCabins.get(alias)).filter(Boolean);
@@ -72,6 +79,15 @@ export async function syncPlatformCruiseV2(database, catalogs) {
   const cruiseGroups = new Map();
   for (const row of cruiseInfo) {
     const name = text(row.cruise_name) || text(row.name);
+    if (!name) continue;
+    if (!cruiseGroups.has(name)) cruiseGroups.set(name, []);
+    cruiseGroups.get(name).push(row);
+  }
+  // 요금표만 먼저 등록된 크루즈도 홈페이지에서 객실·일정·요금을 연결할 수
+  // 있어야 한다. cruise_info가 없는 경우에도 요금표의 크루즈명과 객실명을
+  // 보조 원본으로 사용한다.
+  for (const row of rateCards) {
+    const name = text(row.cruise_name);
     if (!name) continue;
     if (!cruiseGroups.has(name)) cruiseGroups.set(name, []);
     cruiseGroups.get(name).push(row);
@@ -177,8 +193,8 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     if (!cruise) continue;
     const rooms = new Map();
     for (const row of rows) {
-      const roomName = text(row.room_name);
-      if (!roomName || (number(row.max_adults) || 0) < 1) continue;
+      const roomName = text(row.room_name) || text(row.room_type);
+      if (!roomName) continue;
       if (!rooms.has(roomName)) rooms.set(roomName, []);
       rooms.get(roomName).push(row);
     }
@@ -192,14 +208,18 @@ export async function syncPlatformCruiseV2(database, catalogs) {
       const override = cabinOverrides.get(`${name}\u0000${roomName}`) || {};
       const displayName = text(override.name_ko) || roomName;
       const existing = existingCabinByDisplay.get(`${cruise.id}|${displayName}`) || existingCabinBySource.get(`${cruise.id}|${roomName}`);
-      const maxAdults = Math.max(1, ...roomRows.map((row) => number(row.max_adults) || 0));
-      const maxGuests = Math.max(maxAdults, ...roomRows.map((row) => number(row.max_guests) || 0));
+      const knownMaxAdults = roomRows.map((row) => number(row.max_adults)).filter((value) => value !== null && value > 0);
+      const knownMaxGuests = roomRows.map((row) => number(row.max_guests)).filter((value) => value !== null && value > 0);
+      // 원본 객실 정원이 없을 때에도 2인 기준 요금표를 표시할 수 있도록
+      // 최소 정원만 보완한다. 원본 정원이 있으면 그 값을 그대로 사용한다.
+      const maxAdults = knownMaxAdults.length ? Math.max(...knownMaxAdults) : 2;
+      const maxGuests = knownMaxGuests.length ? Math.max(maxAdults, ...knownMaxGuests) : maxAdults;
       cabinRows.push({
         id: existing?.id || crypto.randomUUID(),
         cruise_id: cruise.id,
         legacy_room_name: roomName,
         name_ko: displayName,
-        name_en: text(override.name_en),
+        name_en: text(override.name_en) || text(source.room_name_en) || text(source.room_type_en) || text(source.name_en),
         image_url: text(override.image_url) || text(source.room_image),
         room_area_text: text(override.room_area_text) || text(source.room_area),
         bed_type: text(override.bed_type) || text(source.bed_type),

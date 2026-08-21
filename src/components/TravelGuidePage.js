@@ -56,7 +56,7 @@ export default function TravelGuidePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedService, setSelectedService] = useState('cruise');
-  const [catalog, setCatalog] = useState({ products: [], prices: [] });
+  const [catalog, setCatalog] = useState({ products: [], prices: [], hotelImages: [] });
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
 
@@ -69,16 +69,22 @@ export default function TravelGuidePage() {
   const activeService = SERVICE_GUIDES.find((service) => service.id === selectedService) || SERVICE_GUIDES[0];
   const serviceProducts = useMemo(() => {
     const pricesByProduct = new Map();
+    const hotelImagesByProduct = new Map();
     for (const price of catalog.prices) {
       if (!pricesByProduct.has(price.product_id)) pricesByProduct.set(price.product_id, []);
       pricesByProduct.get(price.product_id).push(price);
+    }
+    for (const image of catalog.hotelImages) {
+      if (!hotelImagesByProduct.has(image.product_id)) hotelImagesByProduct.set(image.product_id, []);
+      hotelImagesByProduct.get(image.product_id).push(image);
     }
     return catalog.products
       .filter((product) => product.service_type === selectedService)
       .map((product) => {
         const activePrices = (pricesByProduct.get(product.id) || []).filter((price) => price.price_amount !== null && Number.isFinite(Number(price.price_amount)));
         const lowestPrice = activePrices.sort((left, right) => Number(left.price_amount) - Number(right.price_amount))[0] || null;
-        return { ...product, prices: activePrices, lowestPrice };
+        const hotelImages = (hotelImagesByProduct.get(product.id) || []).sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order);
+        return { ...product, prices: activePrices, lowestPrice, hotelImages };
       });
   }, [catalog, selectedService]);
 
@@ -86,16 +92,17 @@ export default function TravelGuidePage() {
     let cancelled = false;
     async function loadCatalog() {
       setCatalogLoading(true);
-      const [productsResult, pricesResult] = await Promise.all([
+      const [productsResult, pricesResult, hotelImagesResult] = await Promise.all([
         supabase.from('catalog_products_v2').select('id,service_type,name_ko,description,category,image_url,metadata').eq('is_active', true).order('name_ko').limit(1000),
         supabase.from('catalog_prices_v2').select('product_id,price_amount,currency,price_unit,label,min_guests,max_guests,valid_from,valid_to').eq('is_active', true).limit(2000),
+        supabase.from('hotel_gallery_images_v2').select('product_id,hotel_price_code,image_name,image_url,sort_order,is_primary').order('sort_order').limit(3000),
       ]);
       if (cancelled) return;
-      if (productsResult.error || pricesResult.error) {
-        console.error('Failed to load public travel catalogue:', productsResult.error || pricesResult.error);
+      if (productsResult.error || pricesResult.error || hotelImagesResult.error) {
+        console.error('Failed to load public travel catalogue:', productsResult.error || pricesResult.error || hotelImagesResult.error);
         setCatalogError('현재 공개 상품을 불러오지 못했습니다. 현지 데스크에 문의해 주세요.');
       } else {
-        setCatalog({ products: productsResult.data || [], prices: pricesResult.data || [] });
+        setCatalog({ products: productsResult.data || [], prices: pricesResult.data || [], hotelImages: hotelImagesResult.data || [] });
       }
       setCatalogLoading(false);
     }
@@ -181,7 +188,7 @@ function ServiceGuideFlow({ service, products, loading, error }) {
   return <><ServiceGuideSidebar service={service} steps={steps} currentStep={currentStep} /><div className={styles.chat}><header><p>STEP {String(isResults ? steps.length : stepIndex + 1).padStart(2, '0')} / {String(steps.length).padStart(2, '0')} · {service.label.toUpperCase()}</p><div className={styles.progress}><i style={{ width: `${((isResults ? steps.length : stepIndex + 1) / steps.length) * 100}%` }} /></div></header><div className={styles.conversation} aria-live="polite">{question}{!isResults && stepIndex > 0 && <button type="button" className={styles.back} onClick={back}>← 이전 질문</button>}</div></div></>;
 }
 function ServiceGuideSidebar({ service, steps, currentStep }) { const currentIndex = steps.findIndex((step) => step.id === currentStep); return <aside className={styles.notes}><p>{service.label.toUpperCase()} JOURNEY</p><ol>{steps.map((step, index) => <li key={step.id} className={index === currentIndex ? styles.current : index < currentIndex || currentStep === 'results' ? styles.done : ''}><b>{String(index + 1).padStart(2, '0')}</b>{step.label}</li>)}</ol><a href={KAKAO_CHAT_URL} target="_blank" rel="noreferrer">현지 데스크 상담 <span>↗</span></a></aside>; }
-function ServiceCatalogResults({ service, products, allProducts, loading, error, onReset }) { return <><Question title={`${service.label} 조건에 맞는 상품입니다.`} description="선택한 일정과 인원 조건을 우선 반영했습니다. 정확한 가용 여부와 최종 요금은 상담 시 확인합니다." /><div className={styles.serviceBrief}><span>{service.number} / 결과 안내</span><ul>{service.checks.map((check) => <li key={check}>{check}</li>)}</ul></div><div className={styles.catalogHeading}><span>ACTIVE HOMEPAGE DATA</span><strong>{loading ? '상품을 불러오는 중…' : `조건 일치 ${products.length}개 / 전체 ${allProducts.length}개`}</strong></div>{error ? <p className={styles.error}>{error}</p> : loading ? <p className={styles.catalogLoading}>상품 정보를 불러오는 중입니다.</p> : products.length ? <div className={styles.catalogProducts}>{products.slice(0, 12).map((product, index) => <article className={styles.catalogProduct} key={product.id}>{product.image_url && <figure className={styles.catalogProductImage} role="img" aria-label={`${product.name_ko} 대표 이미지`} style={{ backgroundImage: `url(${product.image_url})` }} />}<span>{String(index + 1).padStart(2, '0')} / {product.category || service.label.toUpperCase()}</span><h3>{product.name_ko}</h3><p>{product.description || '세부 조건과 이용 가능 여부는 현지 데스크에서 확인해 주세요.'}</p><strong>{catalogPriceLabel(product.lowestPrice)}</strong>{product.lowestPrice?.label && <small>{product.lowestPrice.label}</small>}</article>)}</div> : <div className={styles.catalogEmpty}><strong>조건에 맞는 공개 상품이 없습니다.</strong><p>조건을 다시 선택하거나 현지 데스크에 문의해 주세요.</p></div>}{products.length > 12 && <p className={styles.catalogMore}>조건에 맞는 대표 12개를 표시했습니다. 전체 상품과 정확한 조건은 현지 데스크에서 안내합니다.</p>}<a className={styles.catalogConsult} href={KAKAO_CHAT_URL} target="_blank" rel="noreferrer">{service.label} 상담 요청 <span>↗</span></a><button type="button" className={styles.restart} onClick={onReset}>조건 다시 선택하기</button></>; }
+function ServiceCatalogResults({ service, products, allProducts, loading, error, onReset }) { return <><Question title={`${service.label} 조건에 맞는 상품입니다.`} description="선택한 일정과 인원 조건을 우선 반영했습니다. 정확한 가용 여부와 최종 요금은 상담 시 확인합니다." /><div className={styles.serviceBrief}><span>{service.number} / 결과 안내</span><ul>{service.checks.map((check) => <li key={check}>{check}</li>)}</ul></div><div className={styles.catalogHeading}><span>ACTIVE HOMEPAGE DATA</span><strong>{loading ? '상품을 불러오는 중…' : `조건 일치 ${products.length}개 / 전체 ${allProducts.length}개`}</strong></div>{error ? <p className={styles.error}>{error}</p> : loading ? <p className={styles.catalogLoading}>상품 정보를 불러오는 중입니다.</p> : products.length ? <div className={styles.catalogProducts}>{products.slice(0, 12).map((product, index) => <article className={styles.catalogProduct} key={product.id}>{product.image_url && <figure className={styles.catalogProductImage} role="img" aria-label={`${product.name_ko} 대표 이미지`} style={{ backgroundImage: `url(${product.image_url})` }} />}<span>{String(index + 1).padStart(2, '0')} / {product.category || service.label.toUpperCase()}</span><h3>{product.name_ko}</h3><p>{product.description || '세부 조건과 이용 가능 여부는 현지 데스크에서 확인해 주세요.'}</p>{service.id === 'hotel' && product.hotelImages?.length > 0 && <div className={styles.hotelRoomGallery} aria-label={`${product.name_ko} 객실 이미지`}><b>ROOMS</b>{product.hotelImages.slice(0, 4).map((image) => <figure key={image.image_url} role="img" aria-label={image.image_name || `${product.name_ko} 객실 이미지`} style={{ backgroundImage: `url(${image.image_url})` }} />)}</div>}<strong>{catalogPriceLabel(product.lowestPrice)}</strong>{product.lowestPrice?.label && <small>{product.lowestPrice.label}</small>}</article>)}</div> : <div className={styles.catalogEmpty}><strong>조건에 맞는 공개 상품이 없습니다.</strong><p>조건을 다시 선택하거나 현지 데스크에 문의해 주세요.</p></div>}{products.length > 12 && <p className={styles.catalogMore}>조건에 맞는 대표 12개를 표시했습니다. 전체 상품과 정확한 조건은 현지 데스크에서 안내합니다.</p>}<a className={styles.catalogConsult} href={KAKAO_CHAT_URL} target="_blank" rel="noreferrer">{service.label} 상담 요청 <span>↗</span></a><button type="button" className={styles.restart} onClick={onReset}>조건 다시 선택하기</button></>; }
 function filterServiceProducts(products, answers) { return products.map((product) => { const availablePrices = product.prices.filter((price) => isMatchingPrice(price, answers)); if (product.prices.length && !availablePrices.length) return null; const lowestPrice = [...(availablePrices.length ? availablePrices : product.prices)].sort((left, right) => Number(left.price_amount) - Number(right.price_amount))[0] || product.lowestPrice; return { ...product, lowestPrice }; }).filter(Boolean).sort((left, right) => Number(left.lowestPrice?.price_amount ?? Number.MAX_SAFE_INTEGER) - Number(right.lowestPrice?.price_amount ?? Number.MAX_SAFE_INTEGER)); }
 function isMatchingPrice(price, answers) { if (answers.date && ((price.valid_from && price.valid_from > answers.date) || (price.valid_to && price.valid_to < answers.date))) return false; if (answers.guests && price.min_guests && Number(price.min_guests) > Number(answers.guests)) return false; if (answers.guests && price.max_guests && Number(price.max_guests) < Number(answers.guests)) return false; return true; }
 function serviceAnswerLabel(step, value) { if (step.type === 'date') return value || '날짜 미정'; if (step.type === 'counter') return `${value || step.min}명`; return step.options?.find(([option]) => option === value)?.[1] || '선택 안 함'; }

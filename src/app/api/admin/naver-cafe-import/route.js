@@ -242,26 +242,47 @@ export async function POST(request) {
     if (productError) throw productError;
     if (!product) badRequest(serviceType === 'hotel' ? '저장할 호텔을 찾을 수 없습니다.' : '저장할 크루즈를 찾을 수 없습니다.');
     const assignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
-    const allowedTargets = serviceType === 'hotel' ? ['hero', 'delete'] : ['hero', 'cabin', 'gallery', 'delete'];
+    const allowedTargets = serviceType === 'hotel' ? ['hero', 'hotel_room', 'delete'] : ['hero', 'cabin', 'gallery', 'delete'];
     if (assignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !article.images.includes(item.sourceImageUrl) || !allowedTargets.includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 원본 이미지만 선택할 수 있습니다. 새로 미리보기 해 주세요.');
-    const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery').map((item) => item.sourceImageUrl))];
-    if (serviceType === 'hotel' && selectedImages.length > 1) badRequest('호텔 대표 이미지는 한 장씩 저장해 주세요.');
+    const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery' || item.target === 'hotel_room').map((item) => item.sourceImageUrl))];
     if (serviceType === 'hotel') {
-      const image = assignments.find((item) => item.target === 'hero');
-      if (!image) badRequest('호텔 대표 이미지로 저장할 이미지를 선택해 주세요.');
-      const { copied, skipped } = await copyImages(database, serviceType, product.id, [{ sourceImageUrl: image.sourceImageUrl, storageName: `main-${randomUUID().slice(0, 8)}` }]);
-      const saved = copied[0];
-      if (!saved) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: [], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
-      const platformSource = { serviceType, sourceKey: product.source_key };
-      await forwardPlatformMutation(request, platformSource, 'upsertImage', {
-        id: randomUUID(), collection: 'catalog_hero', sourceUrl: source.url,
-        sourceImageUrl: saved.sourceImageUrl, imageName: image.imageName || article.title,
-        imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path,
-        sortOrder: 0, isPrimary: true,
+      const heroAssignments = assignments.filter((item) => item.target === 'hero');
+      const roomAssignments = assignments.filter((item) => item.target === 'hotel_room');
+      if (heroAssignments.length > 1) badRequest('호텔 대표 이미지는 한 장만 지정할 수 있습니다.');
+      if (!heroAssignments.length && !roomAssignments.length) badRequest('저장할 대표 이미지 또는 객실 이미지를 지정해 주세요.');
+      if (roomAssignments.some((item) => typeof item.hotelPriceCode !== 'string' || !item.hotelPriceCode)) badRequest('객실 사진의 저장 대상을 선택해 주세요.');
+      const hotelPriceCodes = [...new Set(roomAssignments.map((item) => item.hotelPriceCode))];
+      if (hotelPriceCodes.length) {
+        const { data: rooms, error: roomsError } = await database.from('catalog_product_details_v2').select('source_id').eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('product_id', product.id).in('source_id', hotelPriceCodes);
+        if (roomsError) throw roomsError;
+        if ((rooms || []).length !== hotelPriceCodes.length) badRequest('선택한 호텔에 속한 객실만 사진 저장 대상으로 지정할 수 있습니다.');
+      }
+      const roomCounters = new Map();
+      const imageItems = assignments.filter((item) => item.target === 'hero' || item.target === 'hotel_room').map((assignment) => {
+        const base = assignment.target === 'hero' ? 'main' : `room-${assignment.hotelPriceCode}`;
+        const serial = (roomCounters.get(base) || 0) + 1;
+        roomCounters.set(base, serial);
+        return { sourceImageUrl: assignment.sourceImageUrl, storageName: `${base}-${String(serial).padStart(3, '0')}-${randomUUID().slice(0, 8)}` };
       });
+      const { copied, skipped } = await copyImages(database, serviceType, product.id, imageItems);
+      if (!copied.length) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: [], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
+      const platformSource = { serviceType, sourceKey: product.source_key };
+      const assignmentBySource = new Map(assignments.map((item) => [item.sourceImageUrl, item]));
+      const primaryRoomCodes = new Set();
+      const platformImages = copied.map((saved, index) => {
+        const assignment = assignmentBySource.get(saved.sourceImageUrl);
+        const hotelPriceCode = assignment?.target === 'hotel_room' ? assignment.hotelPriceCode : null;
+        const isPrimary = assignment?.target === 'hero' || (hotelPriceCode && !primaryRoomCodes.has(hotelPriceCode));
+        if (hotelPriceCode) primaryRoomCodes.add(hotelPriceCode);
+        return { id: randomUUID(), collection: hotelPriceCode ? 'room_gallery' : 'hotel_import', hotelPriceCode,
+          sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: assignment?.imageName || article.title,
+          imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: index, isPrimary };
+      });
+      await forwardPlatformMutation(request, platformSource, 'upsertHotelImages', { images: platformImages });
       const importedDescription = body.importDescription === true ? cleanText(body.description).slice(0, 30000) : '';
       if (importedDescription) await forwardPlatformMutation(request, platformSource, 'updateCatalogDetails', { description: importedDescription });
-      return Response.json({ ok: true, result: { title: article.title, imageCount: 1, savedImageUrls: [saved.sourceImageUrl], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: saved.publicUrl, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
+      const heroImage = copied.find((saved) => assignmentBySource.get(saved.sourceImageUrl)?.target === 'hero');
+      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.publicUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
     }
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];

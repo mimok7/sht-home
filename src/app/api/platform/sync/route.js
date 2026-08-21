@@ -1,7 +1,7 @@
 // 예약 플랫폼이 전송한 상품 원본을 홈페이지 동기화 스테이징 테이블에 저장한다.
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
-import { syncPlatformCruiseV2 } from '@/lib/sync-platform-cruise-v2';
+import { syncPlatformCruiseV2, syncPlatformHotelImagesV2 } from '@/lib/sync-platform-cruise-v2';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -13,7 +13,7 @@ const SOURCE_TABLES = new Set([
   'tour', 'tour_pricing', 'tour_schedule', 'tour_inclusions', 'tour_exclusions', 'tour_important_info',
   'tour_addon_options', 'tour_payment_pricing', 'tour_cancellation_policy', 'tour_cruise_integration', 'rentcar_price',
   'homepage_cruise_content', 'homepage_cruise_itineraries', 'homepage_cruise_tags', 'homepage_cruise_images',
-  'homepage_cruise_cabin_overrides',
+  'homepage_cruise_cabin_overrides', 'homepage_hotel_images',
   'homepage_catalog_product_overrides', 'homepage_catalog_price_overrides',
 ]);
 
@@ -182,11 +182,15 @@ export async function POST(request) {
 
   let deletedProducts = 0;
   let cruiseV2;
+  let hotelImagesV2;
   let overrides;
   try {
     deletedProducts = await removeOrphanProducts(database, body.catalogs);
     overrides = await applyCatalogOverrides(database, body.catalogs);
-    cruiseV2 = await syncPlatformCruiseV2(database, body.catalogs);
+    [cruiseV2, hotelImagesV2] = await Promise.all([
+      syncPlatformCruiseV2(database, body.catalogs),
+      syncPlatformHotelImagesV2(database, body.catalogs),
+    ]);
   } catch (error) {
     console.error('[platform-sync] cache reconciliation failed', error?.message || error);
     return Response.json({ error: '홈페이지 공개 상품 캐시 정리에 실패했습니다.' }, { status: 500 });
@@ -202,5 +206,5 @@ export async function POST(request) {
     return Response.json({ error: '동기화 이력 저장에 실패했습니다.' }, { status: 500 });
   }
 
-  return Response.json({ ok: true, received: records.length, deletedSourceRecords, deletedProducts, catalogCounts: counts, transformed, overrides, cruiseV2 });
+  return Response.json({ ok: true, received: records.length, deletedSourceRecords, deletedProducts, catalogCounts: counts, transformed, overrides, cruiseV2, hotelImagesV2 });
 }

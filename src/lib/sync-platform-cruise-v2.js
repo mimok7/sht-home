@@ -387,3 +387,31 @@ export async function syncPlatformCruiseV2(database, catalogs) {
 
   return { cruises: cruiseRows.length, cabins: cabinRows.length, itineraries: itineraryRows.length, rates: rateRows.length, tags: tagRows.length, images: images.length, unmatchedRates };
 }
+
+export async function syncPlatformHotelImagesV2(database, catalogs) {
+  const images = Array.isArray(catalogs.homepage_hotel_images) ? catalogs.homepage_hotel_images : [];
+  const hotelCodes = [...new Set(images.map((row) => text(row.hotel_code)).filter(Boolean))];
+  const { data: products, error: productsError } = hotelCodes.length
+    ? await database.from('catalog_products_v2').select('id,source_key').eq('source', 'sht-platform').eq('service_type', 'hotel').in('source_key', hotelCodes)
+    : { data: [], error: null };
+  if (productsError) throw new Error(`호텔 이미지 상품 조회 실패: ${productsError.message}`);
+  const productByHotelCode = new Map((products || []).map((product) => [String(product.source_key), product]));
+  const rows = images.map((image) => {
+    const product = productByHotelCode.get(text(image.hotel_code));
+    if (!product || !text(image.id) || !text(image.image_url) || !text(image.storage_bucket) || !text(image.storage_path)) return null;
+    return {
+      id: image.id, product_id: product.id, hotel_price_code: text(image.hotel_price_code), collection: text(image.collection) || 'hotel_import',
+      source_url: text(image.source_url), source_image_url: text(image.source_image_url), image_name: text(image.image_name), image_url: text(image.image_url),
+      storage_bucket: text(image.storage_bucket), storage_path: text(image.storage_path), sort_order: number(image.sort_order) || 0,
+      is_primary: Boolean(image.is_primary), updated_at: new Date().toISOString(),
+    };
+  }).filter(Boolean);
+  const cached = await throwOnError(await database.from('hotel_gallery_images_v2').select('id'), '호텔 이미지 캐시 조회 실패');
+  if (rows.length) await throwOnError(await database.from('hotel_gallery_images_v2').upsert(rows, { onConflict: 'id' }), '호텔 이미지 캐시 저장 실패');
+  const incomingIds = new Set(rows.map((row) => row.id));
+  const staleIds = cached.filter((row) => !incomingIds.has(row.id)).map((row) => row.id);
+  for (let index = 0; index < staleIds.length; index += 200) {
+    await throwOnError(await database.from('hotel_gallery_images_v2').delete().in('id', staleIds.slice(index, index + 200)), '호텔 이미지 캐시 정리 실패');
+  }
+  return { images: rows.length, unmatchedImages: images.length - rows.length };
+}

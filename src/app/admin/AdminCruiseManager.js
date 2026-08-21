@@ -236,6 +236,10 @@ export default function AdminCruiseManager({ importOnly = false }) {
       .map((detail) => ({ detail, room: detail.payload || {}, price: priceBySourceId.get(String(detail.source_id)) || null }))
       .sort((left, right) => String(left.room.room_name || left.room.room_type || '').localeCompare(String(right.room.room_name || right.room.room_type || ''), 'ko'));
   }, [catalogService, catalogPrices, data.hotelRoomDetails, selectedCatalogId]);
+  const cafeHotelRooms = useMemo(() => data.hotelRoomDetails
+    .filter((detail) => detail.product_id === cafeSelectedProductId)
+    .map((detail) => ({ id: String(detail.source_id), name: String(detail.payload?.room_name || detail.payload?.room_type || detail.source_id) }))
+    .sort((left, right) => left.name.localeCompare(right.name, 'ko')), [cafeSelectedProductId, data.hotelRoomDetails]);
 
   useEffect(() => { queueMicrotask(() => setCruiseForm(selectedCruise ? editableCruise(selectedCruise) : null)); }, [selectedCruise]);
   useEffect(() => {
@@ -350,7 +354,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     if (!preview.productConfirmed || !cafeSelectedProductId) { setError(`이미지를 저장할 ${serviceObject} 자동 분류 결과로 확인하거나 목록에서 직접 선택해 주세요.`); return; }
     if (!assignmentsToSave.length) { setError('저장할 이미지를 선택한 뒤 저장 위치 또는 이미지 분류를 지정해 주세요.'); return; }
     if (assignmentsToSave.length !== preview.selectedImageUrls.length) { setError('선택한 이미지의 저장 대상 지정이 완료되지 않았습니다. 저장 위치를 다시 지정해 주세요.'); return; }
-    if (cafeServiceType === 'hotel' && (assignmentsToSave.length !== 1 || assignmentsToSave[0].target !== 'hero')) { setError('호텔 대표 이미지로 저장할 사진 한 장을 선택해 주세요.'); return; }
+    if (cafeServiceType === 'hotel' && assignmentsToSave.filter((item) => item.target === 'hero').length > 1) { setError('호텔 대표 이미지는 한 장만 지정할 수 있습니다.'); return; }
     setSaving('naver-import'); setMessage(''); setError('');
     try {
       const result = await adminRequest('/api/admin/naver-cafe-import', { method: 'POST', body: JSON.stringify({ action: 'import', url: cafeUrl, serviceType: cafeServiceType, productId: cafeSelectedProductId, description: preview.description || '', importDescription: cafeServiceType === 'hotel' && preview.importDescription, imageAssignments: assignmentsToSave }) });
@@ -377,7 +381,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
       return true;
     }
     if (kind === 'preset') {
-      if (cafeServiceType === 'hotel') { setError('호텔 가져오기는 대표 이미지 한 장만 저장할 수 있습니다.'); return false; }
+      if (cafeServiceType === 'hotel') { setError('호텔 이미지는 대표 또는 객실 갤러리로 지정해 주세요.'); return false; }
       const preset = IMAGE_NAME_PRESETS.find((item) => item.value === cabinId);
       if (!preset) return false;
       const current = cafePreview.imageAssignments.filter((item) => !selected.has(item.sourceImageUrl));
@@ -396,11 +400,23 @@ export default function AdminCruiseManager({ importOnly = false }) {
       setError('');
       return true;
     }
-    if (cafeServiceType === 'hotel' && (kind !== 'main' || selected.size !== 1)) { setError('호텔 대표 이미지로 저장할 사진 한 장을 선택해 주세요.'); return false; }
     if (cafeServiceType === 'hotel') {
-      const next = cafePreview.imageAssignments.map((item) => selected.has(item.sourceImageUrl)
-        ? { ...item, target: 'hero', cabinId: '', imageName: 'main-001' }
-        : { ...item, target: '', cabinId: '' });
+      if (kind === 'main' && selected.size !== 1) { setError('호텔 대표 이미지로 저장할 사진 한 장을 선택해 주세요.'); return false; }
+      const hotelRoom = kind === 'hotel-room' ? cafeHotelRooms.find((room) => room.id === cabinId) : null;
+      if (kind !== 'main' && !hotelRoom) { setError('저장할 호텔 객실을 다시 선택해 주세요.'); return false; }
+      const current = cafePreview.imageAssignments.filter((item) => !selected.has(item.sourceImageUrl));
+      const counters = new Map();
+      for (const item of current) {
+        if (item.target === 'hotel_room' && item.hotelPriceCode) counters.set(item.hotelPriceCode, (counters.get(item.hotelPriceCode) || 0) + 1);
+      }
+      const next = cafePreview.imageAssignments.map((item) => {
+        if (kind === 'main' && item.target === 'hero') return { ...item, target: '', hotelPriceCode: '', imageName: '' };
+        if (!selected.has(item.sourceImageUrl)) return item;
+        if (kind === 'main') return { ...item, target: 'hero', cabinId: '', hotelPriceCode: '', imageName: 'main-001' };
+        const serial = (counters.get(hotelRoom.id) || 0) + 1;
+        counters.set(hotelRoom.id, serial);
+        return { ...item, target: 'hotel_room', cabinId: '', hotelPriceCode: hotelRoom.id, imageName: `room-${hotelRoom.id}-${String(serial).padStart(3, '0')}` };
+      });
       setCafePreview({ ...cafePreview, imageAssignments: next });
       setError('');
       return true;
@@ -431,10 +447,6 @@ export default function AdminCruiseManager({ importOnly = false }) {
   function toggleCafeImageSelection(checked, index, shiftKey) {
     setCafePreview((current) => {
       if (!current) return current;
-      if (cafeServiceType === 'hotel') {
-        const sourceUrl = current.images[index]?.sourceUrl;
-        return { ...current, selectedImageUrls: checked && sourceUrl ? [sourceUrl] : [], lastSelectedImageIndex: index };
-      }
       const selected = new Set(current.selectedImageUrls);
       const previousIndex = Number.isInteger(current.lastSelectedImageIndex) ? current.lastSelectedImageIndex : null;
       if (shiftKey && previousIndex !== null) {
@@ -615,14 +627,14 @@ export default function AdminCruiseManager({ importOnly = false }) {
             <div className="cafe-import-panel"><div className="cafe-import-fields"><label>가져올 서비스<select value={cafeServiceType} onChange={(event) => { setCafeServiceType(event.target.value); setCafeSelectedProductId(''); setCafePreview(null); setCafeBulkTarget(''); setMessage(''); setError(''); }}><option value="cruise">크루즈</option><option value="hotel">호텔</option></select></label><label>게시물 URL<input value={cafeUrl} onChange={(event) => { setCafeUrl(event.target.value); setCafePreview(null); setCafeSelectedProductId(''); }} /></label></div><div className="cafe-import-actions"><button type="button" className="admin-delete" onClick={resetCafeImport} disabled={saving !== ''}>초기화</button><button type="button" className="admin-save" onClick={previewCafeArticle} disabled={saving === 'naver-preview' || !cafeUrl.trim()}>{saving === 'naver-preview' ? '불러오는 중…' : '미리보기 →'}</button></div></div>
             {cafePreview && <div className="cafe-import-preview">
               {cafeImportToast && <div className="cafe-import-toast" role="status" aria-live="polite">{cafeImportToast}</div>}
-              <div><span>{cafeServiceType === 'hotel' ? 'HOTEL ARTICLE PREVIEW' : 'CRUISE IMAGE PREVIEW'}</span><strong>{cafePreview.title}</strong><small>{cafeServiceType === 'hotel' ? '호텔 본문과 대표 이미지를 검토한 뒤 홈페이지 상품에 저장하세요.' : '저장할 이미지를 선택하고 대표 이미지 또는 객실 이미지로 지정하세요.'}</small></div>
+              <div><span>{cafeServiceType === 'hotel' ? 'HOTEL ARTICLE PREVIEW' : 'CRUISE IMAGE PREVIEW'}</span><strong>{cafePreview.title}</strong><small>{cafeServiceType === 'hotel' ? '호텔 본문과 대표 이미지, 객실별 갤러리를 검토한 뒤 홈페이지 상품에 저장하세요.' : '저장할 이미지를 선택하고 대표 이미지 또는 객실 이미지로 지정하세요.'}</small></div>
               <section className={`cafe-import-cruise-match ${cafePreview.productMatch?.status || 'unmatched'}`} aria-label={`저장할 ${cafeServiceType === 'hotel' ? '호텔' : '크루즈'} 확인`}>
                 <div><span>{cafePreview.productMatch?.status === 'matched' ? 'AUTO MATCHED' : cafePreview.productMatch?.status === 'manual' ? 'MANUALLY SELECTED' : `CONFIRM ${cafeServiceType === 'hotel' ? 'HOTEL' : 'CRUISE'}`}</span><strong>{cafePreview.productMatch?.status === 'matched' ? `${cafePreview.productMatch.product?.nameKo || cafePreview.productMatch.cruise?.nameKo} 자동 분류` : cafePreview.productMatch?.status === 'manual' ? `${cafeImportProducts.find((product) => product.id === cafeSelectedProductId)?.name_ko || (cafeServiceType === 'hotel' ? '호텔' : '크루즈')} 관리자 선택` : cafePreview.productMatch?.status === 'ambiguous' ? `${cafeServiceType === 'hotel' ? '호텔' : '크루즈'} 자동 분류 보류` : `${cafeServiceType === 'hotel' ? '호텔을' : '크루즈를'} 선택해 주세요`}</strong><small>{cafePreview.productMatch?.status === 'matched' ? `제목의 “${cafePreview.productMatch.matchedName}”과 정확히 일치했습니다.` : cafePreview.productMatch?.status === 'manual' ? `관리자가 선택한 ${cafeServiceType === 'hotel' ? '호텔' : '크루즈'}로 저장합니다.` : `자동 분류 결과와 관계없이 저장할 ${cafeServiceType === 'hotel' ? '호텔을' : '크루즈를'} 직접 선택해야 합니다.`}</small></div>
                 <label>저장할 {cafeServiceType === 'hotel' ? '호텔' : '크루즈'}<select value={cafeSelectedProductId} onChange={(event) => { const productId = event.target.value; setCafeSelectedProductId(productId); if (cafeServiceType === 'cruise') setSelectedId(productId); else if (productId) setSelectedCatalogId(productId); setCafePreview({ ...cafePreview, productMatch: { ...cafePreview.productMatch, status: productId ? 'manual' : 'unmatched' }, productConfirmed: Boolean(productId) }); setError(''); }}><option value="">저장할 상품을 선택하세요</option>{cafeImportProducts.map((product) => <option key={product.id} value={product.id}>{product.name_ko}{product.name_en ? ` · ${product.name_en}` : ''}</option>)}</select></label>
               </section>
               {cafeServiceType === 'hotel' && <label className="cafe-import-description">가져온 호텔 본문<textarea rows="10" value={cafePreview.description || ''} onChange={(event) => setCafePreview({ ...cafePreview, description: event.target.value })} /><span className="cafe-import-confirm"><input type="checkbox" checked={Boolean(cafePreview.importDescription)} onChange={(event) => setCafePreview({ ...cafePreview, importDescription: event.target.checked })} /> 이 본문을 홈페이지 호텔 설명으로 저장</span></label>}
-              <div className="cafe-import-image-heading"><strong>저장/추출 대상 {cafePreview.imageAssignments.filter((item) => item.target && item.target !== 'delete').length} / {cafePreview.imageCount}장</strong><small>{cafeServiceType === 'hotel' ? '홈페이지 카드에 사용할 대표 이미지 한 장을 선택하세요.' : '이미지를 체크하세요. 첫 이미지 선택 후 Shift+클릭하면 연속 선택됩니다.'}</small></div>
-              <div className="cafe-import-bulk cafe-import-bulk-sticky">{cafeServiceType === 'cruise' && <label className="check"><input type="checkbox" checked={cafePreview.selectedImageUrls.length === cafePreview.images.length && cafePreview.images.length > 0} onChange={(event) => setCafePreview({ ...cafePreview, selectedImageUrls: event.target.checked ? cafePreview.images.map((image) => image.sourceUrl) : [], lastSelectedImageIndex: null })} /> 전체 선택</label>}<select value={cafeBulkTarget} disabled={saving === 'naver-import'} onChange={(event) => { const target = event.target.value; setCafeBulkTarget(target && applyCafeImageTarget(target) ? target : ''); }}><option value="" disabled>선택 이미지 지정</option><option value="main">{cafeServiceType === 'hotel' ? '호텔 대표 이미지로 지정' : '대표 이미지로 지정'}</option>{cafeServiceType === 'cruise' && IMAGE_NAME_PRESETS.map((item) => <option value={`preset:${item.value}`} key={item.value}>{item.label} 이미지명 지정</option>)}{cafeServiceType === 'cruise' && cabins.filter((cabin) => !(cafePreview.hiddenCabinIds || []).includes(cabin.id)).map((cabin) => { const englishName = englishCabinName(cabin); return <option value={`cabin:${cabin.id}`} key={cabin.id} disabled={!englishName}>{englishName ? `${englishName} 객실 이미지로 지정` : `${cabin.name_ko || '객실'} · 객실명 입력 필요`}</option>; })}</select><button type="button" className="admin-save" disabled={saving === 'naver-import' || !cafeBulkTarget || !cafePreview.selectedImageUrls.length} onClick={() => { const selected = new Set(cafePreview.selectedImageUrls); void saveCafeImageAssignments(cafePreview, cafePreview.imageAssignments.filter((item) => selected.has(item.sourceImageUrl) && ['hero', 'cabin', 'gallery'].includes(item.target))); }}>{saving === 'naver-import' ? '저장 중…' : cafeServiceType === 'hotel' ? '호텔 데이터 저장' : '선택 이미지 저장'}</button><button type="button" className="admin-delete" disabled={saving === 'naver-import' || !cafePreview.selectedImageUrls.length} onClick={() => { applyCafeImageTarget('delete'); setCafeBulkTarget(''); }}>선택 이미지 삭제</button></div>
+              <div className="cafe-import-image-heading"><strong>저장/추출 대상 {cafePreview.imageAssignments.filter((item) => item.target && item.target !== 'delete').length} / {cafePreview.imageCount}장</strong><small>{cafeServiceType === 'hotel' ? '대표 이미지는 한 장, 객실 이미지는 객실별로 여러 장을 선택해 저장할 수 있습니다.' : '이미지를 체크하세요. 첫 이미지 선택 후 Shift+클릭하면 연속 선택됩니다.'}</small></div>
+              <div className="cafe-import-bulk cafe-import-bulk-sticky"><label className="check"><input type="checkbox" checked={cafePreview.selectedImageUrls.length === cafePreview.images.length && cafePreview.images.length > 0} onChange={(event) => setCafePreview({ ...cafePreview, selectedImageUrls: event.target.checked ? cafePreview.images.map((image) => image.sourceUrl) : [], lastSelectedImageIndex: null })} /> 전체 선택</label><select value={cafeBulkTarget} disabled={saving === 'naver-import'} onChange={(event) => { const target = event.target.value; setCafeBulkTarget(target && applyCafeImageTarget(target) ? target : ''); }}><option value="" disabled>선택 이미지 지정</option><option value="main">{cafeServiceType === 'hotel' ? '호텔 대표 이미지로 지정' : '대표 이미지로 지정'}</option>{cafeServiceType === 'hotel' && cafeHotelRooms.map((room) => <option value={`hotel-room:${room.id}`} key={room.id}>{room.name} 객실 이미지로 지정</option>)}{cafeServiceType === 'cruise' && IMAGE_NAME_PRESETS.map((item) => <option value={`preset:${item.value}`} key={item.value}>{item.label} 이미지명 지정</option>)}{cafeServiceType === 'cruise' && cabins.filter((cabin) => !(cafePreview.hiddenCabinIds || []).includes(cabin.id)).map((cabin) => { const englishName = englishCabinName(cabin); return <option value={`cabin:${cabin.id}`} key={cabin.id} disabled={!englishName}>{englishName ? `${englishName} 객실 이미지로 지정` : `${cabin.name_ko || '객실'} · 객실명 입력 필요`}</option>; })}</select><button type="button" className="admin-save" disabled={saving === 'naver-import' || !cafeBulkTarget || !cafePreview.selectedImageUrls.length} onClick={() => { const selected = new Set(cafePreview.selectedImageUrls); void saveCafeImageAssignments(cafePreview, cafePreview.imageAssignments.filter((item) => selected.has(item.sourceImageUrl) && ['hero', 'cabin', 'gallery', 'hotel_room'].includes(item.target))); }}>{saving === 'naver-import' ? '저장 중…' : cafeServiceType === 'hotel' ? '호텔 데이터 저장' : '선택 이미지 저장'}</button><button type="button" className="admin-delete" disabled={saving === 'naver-import' || !cafePreview.selectedImageUrls.length} onClick={() => { applyCafeImageTarget('delete'); setCafeBulkTarget(''); }}>선택 이미지 삭제</button></div>
               {cafePreview.images.length > 0 && <div className="cafe-import-images">{cafePreview.images.map((image, index) => { const assignment = cafePreview.imageAssignments[index]; return <label id={`cafe-import-image-${index}`} key={image.sourceUrl}><input type="checkbox" checked={cafePreview.selectedImageUrls.includes(image.sourceUrl)} onClick={(event) => { cafeImageClickRef.current = { index, shiftKey: event.shiftKey }; }} onChange={(event) => { const click = cafeImageClickRef.current; toggleCafeImageSelection(event.target.checked, index, click.index === index && click.shiftKey); }} /><figure role="img" aria-label={assignment.imageName} style={{ backgroundImage: `url(${image.previewUrl})` }} /><span>{assignment.imageName}</span></label>; })}</div>}
             </div>}
           </section>

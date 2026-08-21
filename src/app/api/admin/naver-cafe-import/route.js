@@ -116,7 +116,7 @@ async function readArticle(sourceUrl) {
     });
     const title = cleanText(article.title);
     if (!title) badRequest('게시물 제목을 읽지 못했습니다. 공개 게시물인지 확인해 주세요.');
-    return { title, images };
+    return { title, description: cleanText(article.description), images };
   } finally {
     await browser.close();
   }
@@ -183,12 +183,12 @@ function bearerToken(request) {
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
 
-async function forwardPlatformImages(request, source, images) {
+async function forwardPlatformMutation(request, source, action, values) {
   const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
   const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ action: 'upsertImages', source, values: { images } }),
+    body: JSON.stringify({ action, source, values }),
     cache: 'no-store',
   });
   const result = await response.json().catch(() => ({}));
@@ -229,7 +229,7 @@ export async function POST(request) {
       if (hotelsError) throw hotelsError;
       const expiresAt = Date.now() + PREVIEW_TTL_MS;
       const images = article.images.map((sourceUrl, index) => ({ sourceUrl, previewUrl: previewUrl(request, sourceUrl, expiresAt), generatedName: generatedImageName(sourceUrl, index) }));
-      return Response.json({ ok: true, article: { title: article.title, imageCount: images.length, images, sourceUrl: source.url, cruises: cruises || [], hotels: hotels || [], cruiseMatch: classifyCatalogProduct(article.title, cruises), hotelMatch: classifyCatalogProduct(article.title, hotels) } });
+      return Response.json({ ok: true, article: { title: article.title, description: article.description, imageCount: images.length, images, sourceUrl: source.url, cruises: cruises || [], hotels: hotels || [], cruiseMatch: classifyCatalogProduct(article.title, cruises), hotelMatch: classifyCatalogProduct(article.title, hotels) } });
     }
     if (body.action !== 'import') badRequest('지원하지 않는 가져오기 작업입니다.');
     const serviceType = body.serviceType === 'hotel' ? 'hotel' : 'cruise';
@@ -249,11 +249,19 @@ export async function POST(request) {
     if (serviceType === 'hotel') {
       const image = assignments.find((item) => item.target === 'hero');
       if (!image) badRequest('호텔 대표 이미지로 저장할 이미지를 선택해 주세요.');
-      const { copied, skipped } = await copyImages(database, serviceType, product.id, [image]);
+      const { copied, skipped } = await copyImages(database, serviceType, product.id, [{ sourceImageUrl: image.sourceImageUrl, storageName: `main-${randomUUID().slice(0, 8)}` }]);
       const saved = copied[0];
       if (!saved) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: [], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
-      await forwardPlatformImages(request, { serviceType, sourceKey: product.source_key }, [{ id: randomUUID(), collection: 'catalog_hero', sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: image.imageName || article.title, imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: 0, isPrimary: true }]);
-      return Response.json({ ok: true, result: { title: article.title, imageCount: 1, savedImageUrls: [saved.sourceImageUrl], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: saved.publicUrl, sourceUrl: source.url } });
+      const platformSource = { serviceType, sourceKey: product.source_key };
+      await forwardPlatformMutation(request, platformSource, 'upsertImage', {
+        id: randomUUID(), collection: 'catalog_hero', sourceUrl: source.url,
+        sourceImageUrl: saved.sourceImageUrl, imageName: image.imageName || article.title,
+        imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path,
+        sortOrder: 0, isPrimary: true,
+      });
+      const importedDescription = body.importDescription === true ? cleanText(body.description).slice(0, 30000) : '';
+      if (importedDescription) await forwardPlatformMutation(request, platformSource, 'updateCatalogDetails', { description: importedDescription });
+      return Response.json({ ok: true, result: { title: article.title, imageCount: 1, savedImageUrls: [saved.sourceImageUrl], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: saved.publicUrl, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
     }
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];
@@ -327,7 +335,7 @@ export async function POST(request) {
         });
       }
     }
-    if (platformImages.length) await forwardPlatformImages(request, { cruiseName: product.legacy_name || product.name_ko }, platformImages);
+    if (platformImages.length) await forwardPlatformMutation(request, { cruiseName: product.legacy_name || product.name_ko }, 'upsertImages', { images: platformImages });
     const heroImage = copiedWithTarget.find((image) => image.assignment?.target === 'hero');
     return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
   } catch (error) {

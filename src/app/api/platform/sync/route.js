@@ -5,6 +5,7 @@ import { syncPlatformCruiseV2, syncPlatformHotelImagesV2 } from '@/lib/sync-plat
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 const SOURCE_TABLES = new Set([
   'cruise_info', 'cruise_rate_card', 'cruise_rate_card_inclusions', 'cruise_location', 'cruise_promotion',

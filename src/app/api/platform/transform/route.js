@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
 
 function isAuthorized(request) {
   const expected = process.env.PLATFORM_SYNC_SECRET;

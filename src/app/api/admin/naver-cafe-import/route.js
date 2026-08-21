@@ -1,6 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
+import { revalidatePath } from 'next/cache';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
 
@@ -196,6 +197,28 @@ async function forwardPlatformMutation(request, source, action, values) {
   return result;
 }
 
+async function mirrorHotelImages(database, productId, images) {
+  if (!images.length) return;
+  const rows = images.map((image) => ({
+    id: image.id, product_id: productId, hotel_price_code: image.hotelPriceCode || null, collection: image.collection,
+    source_url: image.sourceUrl || null, source_image_url: image.sourceImageUrl || null, image_name: image.imageName || null,
+    image_url: image.imageUrl, storage_bucket: image.storageBucket, storage_path: image.storagePath,
+    sort_order: image.sortOrder || 0, is_primary: Boolean(image.isPrimary), updated_at: new Date().toISOString(),
+  }));
+  const { error } = await database.from('hotel_gallery_images_v2').upsert(rows, { onConflict: 'id' });
+  if (error) throw error;
+}
+
+async function mirrorHotelHeroImage(database, productId, imageUrl) {
+  const { data: product, error: productError } = await database.from('catalog_products_v2').select('manual_override').eq('id', productId).maybeSingle();
+  if (productError || !product) throw productError || new Error('호텔 상품을 찾을 수 없습니다.');
+  const manualOverride = { ...(product.manual_override || {}), image_url: imageUrl };
+  const { error } = await database.from('catalog_products_v2').update({ image_url: imageUrl, manual_override: manualOverride, updated_at: new Date().toISOString() }).eq('id', productId);
+  if (error) throw error;
+  revalidatePath('/');
+  revalidatePath('/temp-home');
+}
+
 export async function GET(request) {
   try {
     const url = new URL(request.url);
@@ -268,20 +291,27 @@ export async function POST(request) {
       const platformSource = { serviceType, sourceKey: product.source_key };
       const assignmentBySource = new Map(assignments.map((item) => [item.sourceImageUrl, item]));
       const primaryRoomCodes = new Set();
+      let hasPrimaryHero = false;
       const platformImages = copied.map((saved, index) => {
         const assignment = assignmentBySource.get(saved.sourceImageUrl);
         const hotelPriceCode = assignment?.target === 'hotel_room' ? assignment.hotelPriceCode : null;
-        const isPrimary = assignment?.target === 'hero' || (hotelPriceCode && !primaryRoomCodes.has(hotelPriceCode));
+        const isPrimary = (!hotelPriceCode && assignment?.target === 'hero' && !hasPrimaryHero) || (hotelPriceCode && !primaryRoomCodes.has(hotelPriceCode));
+        if (!hotelPriceCode && assignment?.target === 'hero') hasPrimaryHero = true;
         if (hotelPriceCode) primaryRoomCodes.add(hotelPriceCode);
         return { id: randomUUID(), collection: hotelPriceCode ? 'room_gallery' : 'hotel_import', hotelPriceCode,
           sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: assignment?.imageName || article.title,
           imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: index, isPrimary };
       });
       await forwardPlatformMutation(request, platformSource, 'upsertHotelImages', { images: platformImages });
+      await mirrorHotelImages(database, product.id, platformImages);
+      const heroImage = platformImages.find((image) => image.collection === 'hotel_import' && image.isPrimary);
+      if (heroImage) {
+        await forwardPlatformMutation(request, platformSource, 'updateCatalogProduct', { image_url: heroImage.imageUrl });
+        await mirrorHotelHeroImage(database, product.id, heroImage.imageUrl);
+      }
       const importedDescription = body.importDescription === true ? cleanText(body.description).slice(0, 30000) : '';
       if (importedDescription) await forwardPlatformMutation(request, platformSource, 'updateCatalogDetails', { description: importedDescription });
-      const heroImage = copied.find((saved) => assignmentBySource.get(saved.sourceImageUrl)?.target === 'hero');
-      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.publicUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
+      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.imageUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
     }
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];

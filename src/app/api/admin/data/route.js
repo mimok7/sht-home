@@ -201,6 +201,7 @@ async function getDashboard(database, role) {
     database.from('catalog_products_v2').select('id,service_type,source,source_key,name_ko,description,category,image_url,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('name_ko'),
     database.from('catalog_prices_v2').select('id,product_id,source_table,source_id,label,price_amount,currency,price_unit,min_guests,max_guests,valid_from,valid_to,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('source_table'),
     database.from('catalog_product_details_v2').select('product_id,source_table,source_id,payload,source_updated_at,is_active').eq('source', 'sht-platform').eq('source_table', 'hotel_price').order('source_updated_at', { ascending: false }),
+    database.from('hotel_gallery_images_v2').select('id,product_id,hotel_price_code,collection,image_name,image_url,sort_order,is_primary,created_at').order('sort_order'),
   ];
   if (role === 'admin') {
     queries.push(
@@ -212,7 +213,7 @@ async function getDashboard(database, role) {
   const failed = results.find((result) => result.error);
   if (failed) throw failed.error;
 
-  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, members, roles] = results;
+  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, hotelImages, members, roles] = results;
   return {
     cruises: (cruises.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     itineraries: itineraries.data || [],
@@ -224,6 +225,7 @@ async function getDashboard(database, role) {
     catalogProducts: (catalogProducts.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     catalogPrices: catalogPrices.data || [],
     hotelRoomDetails: hotelRoomDetails.data || [],
+    hotelImages: hotelImages.data || [],
     members: members?.data || [],
     roles: roles?.data || [],
     unmatchedRates: await getUnmatchedRateCruises(database),

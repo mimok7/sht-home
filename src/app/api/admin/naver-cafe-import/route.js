@@ -248,7 +248,6 @@ export async function POST(request) {
     if (serviceType === 'hotel') {
       const heroAssignments = assignments.filter((item) => item.target === 'hero');
       const roomAssignments = assignments.filter((item) => item.target === 'hotel_room');
-      if (heroAssignments.length > 1) badRequest('호텔 대표 이미지는 한 장만 지정할 수 있습니다.');
       if (!heroAssignments.length && !roomAssignments.length) badRequest('저장할 대표 이미지 또는 객실 이미지를 지정해 주세요.');
       if (roomAssignments.some((item) => typeof item.hotelPriceCode !== 'string' || !item.hotelPriceCode)) badRequest('객실 사진의 저장 대상을 선택해 주세요.');
       const hotelPriceCodes = [...new Set(roomAssignments.map((item) => item.hotelPriceCode))];

@@ -243,6 +243,24 @@ async function mirrorCruiseImages(database, cruiseId, cafeRows, cabinRows, heroI
 
 async function mirrorHotelImages(database, productId, images) {
   if (!images.length) return;
+  const hasPrimaryHero = images.some((image) => !image.hotelPriceCode && image.isPrimary);
+  if (hasPrimaryHero) {
+    const { error } = await database.from('hotel_gallery_images_v2')
+      .update({ is_primary: false, updated_at: new Date().toISOString() })
+      .eq('product_id', productId)
+      .is('hotel_price_code', null)
+      .eq('is_primary', true);
+    if (error) throw error;
+  }
+  const primaryRoomCodes = [...new Set(images.filter((image) => image.hotelPriceCode && image.isPrimary).map((image) => image.hotelPriceCode))];
+  for (const hotelPriceCode of primaryRoomCodes) {
+    const { error } = await database.from('hotel_gallery_images_v2')
+      .update({ is_primary: false, updated_at: new Date().toISOString() })
+      .eq('product_id', productId)
+      .eq('hotel_price_code', hotelPriceCode)
+      .eq('is_primary', true);
+    if (error) throw error;
+  }
   const rows = images.map((image) => ({
     id: image.id, product_id: productId, hotel_price_code: image.hotelPriceCode || null, collection: image.collection,
     source_url: image.sourceUrl || null, source_image_url: image.sourceImageUrl || null, image_name: image.imageName || null,
@@ -351,16 +369,21 @@ export async function POST(request) {
           sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: assignment?.imageName || article.title,
           imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: index, isPrimary };
       });
-      await forwardPlatformMutation(request, platformSource, 'upsertHotelImages', { images: platformImages });
       await mirrorHotelImages(database, product.id, platformImages);
       const heroImage = platformImages.find((image) => image.collection === 'hotel_import' && image.isPrimary);
-      if (heroImage) {
-        await forwardPlatformMutation(request, platformSource, 'updateCatalogProduct', { image_url: heroImage.imageUrl });
-        await mirrorHotelHeroImage(database, product.id, heroImage.imageUrl);
-      }
+      if (heroImage) await mirrorHotelHeroImage(database, product.id, heroImage.imageUrl);
       const importedDescription = body.importDescription === true ? cleanText(body.description).slice(0, 30000) : '';
-      if (importedDescription) await forwardPlatformMutation(request, platformSource, 'updateCatalogDetails', { description: importedDescription });
-      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.imageUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url } });
+      const token = bearerToken(request);
+      after(async () => {
+        try {
+          await sendPlatformMutation(token, platformSource, 'upsertHotelImages', { images: platformImages });
+          if (heroImage) await sendPlatformMutation(token, platformSource, 'updateCatalogProduct', { image_url: heroImage.imageUrl });
+          if (importedDescription) await sendPlatformMutation(token, platformSource, 'updateCatalogDetails', { description: importedDescription });
+        } catch (error) {
+          console.error('[naver-cafe-import] delayed hotel image platform sync failed', error?.message || error);
+        }
+      });
+      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.imageUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url, platformSyncPending: true } });
     }
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];

@@ -388,7 +388,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     const savingMessage = `${serviceLabel} 이미지 저장 중…`;
     setSaving('naver-import'); setCafeImportProgress(savingMessage); setMessage(''); setError('');
     try {
-      const result = await adminRequest('/api/admin/naver-cafe-import', { method: 'POST', body: JSON.stringify({ action: 'import', url: cafeUrl, serviceType: cafeServiceType, productId: cafeSelectedProductId, description: preview.description || '', importDescription: cafeServiceType === 'hotel' && preview.importDescription, imageAssignments: assignmentsToSave }) });
+      const result = await adminRequest('/api/admin/naver-cafe-import', { method: 'POST', body: JSON.stringify({ action: 'import', url: cafeUrl, articleTitle: preview.title || '', serviceType: cafeServiceType, productId: cafeSelectedProductId, description: preview.description || '', importDescription: cafeServiceType === 'hotel' && preview.importDescription, imageAssignments: assignmentsToSave }) });
       const savedImageKeys = new Set((result.result.savedImageUrls || []).map(sourceImageKey));
       const savedCount = savedImageKeys.size;
       if (!savedCount) throw new Error(result.result.skippedImages?.[0]?.reason || '선택한 이미지를 저장하지 못했습니다. 다시 시도해 주세요.');

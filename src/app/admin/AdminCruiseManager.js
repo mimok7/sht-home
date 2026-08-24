@@ -392,7 +392,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
       const savedImageKeys = new Set((result.result.savedImageUrls || []).map(sourceImageKey));
       const savedCount = savedImageKeys.size;
       if (!savedCount) throw new Error(result.result.skippedImages?.[0]?.reason || '선택한 이미지를 저장하지 못했습니다. 다시 시도해 주세요.');
-      const completionMessage = `${serviceLabel} 이미지 ${savedCount}장 저장 완료${result.result.descriptionImported ? ' · 본문 설명 반영' : ''}${result.result.skippedImageCount ? ` · ${result.result.skippedImageCount}장 저장 실패` : ''}`;
+      const newImageCount = Number(result.result.imageCount || 0);
+      const reusedImageCount = Number(result.result.reusedImageCount || 0);
+      const completionMessage = `${serviceLabel} 이미지 ${newImageCount ? `${newImageCount}장 저장 완료` : '새 이미지 없음'}${reusedImageCount ? ` · 기존 ${reusedImageCount}장 중복 제외` : ''}${result.result.descriptionImported ? ' · 본문 설명 반영' : ''}${result.result.skippedImageCount ? ` · ${result.result.skippedImageCount}장 저장 실패` : ''}`;
       setMessage(completionMessage);
       setCafeImportToast(completionMessage);
       const completedCabins = cafeServiceType === 'cruise' ? assignmentsToSave.filter((item) => item.target === 'cabin' && savedImageKeys.has(sourceImageKey(item.sourceImageUrl))).map((item) => item.cabinId) : [];

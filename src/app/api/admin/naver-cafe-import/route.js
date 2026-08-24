@@ -37,6 +37,30 @@ function isSourceImageUrl(value) {
   try { return new URL(value).hostname.endsWith('.pstatic.net'); } catch { return false; }
 }
 
+function sourceImageKey(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith('.pstatic.net') ? url.pathname : '';
+  } catch { return ''; }
+}
+
+function excludePreviouslySavedImages(assignments, existingRows) {
+  const existingKeys = new Set((existingRows || []).map((row) => sourceImageKey(row.source_image_url)).filter(Boolean));
+  const submittedKeys = new Set();
+  const newAssignments = [];
+  const reusedSourceImageUrls = [];
+  for (const assignment of assignments) {
+    const key = sourceImageKey(assignment.sourceImageUrl);
+    if (existingKeys.has(key) || submittedKeys.has(key)) {
+      reusedSourceImageUrls.push(assignment.sourceImageUrl);
+      continue;
+    }
+    submittedKeys.add(key);
+    newAssignments.push(assignment);
+  }
+  return { newAssignments, reusedSourceImageUrls };
+}
+
 function generatedImageName(sourceUrl, index) {
   try {
     const fileName = decodeURIComponent(new URL(sourceUrl).pathname.split('/').pop() || '');
@@ -173,6 +197,7 @@ async function copyImage(database, serviceType, productId, item, index) {
 }
 
 async function copyImages(database, serviceType, productId, imageUrls) {
+  if (!imageUrls.length) return { copied: [], skipped: [] };
   await ensureMediaBucket(database);
   const results = new Array(imageUrls.length);
   let cursor = 0;
@@ -344,15 +369,18 @@ export async function POST(request) {
         if (roomsError) throw roomsError;
         if ((rooms || []).length !== hotelPriceCodes.length) badRequest('선택한 호텔에 속한 객실만 사진 저장 대상으로 지정할 수 있습니다.');
       }
+      const { data: existingHotelImages, error: existingHotelImagesError } = await database.from('hotel_gallery_images_v2').select('source_image_url').eq('product_id', product.id);
+      if (existingHotelImagesError) throw existingHotelImagesError;
+      const { newAssignments, reusedSourceImageUrls } = excludePreviouslySavedImages(heroAssignments.concat(roomAssignments), existingHotelImages);
       const roomCounters = new Map();
-      const imageItems = assignments.filter((item) => item.target === 'hero' || item.target === 'hotel_room').map((assignment) => {
+      const imageItems = newAssignments.map((assignment) => {
         const base = assignment.target === 'hero' ? 'main' : `room-${assignment.hotelPriceCode}`;
         const serial = (roomCounters.get(base) || 0) + 1;
         roomCounters.set(base, serial);
         return { sourceImageUrl: assignment.sourceImageUrl, storageName: `${base}-${String(serial).padStart(3, '0')}-${randomUUID().slice(0, 8)}` };
       });
       const { copied, skipped } = await copyImages(database, serviceType, product.id, imageItems);
-      if (!copied.length) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: [], skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
+      if (!copied.length) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: reusedSourceImageUrls, reusedImageCount: reusedSourceImageUrls.length, skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
       const platformSource = { serviceType, sourceKey: product.source_key };
       const assignmentBySource = new Map(assignments.map((item) => [item.sourceImageUrl, item]));
       const primaryRoomCodes = new Set();
@@ -381,7 +409,7 @@ export async function POST(request) {
           console.error('[naver-cafe-import] delayed hotel image platform sync failed', error?.message || error);
         }
       });
-      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.imageUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url, platformSyncPending: true } });
+      return Response.json({ ok: true, result: { title: article.title, imageCount: copied.length, savedImageUrls: copied.map((saved) => saved.sourceImageUrl).concat(reusedSourceImageUrls), reusedImageCount: reusedSourceImageUrls.length, skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })), heroImage: heroImage?.imageUrl || null, descriptionImported: Boolean(importedDescription), sourceUrl: source.url, platformSyncPending: true } });
     }
     const cabinAssignments = assignments.filter((item) => item.target === 'cabin');
     const cabinIds = [...new Set(cabinAssignments.map((item) => item.cabinId).filter((value) => typeof value === 'string' && value))];
@@ -407,7 +435,7 @@ export async function POST(request) {
         state.hasPrimary ||= Boolean(image.is_primary);
       }
     }
-    const { data: existingImportImages, error: existingImportImagesError } = await database.from('cruise_cafe_import_images_v2').select('storage_path,sort_order').eq('cruise_id', product.id);
+    const { data: existingImportImages, error: existingImportImagesError } = await database.from('cruise_cafe_import_images_v2').select('source_image_url,storage_path,sort_order').eq('cruise_id', product.id);
     if (existingImportImagesError) throw existingImportImagesError;
     const nameCounters = new Map();
     for (const row of existingImportImages || []) {
@@ -417,7 +445,8 @@ export async function POST(request) {
       nameCounters.set(match[1], Math.max(nameCounters.get(match[1]) || 0, Number(match[2])));
     }
     let nextImportSortOrder = Math.max(-1, ...(existingImportImages || []).map((row) => Number(row.sort_order) || 0)) + 1;
-    const imageItems = assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery').map((assignment) => {
+    const { newAssignments, reusedSourceImageUrls } = excludePreviouslySavedImages(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery'), existingImportImages);
+    const imageItems = newAssignments.map((assignment) => {
       const cabinName = cabinNames.get(assignment.cabinId);
       const baseName = assignment.target === 'gallery' ? assignment.imageName : (assignment.target === 'hero' ? 'main' : cabinName?.storageName);
       const safeBaseName = baseName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'cabin';
@@ -488,7 +517,7 @@ export async function POST(request) {
         }
       });
     }
-    return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url, platformSyncPending: platformImages.length > 0 } });
+    return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl).concat(reusedSourceImageUrls), reusedImageCount: reusedSourceImageUrls.length, skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url, platformSyncPending: platformImages.length > 0 } });
   } catch (error) {
     console.error('[naver-cafe-import]', error?.message || error);
     const message = error?.message || '네이버 카페 게시물을 가져오지 못했습니다.';

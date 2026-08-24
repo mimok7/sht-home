@@ -21,8 +21,24 @@ function normalizeArticleUrl(value) {
   try { url = new URL(value); } catch { badRequest('유효한 네이버 카페 게시물 URL을 입력해 주세요.'); }
   if (url.protocol !== 'https:' || url.hostname !== 'cafe.naver.com') badRequest('cafe.naver.com 게시물만 가져올 수 있습니다.');
   const match = url.pathname.match(/^\/f-e\/cafes\/(\d+)\/articles\/(\d+)$/);
-  if (!match) badRequest('네이버 카페의 개별 게시물 URL만 지원합니다.');
-  return { url: url.toString(), cafeId: match[1], articleId: match[2] };
+  if (match) return { url: url.toString(), cafeId: match[1], articleId: match[2] };
+  // 카페 화면의 공유 URL은 iframe_url_utf8 안에 실제 게시물 식별자를 담는다.
+  // 예: cafe.naver.com/stayhalong?iframe_url_utf8=/ArticleRead.nhn?...&clubid=...&articleid=...
+  const legacyIframeUrl = url.searchParams.get('iframe_url_utf8') || url.searchParams.get('iframe_url');
+  if (legacyIframeUrl) {
+    try {
+      const articleUrl = new URL(legacyIframeUrl, url.origin);
+      const cafeId = articleUrl.searchParams.get('clubid');
+      const articleId = articleUrl.searchParams.get('articleid');
+      if (articleUrl.pathname.toLowerCase().endsWith('/articleread.nhn') && cafeId && articleId) {
+        // 공유 URL의 바깥 카페 화면이 cafe_main iframe을 생성하므로 그대로 사용한다.
+        return { url: url.toString(), cafeId, articleId };
+      }
+    } catch {
+      // 아래의 일관된 입력 오류 메시지로 처리한다.
+    }
+  }
+  badRequest('네이버 카페의 개별 게시물 URL만 지원합니다.');
 }
 
 function cleanText(value) {
@@ -130,22 +146,46 @@ async function readArticle(sourceUrl) {
     // 않는다. 본문 iframe이 준비되는 시점만 기다려 미리보기가 불필요하게
     // 30초까지 지연되지 않도록 한다.
     await page.goto(sourceUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForSelector('iframe#cafe_main', { timeout: 15000 });
-    const frame = page.frames().find((item) => item.name() === 'cafe_main');
+    try {
+      await page.waitForSelector('iframe#cafe_main', { timeout: 15000 });
+      // cafe_main은 처음 about:blank로 생성된 뒤 실제 ArticleRead 문서로 전환된다.
+      // 빈 프레임을 먼저 잡으면 정상 게시물도 제목·이미지가 없는 것으로 판단한다.
+      await page.waitForFunction(() => {
+        const cafeFrame = document.querySelector('iframe#cafe_main');
+        return Boolean(cafeFrame?.src && !cafeFrame.src.startsWith('about:blank'));
+      }, { timeout: 15000 });
+    } catch {
+      badRequest('이 네이버 카페 글은 서버에서 열람할 수 없습니다. 글 공개 상태와 카페 가입·로그인 권한을 확인해 주세요.');
+    }
+    let frame = null;
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      frame = page.frames().find((item) => item.name() === 'cafe_main' && !item.url().startsWith('about:blank')) || null;
+      if (frame) break;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
     if (!frame) badRequest('게시물 본문을 열지 못했습니다. 로그인 또는 카페 접근 권한을 확인해 주세요.');
-    await frame.waitForSelector('.title_text', { timeout: 15000 });
+    // 스마트에디터·표 형식·기존 에디터 게시물은 제목 클래스가 서로 다르다.
+    // 제목 하나를 기다리지 말고 본문 또는 이미지가 렌더링된 시점에 읽는다.
+    try {
+      await frame.waitForSelector('.se-main-container, .ArticleContentBox, .article_viewer, #main-area, img', { timeout: 15000 });
+    } catch {
+      badRequest('이 네이버 카페 글은 서버에서 열람할 수 없습니다. 글 공개 상태와 카페 가입·로그인 권한을 확인해 주세요.');
+    }
     const article = await frame.evaluate(() => {
-      const content = document.querySelector('.se-main-container') || document.querySelector('.ArticleContentBox');
-      const images = [...(content || document).querySelectorAll('img.se-image-resource, img.se-inline-image-resource')]
+      const content = document.querySelector('.se-main-container') || document.querySelector('.ArticleContentBox') || document.querySelector('.article_viewer') || document.querySelector('#main-area') || document.body;
+      const title = document.querySelector('.title_text, .ArticleTitle, .article_title, h3, h2, h1')?.textContent || '';
+      const images = [...content.querySelectorAll('img')]
         .map((image) => image.currentSrc || image.src)
         .filter(Boolean);
-      return { title: document.querySelector('.title_text')?.textContent || '', description: content?.innerText || '', images };
+      return { title, description: content.innerText || '', images };
     });
     const images = [...new Set(article.images)].filter((value) => {
       try { return new URL(value).hostname.endsWith('.pstatic.net'); } catch { return false; }
     });
-    const title = cleanText(article.title);
+    const pageTitle = cleanText(await page.title()).replace(/\s*[:｜|]\s*네이버 카페.*$/i, '');
+    const title = cleanText(article.title) || pageTitle;
     if (!title) badRequest('게시물 제목을 읽지 못했습니다. 공개 게시물인지 확인해 주세요.');
+    if (!images.length) badRequest('이 게시물에서 저장할 이미지를 읽지 못했습니다. 글 공개 상태와 카페 가입·로그인 권한을 확인해 주세요.');
     return { title, description: cleanText(article.description), images };
   } finally {
     await browser.close();

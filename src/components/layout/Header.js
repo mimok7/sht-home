@@ -11,6 +11,7 @@ import './Header.css';
 const NAV_ITEMS = [
   { href: '/', label: '홈' },
   { href: '/cruises', label: '크루즈' },
+  { href: '/hotels', label: '호텔' },
   { href: '/travel-guide', label: '여행 가이드' },
   { href: '/faq', label: '고객센터' },
 ];

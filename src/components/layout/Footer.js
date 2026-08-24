@@ -21,9 +21,9 @@ export default function Footer() {
           <div className="link-group">
             <h4>서비스</h4>
             {item('/cruises', '하롱베이 크루즈')}
+            {item('/hotels', '호텔 예약')}
             {upcomingItem('당일 투어')}
             {upcomingItem('차량/렌트카')}
-            {upcomingItem('호텔 예약')}
           </div>
           
           <div className="link-group">

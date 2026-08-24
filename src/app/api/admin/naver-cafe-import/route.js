@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import puppeteer from 'puppeteer';
 import chromium from '@sparticuz/chromium';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
 
@@ -101,7 +102,11 @@ async function readArticle(sourceUrl) {
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000 });
-    await page.goto(sourceUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+    // 네이버 카페는 분석·광고 연결을 계속 유지해 networkidle2가 쉽게 끝나지
+    // 않는다. 본문 iframe이 준비되는 시점만 기다려 미리보기가 불필요하게
+    // 30초까지 지연되지 않도록 한다.
+    await page.goto(sourceUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    await page.waitForSelector('iframe#cafe_main', { timeout: 15000 });
     const frame = page.frames().find((item) => item.name() === 'cafe_main');
     if (!frame) badRequest('게시물 본문을 열지 못했습니다. 로그인 또는 카페 접근 권한을 확인해 주세요.');
     await frame.waitForSelector('.title_text', { timeout: 15000 });
@@ -185,16 +190,48 @@ function bearerToken(request) {
 }
 
 async function forwardPlatformMutation(request, source, action, values) {
+  return sendPlatformMutation(bearerToken(request), source, action, values);
+}
+
+async function sendPlatformMutation(token, source, action, values) {
   const platformAdminUrl = process.env.PLATFORM_ADMIN_URL || process.env.NEXT_PUBLIC_PLATFORM_ADMIN_URL || (process.env.NODE_ENV === 'development' ? 'http://127.0.0.1:3004' : 'https://admin.stayhalong.com');
   const response = await fetch(`${platformAdminUrl.replace(/\/$/, '')}/api/admin/homepage-product-write`, {
     method: 'PATCH',
-    headers: { Authorization: `Bearer ${bearerToken(request)}`, 'Content-Type': 'application/json' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ action, source, values }),
     cache: 'no-store',
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || '플랫폼 이미지 저장에 실패했습니다.');
   return result;
+}
+
+async function mirrorCruiseImages(database, cruiseId, cafeRows, cabinRows, heroImage) {
+  const now = new Date().toISOString();
+  if (cafeRows.some((row) => row.is_primary && !row.cabin_id)) {
+    const { error } = await database.from('cruise_cafe_import_images_v2')
+      .update({ is_primary: false })
+      .eq('cruise_id', cruiseId)
+      .is('cabin_id', null)
+      .eq('is_primary', true);
+    if (error) throw error;
+  }
+  if (cafeRows.length) {
+    const { error } = await database.from('cruise_cafe_import_images_v2').upsert(cafeRows, { onConflict: 'id' });
+    if (error) throw error;
+  }
+  if (cabinRows.length) {
+    const { error } = await database.from('cabin_images_v2').upsert(cabinRows, { onConflict: 'id' });
+    if (error) throw error;
+  }
+  if (heroImage) {
+    const { error } = await database.from('cruises_v2').update({ hero_image: heroImage, updated_at: now }).eq('id', cruiseId);
+    if (error) throw error;
+  }
+  revalidatePath('/cruises');
+  revalidatePath('/product/[id]', 'page');
+  revalidatePath('/');
+  revalidatePath('/temp-home');
 }
 
 async function mirrorHotelImages(database, productId, images) {
@@ -337,7 +374,7 @@ export async function POST(request) {
         state.hasPrimary ||= Boolean(image.is_primary);
       }
     }
-    const { data: existingImportImages, error: existingImportImagesError } = await database.from('cruise_cafe_import_images_v2').select('storage_path').eq('cruise_id', product.id);
+    const { data: existingImportImages, error: existingImportImagesError } = await database.from('cruise_cafe_import_images_v2').select('storage_path,sort_order').eq('cruise_id', product.id);
     if (existingImportImagesError) throw existingImportImagesError;
     const nameCounters = new Map();
     for (const row of existingImportImages || []) {
@@ -346,6 +383,7 @@ export async function POST(request) {
       if (!match) continue;
       nameCounters.set(match[1], Math.max(nameCounters.get(match[1]) || 0, Number(match[2])));
     }
+    let nextImportSortOrder = Math.max(-1, ...(existingImportImages || []).map((row) => Number(row.sort_order) || 0)) + 1;
     const imageItems = assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery').map((assignment) => {
       const cabinName = cabinNames.get(assignment.cabinId);
       const baseName = assignment.target === 'gallery' ? assignment.imageName : (assignment.target === 'hero' ? 'main' : cabinName?.storageName);
@@ -364,30 +402,60 @@ export async function POST(request) {
       return { ...image, assignment: { ...assignment, imageName: imageName.slice(0, 160) } };
     });
     const platformImages = [];
-    for (const [index, image] of copiedWithTarget.entries()) {
+    const cafeImageRows = [];
+    const cabinImageRows = [];
+    let hasPrimaryHero = false;
+    for (const image of copiedWithTarget) {
       const cabin = image.assignment?.target === 'cabin' ? cabinNames.get(image.assignment.cabinId) : null;
+      const isPrimaryHero = image.assignment?.target === 'hero' && !hasPrimaryHero;
+      if (image.assignment?.target === 'hero') hasPrimaryHero = true;
+      const cafeImageId = randomUUID();
+      const cafeSortOrder = nextImportSortOrder;
+      nextImportSortOrder += 1;
       platformImages.push({
-        id: randomUUID(), collection: 'cafe_import', roomName: cabin?.roomName || null,
+        id: cafeImageId, collection: 'cafe_import', roomName: cabin?.roomName || null,
         sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
-        imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path, sortOrder: index,
-        isPrimary: image.assignment?.target === 'hero',
+        imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path, sortOrder: cafeSortOrder,
+        isPrimary: isPrimaryHero,
+      });
+      cafeImageRows.push({
+        id: cafeImageId, cruise_id: product.id, cabin_id: cabin ? image.assignment.cabinId : null,
+        source_url: source.url, source_image_url: image.sourceImageUrl, image_name: image.assignment?.imageName || null,
+        storage_bucket: MEDIA_BUCKET, storage_path: image.path, sort_order: cafeSortOrder, is_primary: isPrimaryHero,
       });
       if (cabin) {
         const state = cabinImageState.get(image.assignment.cabinId);
         const isPrimary = !state.hasPrimary;
         state.hasPrimary ||= isPrimary;
         state.sortOrder += 1;
+        const cabinImageId = randomUUID();
         platformImages.push({
-          id: randomUUID(), collection: 'cabin_gallery', roomName: cabin.roomName,
+          id: cabinImageId, collection: 'cabin_gallery', roomName: cabin.roomName,
           sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
           imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path,
           sortOrder: state.sortOrder, isPrimary,
         });
+        cabinImageRows.push({
+          id: cabinImageId, cabin_id: image.assignment.cabinId, storage_bucket: MEDIA_BUCKET, storage_path: image.path,
+          alt_text: image.assignment?.imageName || null, sort_order: state.sortOrder, is_primary: isPrimary,
+          updated_at: new Date().toISOString(),
+        });
       }
     }
-    if (platformImages.length) await forwardPlatformMutation(request, { cruiseName: product.legacy_name || product.name_ko }, 'upsertImages', { images: platformImages });
     const heroImage = copiedWithTarget.find((image) => image.assignment?.target === 'hero');
-    return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url } });
+    await mirrorCruiseImages(database, product.id, cafeImageRows, cabinImageRows, heroImage?.publicUrl || null);
+    if (platformImages.length) {
+      const token = bearerToken(request);
+      const platformSource = { cruiseName: product.legacy_name || product.name_ko };
+      after(async () => {
+        try {
+          await sendPlatformMutation(token, platformSource, 'upsertImages', { images: platformImages });
+        } catch (error) {
+          console.error('[naver-cafe-import] delayed cruise image platform sync failed', error?.message || error);
+        }
+      });
+    }
+    return Response.json({ ok: true, result: { title: article.title, imageCount: copiedWithTarget.length, savedImageUrls: copiedWithTarget.map((row) => row.sourceImageUrl), skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((image) => ({ sourceImageUrl: image.sourceImageUrl, reason: image.error })), heroImage: heroImage?.publicUrl || null, sourceUrl: source.url, platformSyncPending: platformImages.length > 0 } });
   } catch (error) {
     console.error('[naver-cafe-import]', error?.message || error);
     const message = error?.message || '네이버 카페 게시물을 가져오지 못했습니다.';

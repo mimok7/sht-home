@@ -37,6 +37,13 @@ function isSourceImageUrl(value) {
   try { return new URL(value).hostname.endsWith('.pstatic.net'); } catch { return false; }
 }
 
+function sourceImageKey(value) {
+  try {
+    const url = new URL(value);
+    return url.hostname.endsWith('.pstatic.net') ? url.pathname : '';
+  } catch { return ''; }
+}
+
 function generatedImageName(sourceUrl, index) {
   try {
     const fileName = decodeURIComponent(new URL(sourceUrl).pathname.split('/').pop() || '');
@@ -301,9 +308,14 @@ export async function POST(request) {
     const { data: product, error: productError } = await productQuery.maybeSingle();
     if (productError) throw productError;
     if (!product) badRequest(serviceType === 'hotel' ? '저장할 호텔을 찾을 수 없습니다.' : '저장할 크루즈를 찾을 수 없습니다.');
-    const assignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
+    const submittedAssignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
     const allowedTargets = serviceType === 'hotel' ? ['hero', 'hotel_room', 'delete'] : ['hero', 'cabin', 'gallery', 'delete'];
-    if (assignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !article.images.includes(item.sourceImageUrl) || !allowedTargets.includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 원본 이미지만 선택할 수 있습니다. 새로 미리보기 해 주세요.');
+    // 네이버는 같은 이미지에도 요청마다 type·서명 쿼리를 다르게 붙일 수 있다.
+    // 미리보기의 URL 전체를 다시 비교하면 정상 선택한 이미지가 400으로
+    // 거절되므로, pstatic 파일 경로를 기준으로 최신 원본 URL에 다시 연결한다.
+    const articleImageByKey = new Map(article.images.map((imageUrl) => [sourceImageKey(imageUrl), imageUrl]));
+    if (submittedAssignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !articleImageByKey.has(sourceImageKey(item.sourceImageUrl)) || !allowedTargets.includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 원본 이미지만 선택할 수 있습니다. 새로 미리보기 해 주세요.');
+    const assignments = submittedAssignments.map((item) => ({ ...item, sourceImageUrl: articleImageByKey.get(sourceImageKey(item.sourceImageUrl)) }));
     const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery' || item.target === 'hotel_room').map((item) => item.sourceImageUrl))];
     if (serviceType === 'hotel') {
       const heroAssignments = assignments.filter((item) => item.target === 'hero');

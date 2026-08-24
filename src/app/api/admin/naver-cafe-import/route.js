@@ -165,7 +165,13 @@ async function copyImage(database, serviceType, productId, item, index) {
     const safeName = String(name || index + 1).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || String(index + 1).padStart(3, '0');
     const path = `${serviceType === 'hotel' ? 'hotels' : 'cruises'}/${productId}/cafe-import/${safeName}.${IMAGE_TYPES.get(contentType)}`;
     const { error } = await database.storage.from(MEDIA_BUCKET).upload(path, buffer, { contentType, cacheControl: '31536000', upsert: false });
-    if (error) throw error;
+    if (error) {
+      // 업로드 직후 DB 반영이 끊긴 이전 요청은 스토리지에만 파일을 남길 수 있다.
+      // 이 경우 같은 이름의 파일은 그대로 재사용해 DB 저장을 끝까지 이어간다.
+      const status = Number(error.statusCode || error.status);
+      if (status !== 409 && !/already exists/i.test(error.message || '')) throw error;
+      return { sourceImageUrl: imageUrl, path, publicUrl: database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl, reused: true };
+    }
     return { sourceImageUrl: imageUrl, path, publicUrl: database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl };
   } catch (error) {
     console.warn('[naver-cafe-import] image skipped', error?.message || error);
@@ -184,7 +190,7 @@ async function copyImages(database, serviceType, productId, imageUrls) {
       results[index] = await copyImage(database, serviceType, productId, imageUrls[index], index);
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, imageUrls.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(6, imageUrls.length) }, worker));
   return {
     copied: results.filter((item) => item && !item.error),
     skipped: results.filter((item) => item?.error),

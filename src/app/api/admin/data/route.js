@@ -218,6 +218,8 @@ async function getDashboard(database, role) {
   // 갤러리만 빈 목록으로 처리한다.
   const hotelImagesResult = await database.from('hotel_gallery_images_v2').select('id,product_id,hotel_price_code,collection,image_name,image_url,sort_order,is_primary,created_at').order('sort_order');
   if (hotelImagesResult.error) console.warn('[homepage-admin] 호텔 갤러리 조회 생략', hotelImagesResult.error.message);
+  const hotelTagsResult = await database.from('hotel_tags_v2').select('product_id,tag,evidence,is_active').order('tag');
+  if (hotelTagsResult.error) console.warn('[homepage-admin] 호텔 추천 태그 조회 생략', hotelTagsResult.error.message);
   return {
     cruises: (cruises.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     itineraries: itineraries.data || [],
@@ -230,6 +232,7 @@ async function getDashboard(database, role) {
     catalogPrices: catalogPrices.data || [],
     hotelRoomDetails: hotelRoomDetails.data || [],
     hotelImages: hotelImagesResult.data || [],
+    hotelTags: hotelTagsResult.data || [],
     members: members?.data || [],
     roles: roles?.data || [],
     unmatchedRates: await getUnmatchedRateCruises(database),
@@ -238,6 +241,17 @@ async function getDashboard(database, role) {
 
 async function mutate(database, operator, body) {
   const { action, id, values } = body || {};
+  if (action === 'upsertHotelTag') {
+    const { data: product, error: productError } = await database.from('catalog_products_v2').select('id').eq('id', id).eq('source', 'sht-platform').eq('service_type', 'hotel').maybeSingle();
+    if (productError || !product) throw productError || new Error('호텔 상품을 찾을 수 없습니다.');
+    const tag = nullableText(values?.tag);
+    if (!tag || !['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury'].includes(tag)) throw new Error('추천 기준을 확인해 주세요.');
+    const { error } = await database.from('hotel_tags_v2').upsert({ product_id: id, tag, evidence: nullableText(values?.evidence) || '', is_active: Boolean(values?.is_active), updated_at: new Date().toISOString() }, { onConflict: 'product_id,tag' });
+    if (error) throw error;
+    revalidatePath('/');
+    revalidatePath('/temp-home');
+    return null;
+  }
   if (operator.role !== 'admin') throw new Error('회원과 권한은 관리자만 변경할 수 있습니다.');
   if (action === 'updateMember') {
     const { error } = await database.from('member_profiles').update(pick(values || {}, ['role_id', 'status'])).eq('id', id);
@@ -283,7 +297,7 @@ export async function PATCH(request) {
     const result = await mutate(database, operator, body);
     return Response.json({ ok: true, result });
   } catch (error) {
-    const status = /확인해 주세요|이후여야|관리자만|같은 이름|플랫폼|지원하지/.test(error?.message || '') ? 400 : 500;
+    const status = /확인해 주세요|이후여야|관리자만|같은 이름|플랫폼|추천 기준|호텔 상품|지원하지/.test(error?.message || '') ? 400 : 500;
     if (status === 400) return Response.json({ error: error.message }, { status });
     return errorResponse(error, '변경 사항을 저장하지 못했습니다.');
   }

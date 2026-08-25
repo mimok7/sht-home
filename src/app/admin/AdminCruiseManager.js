@@ -32,6 +32,8 @@ const SERVICE_MANAGEMENT_GROUP = {
     { id: 'service-cruise', label: '크루즈', catalogService: 'cruise' },
     { id: 'service-hotel', label: '호텔', catalogService: 'hotel' },
     { id: 'service-airport', label: '공항', catalogService: 'airport' },
+    { id: 'service-tour', label: '투어', catalogService: 'tour' },
+    { id: 'service-vehicle', label: '차량', catalogService: 'vehicle' },
   ],
 };
 const CRUISE_OPERATION_GROUP = {
@@ -52,10 +54,30 @@ const HOTEL_OPERATION_GROUP = {
     { id: 'hotel-rates', label: '요금 관리', catalogService: 'hotel', panel: 'rates' },
   ],
 };
+const STANDARD_SERVICE_OPERATION_GROUPS = {
+  airport: [
+    { id: 'airport-profile', label: '기본 정보', catalogService: 'airport', panel: 'profile' },
+    { id: 'airport-tags', label: '추천 기준', catalogService: 'airport', panel: 'tags' },
+    { id: 'airport-configuration', label: '서비스 구성 관리', catalogService: 'airport', panel: 'cabins' },
+    { id: 'airport-rates', label: '요금 관리', catalogService: 'airport', panel: 'rates' },
+  ],
+  tour: [
+    { id: 'tour-profile', label: '기본 정보', catalogService: 'tour', panel: 'profile' },
+    { id: 'tour-tags', label: '추천 기준', catalogService: 'tour', panel: 'tags' },
+    { id: 'tour-configuration', label: '서비스 구성 관리', catalogService: 'tour', panel: 'cabins' },
+    { id: 'tour-rates', label: '요금 관리', catalogService: 'tour', panel: 'rates' },
+  ],
+  vehicle: [
+    { id: 'vehicle-profile', label: '기본 정보', catalogService: 'vehicle', panel: 'profile' },
+    { id: 'vehicle-tags', label: '추천 기준', catalogService: 'vehicle', panel: 'tags' },
+    { id: 'vehicle-configuration', label: '서비스 구성 관리', catalogService: 'vehicle', panel: 'cabins' },
+    { id: 'vehicle-rates', label: '요금 관리', catalogService: 'vehicle', panel: 'rates' },
+  ],
+};
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
 const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }, { id: 'change-request-status', label: '수정 신청 현황' }, { id: 'change-request-completed', label: '수정 완료 내역' }] };
 
-const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], cruiseImages: [], hotelImages: [], rates: [], tags: [], hotelTags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [], hotelRoomDetails: [] };
+const blankData = { cruises: [], itineraries: [], cabins: [], cabinImages: [], cruiseImages: [], hotelImages: [], rates: [], tags: [], serviceTags: [], members: [], roles: [], unmatchedRates: [], catalogProducts: [], catalogPrices: [], hotelRoomDetails: [], serviceDetails: [] };
 const string = (value) => value ?? '';
 const numeric = (value) => (value === '' || value === null ? null : Number(value));
 const fileStem = (value, fallback = 'cabin') => String(value || fallback).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || fallback;
@@ -278,7 +300,10 @@ export default function AdminCruiseManager({ importOnly = false }) {
       .map((detail) => ({ detail, room: detail.payload || {}, price: priceBySourceId.get(String(detail.source_id)) || null }))
       .sort((left, right) => String(left.room.room_name || left.room.room_type || '').localeCompare(String(right.room.room_name || right.room.room_type || ''), 'ko'));
   }, [catalogService, catalogPrices, data.hotelRoomDetails, selectedCatalogId]);
-  const selectedHotelTags = useMemo(() => data.hotelTags.filter((tag) => tag.product_id === selectedCatalogId), [data.hotelTags, selectedCatalogId]);
+  const selectedServiceTags = useMemo(() => data.serviceTags.filter((tag) => tag.product_id === selectedCatalogId), [data.serviceTags, selectedCatalogId]);
+  const selectedServiceDetails = useMemo(() => data.serviceDetails
+    .filter((detail) => detail.product_id === selectedCatalogId)
+    .sort((left, right) => String(left.source_table).localeCompare(String(right.source_table)) || String(left.source_id).localeCompare(String(right.source_id))), [data.serviceDetails, selectedCatalogId]);
   const hotelRatesByRoom = useMemo(() => hotelRooms.filter(({ price }) => price).map(({ detail, room, price }) => ({
     id: String(detail.source_id), room, price,
   })), [hotelRooms]);
@@ -584,7 +609,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     setCatalogService(service);
     setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === service)?.id || '');
     setCatalogSection('product');
-    setActivePanel(service === 'airport' ? 'catalog' : 'profile');
+    setActivePanel(service === 'cruise' ? 'profile' : 'profile');
     setExpandedService((current) => current === service ? '' : service);
     setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: false, system: false });
     setMessage(''); setError('');
@@ -616,7 +641,6 @@ export default function AdminCruiseManager({ importOnly = false }) {
   }
   function isServiceSelected(service) {
     if (catalogService !== service) return false;
-    if (service === 'airport') return activePanel === 'catalog';
     return ['profile', 'tags', 'cabins', 'rates'].includes(activePanel);
   }
 
@@ -634,7 +658,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   if (session === undefined) return <div className="admin-state">관리자 권한을 확인하고 있습니다.</div>;
   if (!session) return <div className="admin-state"><p>이 페이지는 로그인한 운영자만 사용할 수 있습니다.</p><Link className="btn-primary" href="/login?next=/admin">운영자 로그인</Link></div>;
 
-  const isHotelOperation = catalogService === 'hotel' && ['profile', 'tags', 'cabins', 'rates'].includes(activePanel);
+  const isCatalogServiceOperation = ['hotel', 'airport', 'tour', 'vehicle'].includes(catalogService) && ['profile', 'tags', 'cabins', 'rates'].includes(activePanel);
   const requiresCruiseSelection = !importOnly && !['catalog', 'members', 'change-requests', 'change-request-status', 'change-request-completed'].includes(activePanel);
   const visibleMenuGroups = [
     SERVICE_MANAGEMENT_GROUP,
@@ -658,7 +682,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
               {group.items.map((item, index) => {
                 const service = item.catalogService;
                 const isSelected = isServiceSelected(service);
-                const submenuItems = service === 'cruise' ? CRUISE_OPERATION_GROUP.items : service === 'hotel' ? HOTEL_OPERATION_GROUP.items : [];
+                const submenuItems = service === 'cruise' ? CRUISE_OPERATION_GROUP.items : service === 'hotel' ? HOTEL_OPERATION_GROUP.items : STANDARD_SERVICE_OPERATION_GROUPS[service] || [];
                 const isExpanded = expandedService === service;
                 return <div className="admin-service-menu-item" key={item.id}>
                   <button type="button" className={isSelected ? 'selected' : ''} aria-expanded={submenuItems.length ? isExpanded : undefined} onClick={() => selectServiceManagement(service)}><i>{String.fromCharCode(65 + index)}</i>{item.label}{submenuItems.length > 0 && <b aria-hidden="true">{isExpanded ? '−' : '+'}</b>}</button>
@@ -680,21 +704,21 @@ export default function AdminCruiseManager({ importOnly = false }) {
         </>}
       </aside>
       <main className="admin-content">
-        {requiresCruiseSelection && <section className="cruise-select-panel" aria-label={isHotelOperation ? '수정할 호텔 선택' : '수정할 크루즈 선택'}>
-          <div><span>{isHotelOperation ? 'HOTEL DATA EDITOR' : 'CRUISE DATA EDITOR'}</span><strong>수정할 {isHotelOperation ? '호텔' : '크루즈'}을 선택하세요</strong><small>가나다순 · 총 {isHotelOperation ? catalogProducts.length : data.cruises.length}개</small></div>
-          <label htmlFor="managed-product-select" className="sr-only">{isHotelOperation ? '호텔' : '크루즈'} 선택</label>
-          <select id="managed-product-select" value={isHotelOperation ? selectedCatalogId : selectedId} onChange={(event) => isHotelOperation ? setSelectedCatalogId(event.target.value) : selectCruise(event.target.value)} disabled={loading || (isHotelOperation ? catalogProducts.length : data.cruises.length) === 0}>
-            <option value="">{isHotelOperation ? '호텔' : '크루즈'}를 선택하세요</option>
-            {isHotelOperation ? catalogProducts.map((hotel) => <option key={hotel.id} value={hotel.id}>{hotel.name_ko}{hotel.is_active ? '' : ' (비공개)'}</option>) : data.cruises.map((cruise) => <option key={cruise.id} value={cruise.id}>{cruise.name_ko}{cruise.name_en ? ` · ${cruise.name_en}` : ''}{cruise.is_active ? '' : ' (비공개)'}</option>)}
+        {requiresCruiseSelection && <section className="cruise-select-panel" aria-label={isCatalogServiceOperation ? `수정할 ${CATALOG_SERVICE_LABELS[catalogService]} 선택` : '수정할 크루즈 선택'}>
+          <div><span>{isCatalogServiceOperation ? `${CATALOG_SERVICE_LABELS[catalogService].toUpperCase()} DATA EDITOR` : 'CRUISE DATA EDITOR'}</span><strong>수정할 {isCatalogServiceOperation ? CATALOG_SERVICE_LABELS[catalogService] : '크루즈'}을 선택하세요</strong><small>가나다순 · 총 {isCatalogServiceOperation ? catalogProducts.length : data.cruises.length}개</small></div>
+          <label htmlFor="managed-product-select" className="sr-only">{isCatalogServiceOperation ? CATALOG_SERVICE_LABELS[catalogService] : '크루즈'} 선택</label>
+          <select id="managed-product-select" value={isCatalogServiceOperation ? selectedCatalogId : selectedId} onChange={(event) => isCatalogServiceOperation ? setSelectedCatalogId(event.target.value) : selectCruise(event.target.value)} disabled={loading || (isCatalogServiceOperation ? catalogProducts.length : data.cruises.length) === 0}>
+            <option value="">{isCatalogServiceOperation ? CATALOG_SERVICE_LABELS[catalogService] : '크루즈'}를 선택하세요</option>
+            {isCatalogServiceOperation ? catalogProducts.map((product) => <option key={product.id} value={product.id}>{product.name_ko}{product.is_active ? '' : ' (비공개)'}</option>) : data.cruises.map((cruise) => <option key={cruise.id} value={cruise.id}>{cruise.name_ko}{cruise.name_en ? ` · ${cruise.name_en}` : ''}{cruise.is_active ? '' : ' (비공개)'}</option>)}
           </select>
         </section>}
         {error && <p className="admin-notice error">{error}</p>}{message && <p className="admin-notice success">{message}</p>}
-        {loading ? <p className="admin-loading">데이터를 불러오는 중…</p> : ((requiresCruiseSelection && !(isHotelOperation ? selectedCatalogProduct : selectedCruise)) || (activePanel === 'catalog' && !selectedCatalogProduct)) ? <p className="admin-loading">표시할 관리 데이터가 없습니다.</p> : <div className="admin-workspace" data-active={activePanel}>
+        {loading ? <p className="admin-loading">데이터를 불러오는 중…</p> : ((requiresCruiseSelection && !(isCatalogServiceOperation ? selectedCatalogProduct : selectedCruise)) || (activePanel === 'catalog' && !selectedCatalogProduct)) ? <p className="admin-loading">표시할 관리 데이터가 없습니다.</p> : <div className="admin-workspace" data-active={activePanel}>
           {operator?.role === 'admin' && <section className="admin-section admin-panel" data-panel="members"><div className="admin-section-title"><span>07 / MEMBERS & ACCESS</span><h2>회원 및 권한 관리</h2><p>회원가입한 계정의 상태와 역할을 지정합니다.</p></div><div className="role-list">{data.roles.map((role) => <form key={role.id} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`role-${role.id}`, 'updateMemberRole', role.id, { permissions: { manage_members: values.get('manage_members') === 'on', manage_cruises: values.get('manage_cruises') === 'on' } }); }}><div><strong>{role.label}</strong><small>{role.description}</small></div><label className="check"><input name="manage_members" type="checkbox" defaultChecked={Boolean(role.permissions?.manage_members)} /> 회원 관리</label><label className="check"><input name="manage_cruises" type="checkbox" defaultChecked={Boolean(role.permissions?.manage_cruises)} /> 크루즈 관리</label><button disabled={saving === `role-${role.id}`}>{saving === `role-${role.id}` ? '저장 중…' : '권한 저장'}</button></form>)}</div><div className="member-list">{data.members.map((member) => <form key={member.id} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`member-${member.id}`, 'updateMember', member.id, { role_id: values.get('role_id'), status: values.get('status') }); }}><div><strong>{member.display_name || '이름 없음'}</strong><small>{member.email} · {member.phone || '연락처 없음'}</small></div><select name="role_id" defaultValue={member.role_id}>{data.roles.map((role) => <option key={role.id} value={role.id}>{role.label}</option>)}</select><select name="status" defaultValue={member.status}><option value="active">활성</option><option value="suspended">정지</option></select><button disabled={saving === `member-${member.id}`}>{saving === `member-${member.id}` ? '저장 중…' : '회원 저장'}</button></form>)}</div></section>}
           <ChangeRequestPanel adminRequest={adminRequest} active={activePanel === 'change-requests'} />
           <ChangeRequestPanel adminRequest={adminRequest} active={activePanel === 'change-request-status'} view="status" />
           <ChangeRequestPanel adminRequest={adminRequest} active={activePanel === 'change-request-completed'} view="completed" />
-          <section className="admin-section admin-panel" data-panel="profile">{isHotelOperation ? <HotelProfilePanel product={selectedCatalogProduct} hotelImages={hotelImages} saving={saving} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onSaveDetails={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('hotel-gallery', selectedCatalogProduct.id, files)} onSetPrimary={(imageId) => changeHotelImage('setHotelPrimaryImage', imageId)} /> : <><div className="admin-section-title"><span>01 / CRUISE PROFILE</span><h2>기본 소개 및 공개 상태</h2><a href={selectedCruise?.slug ? `/product/${encodeURIComponent(selectedCruise.slug)}` : '#'} target="_blank" rel="noreferrer">공개 화면 보기 ↗</a></div>
+          <section className="admin-section admin-panel" data-panel="profile">{isCatalogServiceOperation ? (catalogService === 'hotel' ? <HotelProfilePanel product={selectedCatalogProduct} hotelImages={hotelImages} saving={saving} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onSaveDetails={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('hotel-gallery', selectedCatalogProduct.id, files)} onSetPrimary={(imageId) => changeHotelImage('setHotelPrimaryImage', imageId)} /> : <StandardServiceProfilePanel product={selectedCatalogProduct} saving={saving} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onSaveDetails={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('catalog-hero', selectedCatalogProduct.id, files)} />) : <><div className="admin-section-title"><span>01 / CRUISE PROFILE</span><h2>기본 소개 및 공개 상태</h2><a href={selectedCruise?.slug ? `/product/${encodeURIComponent(selectedCruise.slug)}` : '#'} target="_blank" rel="noreferrer">공개 화면 보기 ↗</a></div>
             <div className="rate-only-source"><div><span>RATE TABLE ONLY</span><strong>인포 테이블에 없는 요금 크루즈</strong><p>선택하면 비공개 초안과 일정이 생성됩니다. 객실과 설명을 추가한 뒤 공개하세요.</p></div><div><select value={selectedUnmatchedRate} onChange={(event) => setSelectedUnmatchedRate(event.target.value)}><option value="">요금 전용 크루즈 선택 ({data.unmatchedRates.length})</option>{data.unmatchedRates.map((source) => <option value={source.legacy_name} key={source.legacy_name}>{source.legacy_name} · 요금 {source.rate_count}건 · {(source.schedule_types || []).join(', ')}</option>)}</select><button type="button" className="admin-save" onClick={addCruiseFromRateOnlySource} disabled={!selectedUnmatchedRate || saving === 'rate-only-cruise'}>{saving === 'rate-only-cruise' ? '추가 중…' : '관리 크루즈로 추가 →'}</button></div></div>
             <form onSubmit={(event) => { event.preventDefault(); save('cruise', 'updateCruise', selectedId, { ...cruiseForm, star_rating: numeric(cruiseForm.star_rating) }); }} className="admin-form profile-form">
               <section className="cruise-rating-guide wide" aria-labelledby="cruise-rating-title"><header><span>DISPLAY RULES</span><strong id="cruise-rating-title">등급 설정 기준</strong><p>등급은 홈페이지에 표시하는 별점입니다. 5성급 또는 6성급을 선택한 뒤 저장하세요. 상품 구분은 일정으로 안내하므로 카테고리는 사용하지 않습니다.</p></header><dl><div><dt>등급</dt><dd>{CRUISE_RATING_OPTIONS.map((option) => <span key={option.value}><b>{option.label}</b>{option.description}</span>)}</dd></div></dl></section>
@@ -720,10 +744,10 @@ export default function AdminCruiseManager({ importOnly = false }) {
               {cafePreview.images.length > 0 && <div className="cafe-import-images">{cafePreview.images.map((image, index) => { const assignment = cafePreview.imageAssignments[index]; return <label id={`cafe-import-image-${index}`} key={image.sourceUrl}><input type="checkbox" disabled={saving === 'naver-import'} checked={cafePreview.selectedImageUrls.includes(image.sourceUrl)} onClick={(event) => { cafeImageClickRef.current = { index, shiftKey: event.shiftKey }; }} onChange={(event) => { const click = cafeImageClickRef.current; toggleCafeImageSelection(event.target.checked, index, click.index === index && click.shiftKey); }} /><figure role="img" aria-label={assignment.imageName} style={{ backgroundImage: `url(${image.previewUrl})` }} /><span>{assignment.imageName}</span></label>; })}</div>}
             </div>}
           </section>
-          <section className="admin-section admin-panel" data-panel="tags">{isHotelOperation ? <HotelTagPanel tags={selectedHotelTags} saving={saving} onSave={(tag, values) => save(`hotel-tag-${tag}`, 'upsertHotelTag', selectedCatalogProduct.id, { tag, ...values })} /> : <><div className="admin-section-title"><span>02 / RECOMMENDATION RULES</span><h2>추천 기준 태그</h2><p>태그별 근거를 직접 관리합니다.</p></div><div className="tag-manager">{TAGS.map((tag) => { const row = selectedTags.find((item) => item.tag === tag); return <form key={tag} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`tag-${tag}`, 'upsertCruiseTag', selectedId, { tag, evidence: values.get('evidence'), is_active: values.get('is_active') === 'on' }); }}><strong>#{tag}</strong><input name="evidence" defaultValue={row?.evidence || ''} placeholder="추천 근거를 입력하세요" required /><label className="check"><input name="is_active" type="checkbox" defaultChecked={Boolean(row?.is_active)} /> 추천에 사용</label><button disabled={saving === `tag-${tag}`}>저장</button></form>; })}</div></>}</section>
+          <section className="admin-section admin-panel" data-panel="tags">{isCatalogServiceOperation ? <HotelTagPanel tags={selectedServiceTags} saving={saving} serviceLabel={CATALOG_SERVICE_LABELS[catalogService]} onSave={(tag, values) => save(`service-tag-${tag}`, 'upsertServiceTag', selectedCatalogProduct.id, { tag, ...values })} /> : <><div className="admin-section-title"><span>02 / RECOMMENDATION RULES</span><h2>추천 기준 태그</h2><p>태그별 근거를 직접 관리합니다.</p></div><div className="tag-manager">{TAGS.map((tag) => { const row = selectedTags.find((item) => item.tag === tag); return <form key={tag} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`tag-${tag}`, 'upsertCruiseTag', selectedId, { tag, evidence: values.get('evidence'), is_active: values.get('is_active') === 'on' }); }}><strong>#{tag}</strong><input name="evidence" defaultValue={row?.evidence || ''} placeholder="추천 근거를 입력하세요" required /><label className="check"><input name="is_active" type="checkbox" defaultChecked={Boolean(row?.is_active)} /> 추천에 사용</label><button disabled={saving === `tag-${tag}`}>저장</button></form>; })}</div></>}</section>
           <section className="admin-section admin-panel" data-panel="itinerary"><div className="admin-section-title"><span>03 / ITINERARY</span><h2>일정 공개 및 설명</h2></div><div className="editor-list">{itineraries.map((itinerary) => <form key={itinerary.id} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); save(`itinerary-${itinerary.id}`, 'updateItinerary', itinerary.id, { description: values.get('description'), is_active: values.get('is_active') === 'on' }); }}><b>{SCHEDULE_LABELS[itinerary.schedule_type]}</b><input name="description" defaultValue={itinerary.description || ''} placeholder="일정 설명" /><label className="check"><input name="is_active" type="checkbox" defaultChecked={itinerary.is_active} /> 공개</label><button>저장</button></form>)}</div></section>
-          <section className="admin-section admin-panel" data-panel="cabins">{isHotelOperation ? <HotelCabinPanel rooms={hotelRooms} imagesByRoom={hotelImagesByRoom} productId={selectedCatalogProduct.id} saving={saving} onUpload={(roomCode, files) => uploadImages('hotel-room-gallery', selectedCatalogProduct.id, files, { hotelPriceCode: roomCode })} onSetPrimary={(imageId) => changeHotelImage('setHotelRoomPrimaryImage', imageId)} /> : <><div className="admin-section-title"><span>04 / CABINS</span><h2>객실 정보</h2><p>객실의 특징은 추천 태그와 고객 안내에 사용됩니다.</p></div><div className="cabin-add-action"><button type="button" className="admin-save" onClick={() => { void createCabin(); }} disabled={saving === 'cabin-create'}>{saving === 'cabin-create' ? '객실 추가 중…' : '객실 추가'}</button></div><div className="cabin-editor">{cabins.map((cabin) => <CabinForm key={cabin.id} cabin={cabin} images={cabinImagesByCabin.get(cabin.id) || []} saving={saving === `cabin-${cabin.id}`} imageBusy={saving === `image-upload-cabin-gallery-${cabin.id}` || saving.startsWith('cabin-image-')} onSave={(values) => save(`cabin-${cabin.id}`, 'updateCabin', cabin.id, values)} onUpload={(files) => uploadImages('cabin-gallery', cabin.id, files)} onSetPrimary={(imageId) => changeCabinImage('setCabinPrimaryImage', imageId)} onRemove={(imageId) => changeCabinImage('removeCabinImage', imageId)} />)}</div></>}</section>
-          <section className="admin-section admin-panel" data-panel="rates">{isHotelOperation ? <HotelRatePanel rooms={hotelRatesByRoom} expandedRoomId={expandedHotelRateRoomId} onToggle={(roomId) => setExpandedHotelRateRoomId((current) => current === roomId ? '' : roomId)} saving={saving} onSave={(priceId, values) => save(`catalog-price-${priceId}`, 'updateCatalogPrice', priceId, values)} /> : <><div className="admin-section-title"><span>05 / RATES</span><h2>등록 요금 및 적용 기간</h2><p>객실명을 누르면 해당 객실의 요금만 펼쳐집니다. 금액은 VND 기준이며, 공개 여부를 끄면 고객 화면에서 제외됩니다.</p></div><div className="rate-cabin-groups">{ratesByCabin.map(({ cabin, rates: cabinRates }, index) => { const isExpanded = expandedRateCabinId === cabin.id; const panelId = `rate-cabin-panel-${cabin.id}`; return <section className="rate-cabin-group" data-expanded={isExpanded} key={cabin.id}><button type="button" className="rate-cabin-group-heading" aria-expanded={isExpanded} aria-controls={panelId} onClick={() => setExpandedRateCabinId((current) => current === cabin.id ? '' : cabin.id)}><span>{String(index + 1).padStart(2, '0')} / CABIN RATES</span><span className="rate-cabin-group-name"><strong>{cabin.name_ko || '객실명 없음'}</strong>{englishCabinName(cabin) && <small>{englishCabinName(cabin)}</small>}</span><span className="rate-cabin-group-count">{cabinRates.length}건 <i aria-hidden="true">{isExpanded ? '−' : '+'}</i></span></button>{isExpanded && <div className="rate-editor" id={panelId}>{cabinRates.map((rate) => <RateForm key={rate.id} rate={rate} itinerary={itineraryById.get(rate.itinerary_id)} saving={saving === `rate-${rate.id}`} onSave={(values) => save(`rate-${rate.id}`, 'updateRate', rate.id, values)} />)}</div>}</section>; })}</div></>}</section>
+          <section className="admin-section admin-panel" data-panel="cabins">{isCatalogServiceOperation ? (catalogService === 'hotel' ? <HotelCabinPanel rooms={hotelRooms} imagesByRoom={hotelImagesByRoom} productId={selectedCatalogProduct.id} saving={saving} onUpload={(roomCode, files) => uploadImages('hotel-room-gallery', selectedCatalogProduct.id, files, { hotelPriceCode: roomCode })} onSetPrimary={(imageId) => changeHotelImage('setHotelRoomPrimaryImage', imageId)} /> : <StandardServiceConfigurationPanel serviceLabel={CATALOG_SERVICE_LABELS[catalogService]} details={selectedServiceDetails} />) : <><div className="admin-section-title"><span>04 / CABINS</span><h2>객실 정보</h2><p>객실의 특징은 추천 태그와 고객 안내에 사용됩니다.</p></div><div className="cabin-add-action"><button type="button" className="admin-save" onClick={() => { void createCabin(); }} disabled={saving === 'cabin-create'}>{saving === 'cabin-create' ? '객실 추가 중…' : '객실 추가'}</button></div><div className="cabin-editor">{cabins.map((cabin) => <CabinForm key={cabin.id} cabin={cabin} images={cabinImagesByCabin.get(cabin.id) || []} saving={saving === `cabin-${cabin.id}`} imageBusy={saving === `image-upload-cabin-gallery-${cabin.id}` || saving.startsWith('cabin-image-')} onSave={(values) => save(`cabin-${cabin.id}`, 'updateCabin', cabin.id, values)} onUpload={(files) => uploadImages('cabin-gallery', cabin.id, files)} onSetPrimary={(imageId) => changeCabinImage('setCabinPrimaryImage', imageId)} onRemove={(imageId) => changeCabinImage('removeCabinImage', imageId)} />)}</div></>}</section>
+          <section className="admin-section admin-panel" data-panel="rates">{isCatalogServiceOperation ? (catalogService === 'hotel' ? <HotelRatePanel rooms={hotelRatesByRoom} expandedRoomId={expandedHotelRateRoomId} onToggle={(roomId) => setExpandedHotelRateRoomId((current) => current === roomId ? '' : roomId)} saving={saving} onSave={(priceId, values) => save(`catalog-price-${priceId}`, 'updateCatalogPrice', priceId, values)} /> : <StandardServiceRatePanel serviceLabel={CATALOG_SERVICE_LABELS[catalogService]} prices={catalogPrices} saving={saving} onSave={(priceId, values) => save(`catalog-price-${priceId}`, 'updateCatalogPrice', priceId, values)} />) : <><div className="admin-section-title"><span>05 / RATES</span><h2>등록 요금 및 적용 기간</h2><p>객실명을 누르면 해당 객실의 요금만 펼쳐집니다. 금액은 VND 기준이며, 공개 여부를 끄면 고객 화면에서 제외됩니다.</p></div><div className="rate-cabin-groups">{ratesByCabin.map(({ cabin, rates: cabinRates }, index) => { const isExpanded = expandedRateCabinId === cabin.id; const panelId = `rate-cabin-panel-${cabin.id}`; return <section className="rate-cabin-group" data-expanded={isExpanded} key={cabin.id}><button type="button" className="rate-cabin-group-heading" aria-expanded={isExpanded} aria-controls={panelId} onClick={() => setExpandedRateCabinId((current) => current === cabin.id ? '' : cabin.id)}><span>{String(index + 1).padStart(2, '0')} / CABIN RATES</span><span className="rate-cabin-group-name"><strong>{cabin.name_ko || '객실명 없음'}</strong>{englishCabinName(cabin) && <small>{englishCabinName(cabin)}</small>}</span><span className="rate-cabin-group-count">{cabinRates.length}건 <i aria-hidden="true">{isExpanded ? '−' : '+'}</i></span></button>{isExpanded && <div className="rate-editor" id={panelId}>{cabinRates.map((rate) => <RateForm key={rate.id} rate={rate} itinerary={itineraryById.get(rate.itinerary_id)} saving={saving === `rate-${rate.id}`} onSave={(values) => save(`rate-${rate.id}`, 'updateRate', rate.id, values)} />)}</div>}</section>; })}</div></>}</section>
           <section className="admin-section admin-panel" data-panel="catalog">
             <div className="admin-section-title"><span>06 / HOMEPAGE CATALOG</span><h2>{CATALOG_SERVICE_LABELS[catalogService]} 관리</h2><p>플랫폼 원본은 읽기 전용입니다. 이 화면에서 저장한 홈페이지용 표현과 요금은 다음 동기화 후에도 유지됩니다.</p></div>
             <div className="catalog-select-panel">
@@ -802,10 +826,10 @@ function HotelProfilePanel({ product, hotelImages, saving, onSave, onSaveDetails
   </>;
 }
 
-function HotelTagPanel({ tags, saving, onSave }) {
-  return <><div className="admin-section-title"><span>02 / RECOMMENDATION RULES</span><h2>추천 기준 태그</h2><p>크루즈와 동일하게 호텔별 추천 기준과 근거를 관리합니다.</p></div><div className="tag-manager">{TAGS.map((tag) => {
+function HotelTagPanel({ tags, saving, serviceLabel = '호텔', onSave }) {
+  return <><div className="admin-section-title"><span>02 / RECOMMENDATION RULES</span><h2>추천 기준 태그</h2><p>크루즈와 동일하게 {serviceLabel}별 추천 기준과 근거를 관리합니다.</p></div><div className="tag-manager">{TAGS.map((tag) => {
     const row = tags.find((item) => item.tag === tag);
-    return <form key={tag} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); onSave(tag, { evidence: values.get('evidence'), is_active: values.get('is_active') === 'on' }); }}><strong>#{tag}</strong><input name="evidence" defaultValue={row?.evidence || ''} placeholder="추천 근거를 입력하세요" required /><label className="check"><input name="is_active" type="checkbox" defaultChecked={Boolean(row?.is_active)} /> 추천에 사용</label><button disabled={saving === `hotel-tag-${tag}`}>{saving === `hotel-tag-${tag}` ? '저장 중…' : '저장'}</button></form>;
+    return <form key={tag} onSubmit={(event) => { event.preventDefault(); const values = new FormData(event.currentTarget); onSave(tag, { evidence: values.get('evidence'), is_active: values.get('is_active') === 'on' }); }}><strong>#{tag}</strong><input name="evidence" defaultValue={row?.evidence || ''} placeholder="추천 근거를 입력하세요" required /><label className="check"><input name="is_active" type="checkbox" defaultChecked={Boolean(row?.is_active)} /> 추천에 사용</label><button disabled={saving === `service-tag-${tag}`}>{saving === `service-tag-${tag}` ? '저장 중…' : '저장'}</button></form>;
   })}</div></>;
 }
 
@@ -820,6 +844,22 @@ function HotelRatePanel({ rooms, expandedRoomId, onToggle, saving, onSave }) {
     const roomName = room.room_name || room.room_type || '객실명 없음';
     return <section className="rate-cabin-group" data-expanded={isExpanded} key={id}><button type="button" className="rate-cabin-group-heading" aria-expanded={isExpanded} aria-controls={panelId} onClick={() => onToggle(id)}><span>{String(index + 1).padStart(2, '0')} / ROOM RATES</span><span className="rate-cabin-group-name"><strong>{roomName}</strong><small>{room.hotel_price_code || ''}</small></span><span className="rate-cabin-group-count">1건 <i aria-hidden="true">{isExpanded ? '−' : '+'}</i></span></button>{isExpanded && <div className="rate-editor" id={panelId}><CatalogPriceForm price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => onSave(price.id, values)} /></div>}</section>;
   })}</div>{rooms.length === 0 && <p className="admin-loading">등록된 객실 요금이 없습니다.</p>}</>;
+}
+
+function StandardServiceProfilePanel({ product, saving, onSave, onSaveDetails, onUpload }) {
+  const serviceLabel = CATALOG_SERVICE_LABELS[product.service_type];
+  return <><div className="admin-section-title"><span>01 / SERVICE PROFILE</span><h2>{serviceLabel} 기본 소개 및 공개 상태</h2><p>상품 소개, 공개 상태, 대표 이미지와 서비스 상세 정보를 관리합니다.</p></div>
+    <CatalogProductForm product={product} saving={saving === `catalog-product-${product.id}`} imageBusy={saving === `image-upload-catalog-hero-${product.id}`} onSave={onSave} onUpload={onUpload} />
+    <CatalogDetailsForm product={product} saving={saving === `catalog-details-${product.id}`} onSave={onSaveDetails} />
+  </>;
+}
+
+function StandardServiceConfigurationPanel({ serviceLabel, details }) {
+  return <><div className="admin-section-title"><span>04 / SERVICE CONFIGURATION</span><h2>{serviceLabel} 구성 정보</h2><p>플랫폼에서 동기화한 운행·일정·포함 사항 등 서비스 구성 정보를 확인합니다.</p></div>{details.length === 0 ? <p className="admin-loading">동기화된 서비스 구성 데이터가 없습니다.</p> : <div className="editor-list">{details.map((detail) => <article className="hotel-room-card" key={`${detail.product_id}-${detail.source_table}-${detail.source_id}`}><header><div><span>{String(detail.source_table || 'SOURCE').toUpperCase()}</span><b>{detail.payload?.name || detail.payload?.title || detail.source_id || '서비스 구성'}</b></div><small>{detail.is_active ? '활성 데이터' : '비활성 데이터'}</small></header><pre className="service-detail-payload">{JSON.stringify(detail.payload || {}, null, 2)}</pre></article>)}</div>}</>;
+}
+
+function StandardServiceRatePanel({ serviceLabel, prices, saving, onSave }) {
+  return <><div className="admin-section-title"><span>05 / RATES</span><h2>{serviceLabel} 등록 요금 및 적용 기간</h2><p>플랫폼 동기화 요금을 홈페이지용으로 조정하고 공개 여부를 관리합니다.</p></div>{prices.length === 0 ? <p className="admin-loading">등록된 요금 데이터가 없습니다.</p> : <div className="rate-editor">{prices.map((price) => <CatalogPriceForm key={price.id} price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => onSave(price.id, values)} />)}</div>}</>;
 }
 
 function CatalogDetailsForm({ product, onSave, saving }) {

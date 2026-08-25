@@ -201,6 +201,7 @@ async function getDashboard(database, role) {
     database.from('catalog_products_v2').select('id,service_type,source,source_key,name_ko,description,category,image_url,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('name_ko'),
     database.from('catalog_prices_v2').select('id,product_id,source_table,source_id,label,price_amount,currency,price_unit,min_guests,max_guests,valid_from,valid_to,metadata,source_updated_at,is_active,manual_override,updated_at').eq('source', 'sht-platform').order('source_table'),
     database.from('catalog_product_details_v2').select('product_id,source_table,source_id,payload,source_updated_at,is_active').eq('source', 'sht-platform').eq('source_table', 'hotel_price').order('source_updated_at', { ascending: false }),
+    database.from('catalog_product_details_v2').select('product_id,source_table,source_id,payload,source_updated_at,is_active').eq('source', 'sht-platform').order('source_updated_at', { ascending: false }),
   ];
   if (role === 'admin') {
     queries.push(
@@ -212,14 +213,14 @@ async function getDashboard(database, role) {
   const failed = results.find((result) => result.error);
   if (failed) throw failed.error;
 
-  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, members, roles] = results;
+  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, serviceDetails, members, roles] = results;
   // 호텔 이미지 테이블은 별도 마이그레이션으로 도입되었다. PostgREST 스키마
   // 캐시가 아직 갱신되지 않은 경우에도 기본 관리자 화면이 멈추지 않도록
   // 갤러리만 빈 목록으로 처리한다.
   const hotelImagesResult = await database.from('hotel_gallery_images_v2').select('id,product_id,hotel_price_code,collection,image_name,image_url,sort_order,is_primary,created_at').order('sort_order');
   if (hotelImagesResult.error) console.warn('[homepage-admin] 호텔 갤러리 조회 생략', hotelImagesResult.error.message);
-  const hotelTagsResult = await database.from('hotel_tags_v2').select('product_id,tag,evidence,is_active').order('tag');
-  if (hotelTagsResult.error) console.warn('[homepage-admin] 호텔 추천 태그 조회 생략', hotelTagsResult.error.message);
+  const serviceTagsResult = await database.from('service_tags_v2').select('product_id,tag,evidence,is_active').order('tag');
+  if (serviceTagsResult.error) console.warn('[homepage-admin] 서비스 추천 태그 조회 생략', serviceTagsResult.error.message);
   return {
     cruises: (cruises.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     itineraries: itineraries.data || [],
@@ -231,8 +232,9 @@ async function getDashboard(database, role) {
     catalogProducts: (catalogProducts.data || []).sort((left, right) => left.name_ko.localeCompare(right.name_ko, 'ko')),
     catalogPrices: catalogPrices.data || [],
     hotelRoomDetails: hotelRoomDetails.data || [],
+    serviceDetails: serviceDetails.data || [],
     hotelImages: hotelImagesResult.data || [],
-    hotelTags: hotelTagsResult.data || [],
+    serviceTags: serviceTagsResult.data || [],
     members: members?.data || [],
     roles: roles?.data || [],
     unmatchedRates: await getUnmatchedRateCruises(database),
@@ -241,12 +243,12 @@ async function getDashboard(database, role) {
 
 async function mutate(database, operator, body) {
   const { action, id, values } = body || {};
-  if (action === 'upsertHotelTag') {
-    const { data: product, error: productError } = await database.from('catalog_products_v2').select('id').eq('id', id).eq('source', 'sht-platform').eq('service_type', 'hotel').maybeSingle();
-    if (productError || !product) throw productError || new Error('호텔 상품을 찾을 수 없습니다.');
+  if (action === 'upsertServiceTag') {
+    const { data: product, error: productError } = await database.from('catalog_products_v2').select('id').eq('id', id).eq('source', 'sht-platform').in('service_type', ['hotel', 'airport', 'tour', 'vehicle']).maybeSingle();
+    if (productError || !product) throw productError || new Error('서비스 상품을 찾을 수 없습니다.');
     const tag = nullableText(values?.tag);
     if (!tag || !['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury'].includes(tag)) throw new Error('추천 기준을 확인해 주세요.');
-    const { error } = await database.from('hotel_tags_v2').upsert({ product_id: id, tag, evidence: nullableText(values?.evidence) || '', is_active: Boolean(values?.is_active), updated_at: new Date().toISOString() }, { onConflict: 'product_id,tag' });
+    const { error } = await database.from('service_tags_v2').upsert({ product_id: id, tag, evidence: nullableText(values?.evidence) || '', is_active: Boolean(values?.is_active), updated_at: new Date().toISOString() }, { onConflict: 'product_id,tag' });
     if (error) throw error;
     revalidatePath('/');
     revalidatePath('/temp-home');
@@ -297,7 +299,7 @@ export async function PATCH(request) {
     const result = await mutate(database, operator, body);
     return Response.json({ ok: true, result });
   } catch (error) {
-    const status = /확인해 주세요|이후여야|관리자만|같은 이름|플랫폼|추천 기준|호텔 상품|지원하지/.test(error?.message || '') ? 400 : 500;
+    const status = /확인해 주세요|이후여야|관리자만|같은 이름|플랫폼|추천 기준|호텔 상품|서비스 상품|지원하지/.test(error?.message || '') ? 400 : 500;
     if (status === 400) return Response.json({ error: error.message }, { status });
     return errorResponse(error, '변경 사항을 저장하지 못했습니다.');
   }

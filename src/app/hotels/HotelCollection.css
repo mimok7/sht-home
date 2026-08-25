@@ -1,3 +1,23 @@
 .hotel-card-image.product-image-box {
   width: 100%;
 }
+
+.hotel-card-image > .image-open-hint {
+  top: auto;
+  left: 16px;
+  bottom: 16px;
+  height: auto;
+  background: rgba(6, 39, 42, .92);
+  color: #fff;
+}
+
+.hotel-card-image > .image-count {
+  top: auto;
+  right: 16px;
+  bottom: 16px;
+  left: auto;
+  width: auto;
+  height: auto;
+  background: #fff;
+  color: var(--navy);
+}

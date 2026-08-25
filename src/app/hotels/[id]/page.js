@@ -16,6 +16,16 @@ function formatPrice(value, currency = 'VND') {
   return amount ? `${amount.toLocaleString('ko-KR')} ${currency}` : '요금 문의';
 }
 
+function proxiedImageUrl(imageUrl) {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  try {
+    if (!new URL(imageUrl).hostname.endsWith('.supabase.co')) return imageUrl;
+  } catch {
+    return imageUrl;
+  }
+  return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
+}
+
 function dateMatches(rate, date) {
   if (!date) return true;
   return (!rate.validFrom || rate.validFrom <= date) && (!rate.validTo || rate.validTo >= date);
@@ -33,7 +43,8 @@ function buildRooms(detailRows, priceRows, imageRows) {
     const code = String(image.hotel_price_code);
     if (!imagesByCode.has(code)) imagesByCode.set(code, []);
     const images = imagesByCode.get(code);
-    if (!images.some((current) => current.url === image.image_url)) images.push({ id: image.id, url: image.image_url, alt: `${code} 객실 이미지` });
+    const imageUrl = proxiedImageUrl(image.image_url);
+    if (!images.some((current) => current.url === imageUrl)) images.push({ id: image.id, url: imageUrl, alt: `${code} 객실 이미지` });
   }
 
   return (detailRows || []).map((detail) => {
@@ -81,9 +92,9 @@ export default function HotelDetail({ params }) {
       if (hotelResult.error || !hotelResult.data) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); return; }
       if (detailsResult.error || pricesResult.error || imagesResult.error) console.error('Failed to load hotel detail:', detailsResult.error?.message || pricesResult.error?.message || imagesResult.error?.message);
       const product = hotelResult.data;
-      const galleryImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.image_url).map((image) => ({ id: image.id, url: image.image_url, alt: `${product.name_ko} 대표 이미지` }));
+      const galleryImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: `${product.name_ko} 대표 이미지` }));
       const nextRooms = buildRooms(detailsResult.data || [], pricesResult.data || [], imagesResult.data || []);
-      setHotel({ id: product.id, name: product.name_ko, description: product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: product.manual_override?.image_url || product.image_url || galleryImages[0]?.url || '' });
+      setHotel({ id: product.id, name: product.name_ko, description: product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryImages[0]?.url || '' });
       setHotelImages(galleryImages); setRooms(nextRooms); setSelectedRoomId(nextRooms[0]?.id || ''); setLoading(false);
     }
     fetchHotel();

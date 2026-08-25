@@ -14,6 +14,16 @@ function publicStorageUrl(bucket, path) {
   return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
 }
 
+function proxiedImageUrl(imageUrl) {
+  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  try {
+    if (!new URL(imageUrl).hostname.endsWith('.supabase.co')) return imageUrl;
+  } catch {
+    return imageUrl;
+  }
+  return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
+}
+
 async function getHotels() {
   const [productsResult, pricesResult, imagesResult] = await Promise.all([
     supabase
@@ -54,7 +64,7 @@ async function getHotels() {
 
   const images = new Map();
   for (const image of imagesResult.data || []) {
-    const imageUrl = image.image_url || publicStorageUrl(image.storage_bucket, image.storage_path);
+    const imageUrl = proxiedImageUrl(image.image_url || publicStorageUrl(image.storage_bucket, image.storage_path));
     if (!imageUrl) continue;
     if (!images.has(image.product_id)) images.set(image.product_id, []);
     const productImages = images.get(image.product_id);
@@ -67,7 +77,7 @@ async function getHotels() {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
-    const imageUrl = manualOverride.image_url || hotel.image_url || images.get(hotel.id)?.[0]?.url || '';
+    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || images.get(hotel.id)?.[0]?.url || '';
     const mainImages = [
       ...(imageUrl ? [{ id: `${hotel.id}-hero`, url: imageUrl, alt: `${hotel.name_ko} 대표 이미지` }] : []),
       ...(images.get(hotel.id) || []),

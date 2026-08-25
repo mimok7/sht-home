@@ -1,6 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 
 function hotelArea(location) {
   if (/하노이/.test(location)) return 'hanoi';
@@ -10,6 +12,21 @@ function hotelArea(location) {
 
 function formatPrice(value, currency) {
   return value ? `${value.toLocaleString('ko-KR')} ${currency}` : '요금 문의';
+}
+
+function RotatingHotelImage({ hotel, index }) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const images = hotel.mainImages?.length ? hotel.mainImages : hotel.imageUrl ? [{ id: 'hero', url: hotel.imageUrl, alt: `${hotel.name} 대표 이미지` }] : [];
+
+  useEffect(() => {
+    if (images.length < 2) return undefined;
+    const timer = window.setInterval(() => setImageIndex((current) => (current + 1) % images.length), 20000);
+    return () => window.clearInterval(timer);
+  }, [images.length]);
+
+  if (!images.length) return <div className="hotel-card-image hotel-card-image-empty" role="img" aria-label={`${hotel.name} 이미지 준비 중`}><span>HOTEL / IMAGE ARCHIVE</span><strong>PHOTO<br />PENDING</strong></div>;
+
+  return <CruiseMediaGallery cruiseName={hotel.name} duration={`HOTEL / ${String(index + 1).padStart(2, '0')}`} heroImage={hotel.imageUrl} displayImage={images[imageIndex]?.url} groups={[{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images }]} showArchive={false} mainClassName="hotel-card-image" />;
 }
 
 export default function HotelCollection({ hotels }) {
@@ -42,11 +59,7 @@ export default function HotelCollection({ hotels }) {
         <section className="hotel-list" aria-label="호텔 목록">
           {filteredHotels.map((hotel, index) => (
             <article className="hotel-card" key={hotel.id}>
-              {hotel.imageUrl ? (
-                <div className="hotel-card-image" role="img" aria-label={`${hotel.name} 대표 이미지`} style={{ backgroundImage: `url(${hotel.imageUrl})` }}><span>HOTEL / {String(index + 1).padStart(2, '0')}</span></div>
-              ) : (
-                <div className="hotel-card-image hotel-card-image-empty" role="img" aria-label={`${hotel.name} 이미지 준비 중`}><span>HOTEL / IMAGE ARCHIVE</span><strong>PHOTO<br />PENDING</strong></div>
-              )}
+              <RotatingHotelImage hotel={hotel} index={index} />
               <div className="hotel-card-copy">
                 <div className="hotel-card-location">{hotel.location}</div>
                 <h2>{hotel.name}</h2>
@@ -55,7 +68,7 @@ export default function HotelCollection({ hotels }) {
                   <div><dt>RATING</dt><dd>{hotel.rating ? `${hotel.rating} STAR` : '등급 확인 중'}</dd></div>
                   <div><dt>FROM</dt><dd>{formatPrice(hotel.minPrice, hotel.currency)}</dd></div>
                 </dl>
-                <a className="hotel-inquiry-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">객실·예약 문의 <span>→</span></a>
+                <Link className="hotel-inquiry-link" href={`/hotels/${encodeURIComponent(hotel.id)}`}>객실 상세 및 예약 보기 <span>→</span></Link>
               </div>
             </article>
           ))}

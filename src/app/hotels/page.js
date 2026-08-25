@@ -54,15 +54,24 @@ async function getHotels() {
 
   const images = new Map();
   for (const image of imagesResult.data || []) {
-    if (images.has(image.product_id)) continue;
     const imageUrl = image.image_url || publicStorageUrl(image.storage_bucket, image.storage_path);
-    if (imageUrl) images.set(image.product_id, imageUrl);
+    if (!imageUrl) continue;
+    if (!images.has(image.product_id)) images.set(image.product_id, []);
+    const productImages = images.get(image.product_id);
+    if (!productImages.some((current) => current.url === imageUrl)) {
+      productImages.push({ id: `${image.product_id}-${image.sort_order}-${productImages.length}`, url: imageUrl, alt: '호텔 대표 이미지' });
+    }
   }
 
   return (productsResult.data || []).map((hotel) => {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
+    const imageUrl = manualOverride.image_url || hotel.image_url || images.get(hotel.id)?.[0]?.url || '';
+    const mainImages = [
+      ...(imageUrl ? [{ id: `${hotel.id}-hero`, url: imageUrl, alt: `${hotel.name_ko} 대표 이미지` }] : []),
+      ...(images.get(hotel.id) || []),
+    ].filter((image, index, all) => all.findIndex((current) => current.url === image.url) === index);
     return {
       id: hotel.id,
       name: hotel.name_ko,
@@ -71,7 +80,8 @@ async function getHotels() {
       rating: positiveNumber(metadata.star_rating),
       minPrice: price?.amount || null,
       currency: price?.currency || 'VND',
-      imageUrl: manualOverride.image_url || hotel.image_url || images.get(hotel.id) || '',
+      imageUrl,
+      mainImages,
     };
   });
 }

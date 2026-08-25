@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
+import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,8 @@ const TARGETS = {
   'cruise-hero': { table: 'cruises_v2', folder: 'cruises' },
   'catalog-hero': { table: 'catalog_products_v2', folder: 'catalog' },
   'cabin-gallery': { table: 'cabins_v2', folder: 'cabins' },
+  'hotel-gallery': { table: 'catalog_products_v2', folder: 'hotels' },
+  'hotel-room-gallery': { table: 'catalog_products_v2', folder: 'hotels' },
 };
 
 function storageStatus(error) {
@@ -33,7 +36,7 @@ function bearerToken(request) {
 }
 
 async function platformImageSource(database, target, entityId) {
-  if (target === 'catalog-hero') {
+  if (target === 'catalog-hero' || target === 'hotel-gallery' || target === 'hotel-room-gallery') {
     const { data, error } = await database.from('catalog_products_v2').select('service_type,source_key').eq('id', entityId).eq('source', 'sht-platform').maybeSingle();
     if (error || !data) throw error || new Error('플랫폼 상품 원본을 찾을 수 없습니다.');
     return { serviceType: data.service_type, sourceKey: data.source_key };
@@ -75,43 +78,54 @@ function hotelImagePayload(image, isPrimary) {
 async function setHotelPrimaryImage(request, database, imageId) {
   const { data: image, error: imageError } = await database.from('hotel_gallery_images_v2')
     .select('id,product_id,hotel_price_code,collection,source_url,source_image_url,image_name,image_url,storage_bucket,storage_path,sort_order')
-    .eq('id', imageId).is('hotel_price_code', null).maybeSingle();
-  if (imageError || !image) throw imageError || new Error('대표로 지정할 호텔 이미지를 찾을 수 없습니다.');
+    .eq('id', imageId).maybeSingle();
+  if (imageError || !image) throw imageError || new Error('대표로 지정할 이미지를 찾을 수 없습니다.');
 
   const { data: product, error: productError } = await database.from('catalog_products_v2')
     .select('id,source_key,manual_override').eq('id', image.product_id).eq('source', 'sht-platform').eq('service_type', 'hotel').maybeSingle();
   if (productError || !product) throw productError || new Error('호텔 상품 원본을 찾을 수 없습니다.');
 
-  const { data: gallery, error: galleryError } = await database.from('hotel_gallery_images_v2')
+  let galleryQuery = database.from('hotel_gallery_images_v2')
     .select('id,hotel_price_code,collection,source_url,source_image_url,image_name,image_url,storage_bucket,storage_path,sort_order')
-    .eq('product_id', product.id).is('hotel_price_code', null).order('sort_order');
+    .eq('product_id', product.id);
+  galleryQuery = image.hotel_price_code ? galleryQuery.eq('hotel_price_code', image.hotel_price_code) : galleryQuery.is('hotel_price_code', null);
+  const { data: gallery, error: galleryError } = await galleryQuery.order('sort_order');
   if (galleryError) throw galleryError;
 
   const source = { serviceType: 'hotel', sourceKey: product.source_key };
   await forwardPlatformImage(request, source, 'upsertHotelImages', { images: (gallery || []).map((item) => hotelImagePayload(item, item.id === image.id)) });
-  await forwardPlatformImage(request, source, 'updateCatalogProduct', { image_url: image.image_url });
+  if (!image.hotel_price_code) await forwardPlatformImage(request, source, 'updateCatalogProduct', { image_url: image.image_url });
 
   const now = new Date().toISOString();
-  const { error: clearPrimaryError } = await database.from('hotel_gallery_images_v2').update({ is_primary: false, updated_at: now }).eq('product_id', product.id).is('hotel_price_code', null);
+  let clearPrimaryQuery = database.from('hotel_gallery_images_v2').update({ is_primary: false, updated_at: now }).eq('product_id', product.id);
+  clearPrimaryQuery = image.hotel_price_code ? clearPrimaryQuery.eq('hotel_price_code', image.hotel_price_code) : clearPrimaryQuery.is('hotel_price_code', null);
+  const { error: clearPrimaryError } = await clearPrimaryQuery;
   if (clearPrimaryError) throw clearPrimaryError;
   const { error: primaryError } = await database.from('hotel_gallery_images_v2').update({ is_primary: true, updated_at: now }).eq('id', image.id);
   if (primaryError) throw primaryError;
-  const { error: productUpdateError } = await database.from('catalog_products_v2').update({ image_url: image.image_url, manual_override: { ...(product.manual_override || {}), image_url: image.image_url }, updated_at: now }).eq('id', product.id);
-  if (productUpdateError) throw productUpdateError;
+  if (!image.hotel_price_code) {
+    const { error: productUpdateError } = await database.from('catalog_products_v2').update({ image_url: image.image_url, manual_override: { ...(product.manual_override || {}), image_url: image.image_url }, updated_at: now }).eq('id', product.id);
+    if (productUpdateError) throw productUpdateError;
+  }
 
   revalidatePath('/');
   revalidatePath('/temp-home');
   return { imageUrl: image.image_url };
 }
 
-function targetPrefix(target, entityId) {
+function targetPrefix(target, entityId, hotelPriceCode = '') {
   const config = TARGETS[target];
-  return config ? `${config.folder}/${entityId}/` : '';
+  if (!config) return '';
+  if (target === 'hotel-room-gallery') return `${config.folder}/${entityId}/rooms/${hotelPriceCode}/`;
+  return `${config.folder}/${entityId}/`;
 }
 
-function validateUploadInput({ target, entityId, contentType, size }) {
+function validateUploadInput({ target, entityId, contentType, size, hotelPriceCode }) {
   if (!TARGETS[target] || typeof entityId !== 'string' || !entityId || !IMAGE_TYPES.has(contentType)) {
     throw new Error('이미지 대상 또는 파일 형식을 확인해 주세요.');
+  }
+  if (target === 'hotel-room-gallery' && (typeof hotelPriceCode !== 'string' || !hotelPriceCode)) {
+    throw new Error('객실 이미지 저장 대상을 확인해 주세요.');
   }
   if (!Number.isFinite(Number(size)) || Number(size) < 1 || Number(size) > MAX_IMAGE_BYTES) {
     throw new Error('이미지는 파일당 5MB 이하로 선택해 주세요.');
@@ -141,29 +155,37 @@ async function ensureMediaBucket(database) {
   if (error && storageStatus(error) !== 409) throw error;
 }
 
-async function assertTargetEntity(database, target, entityId) {
+async function assertTargetEntity(database, target, entityId, hotelPriceCode = '') {
   const config = TARGETS[target];
   let query = database.from(config.table).select('id').eq('id', entityId);
   if (target === 'catalog-hero') query = query.eq('source', 'sht-platform');
+  if (target === 'hotel-gallery' || target === 'hotel-room-gallery') query = query.eq('source', 'sht-platform').eq('service_type', 'hotel');
   const { data, error } = await query.maybeSingle();
   if (error) throw error;
   if (!data) throw new Error('이미지를 연결할 상품을 찾을 수 없습니다.');
+  if (target === 'hotel-room-gallery') {
+    const { data: room, error: roomError } = await database.from('catalog_product_details_v2')
+      .select('source_id').eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('product_id', entityId).eq('source_id', hotelPriceCode).maybeSingle();
+    if (roomError) throw roomError;
+    if (!room) throw new Error('선택한 호텔에 속한 객실을 찾을 수 없습니다.');
+  }
 }
 
 async function requestUploadTicket(database, values) {
   validateUploadInput(values);
   const { target, entityId, contentType } = values;
-  await assertTargetEntity(database, target, entityId);
+  await assertTargetEntity(database, target, entityId, values.hotelPriceCode);
   await ensureMediaBucket(database);
 
-  const path = `${targetPrefix(target, entityId)}${target === 'cabin-gallery' ? 'gallery/' : 'hero/'}${randomUUID()}.${IMAGE_TYPES.get(contentType)}`;
+  const galleryFolder = target === 'cabin-gallery' || target === 'hotel-gallery' || target === 'hotel-room-gallery' ? 'gallery/' : 'hero/';
+  const path = `${targetPrefix(target, entityId, values.hotelPriceCode)}${galleryFolder}${randomUUID()}.${IMAGE_TYPES.get(contentType)}`;
   const { data, error } = await database.storage.from(MEDIA_BUCKET).createSignedUploadUrl(path);
   if (error) throw error;
   return { bucket: MEDIA_BUCKET, path: data.path, token: data.token, publicUrl: publicUrl(database, data.path) };
 }
 
-function assertExpectedPath(target, entityId, path) {
-  if (typeof path !== 'string' || !path.startsWith(targetPrefix(target, entityId))) {
+function assertExpectedPath(target, entityId, path, hotelPriceCode = '') {
+  if (typeof path !== 'string' || !path.startsWith(targetPrefix(target, entityId, hotelPriceCode))) {
     throw new Error('유효하지 않은 이미지 경로입니다.');
   }
 }
@@ -172,6 +194,44 @@ async function assertStoredObject(database, path) {
   const { data, error } = await database.storage.from(MEDIA_BUCKET).exists(path);
   if (error) throw error;
   if (!data) throw new Error('Storage에 업로드된 이미지를 찾을 수 없습니다.');
+}
+
+async function completeHotelUpload(request, database, { target, entityId, path, altText, hotelPriceCode = '' }) {
+  const source = await platformImageSource(database, target, entityId);
+  const isRoomImage = target === 'hotel-room-gallery';
+  let existingQuery = database.from('hotel_gallery_images_v2').select('sort_order,is_primary').eq('product_id', entityId);
+  existingQuery = isRoomImage ? existingQuery.eq('hotel_price_code', hotelPriceCode) : existingQuery.is('hotel_price_code', null);
+  const { data: existing, error: existingError } = await existingQuery.order('sort_order', { ascending: false });
+  if (existingError) throw existingError;
+
+  const image = {
+    id: randomUUID(), product_id: entityId, hotel_price_code: isRoomImage ? hotelPriceCode : null,
+    collection: isRoomImage ? 'room_gallery' : 'hotel_gallery', source_url: null, source_image_url: null,
+    image_name: altText || null, image_url: publicUrl(database, path), storage_bucket: MEDIA_BUCKET, storage_path: path,
+    sort_order: (existing || []).reduce((max, item) => Math.max(max, Number(item.sort_order) || 0), -1) + 1,
+    is_primary: !(existing || []).some((item) => item.is_primary),
+  };
+  const { error: insertError } = await database.from('hotel_gallery_images_v2').insert(image);
+  if (insertError) throw insertError;
+
+  if (image.is_primary && !isRoomImage) {
+    const { data: product, error: productError } = await database.from('catalog_products_v2').select('manual_override').eq('id', entityId).maybeSingle();
+    if (productError || !product) throw productError || new Error('호텔 상품을 찾을 수 없습니다.');
+    const { error: productUpdateError } = await database.from('catalog_products_v2').update({ image_url: image.image_url, manual_override: { ...(product.manual_override || {}), image_url: image.image_url }, updated_at: new Date().toISOString() }).eq('id', entityId);
+    if (productUpdateError) throw productUpdateError;
+  }
+
+  after(async () => {
+    try {
+      await forwardPlatformImage(request, source, 'upsertHotelImages', { images: [hotelImagePayload(image, image.is_primary)] });
+      if (image.is_primary && !isRoomImage) await forwardPlatformImage(request, source, 'updateCatalogProduct', { image_url: image.image_url });
+    } catch (error) {
+      console.error('[homepage-admin-images] delayed hotel image platform sync failed', error?.message || error);
+    }
+  });
+  revalidatePath('/');
+  revalidatePath('/temp-home');
+  return { imageUrl: image.image_url, imageId: image.id, isPrimary: image.is_primary };
 }
 
 function failureResponse(error, fallback) {
@@ -201,11 +261,14 @@ export async function PATCH(request) {
   try {
     const body = await request.json();
     if (body.action === 'completeUpload') {
-      const { target, entityId, path, altText } = body;
+      const { target, entityId, path, altText, hotelPriceCode } = body;
       if (!TARGETS[target] || typeof entityId !== 'string') throw new Error('이미지 저장 대상을 확인해 주세요.');
-      await assertTargetEntity(database, target, entityId);
-      assertExpectedPath(target, entityId, path);
+      await assertTargetEntity(database, target, entityId, hotelPriceCode);
+      assertExpectedPath(target, entityId, path, hotelPriceCode);
       await assertStoredObject(database, path);
+      if (target === 'hotel-gallery' || target === 'hotel-room-gallery') {
+        return Response.json({ ok: true, result: await completeHotelUpload(request, database, { target, entityId, path, altText, hotelPriceCode }) });
+      }
       const source = await platformImageSource(database, target, entityId);
       const imageUrl = publicUrl(database, path);
       let isPrimary = false;
@@ -235,6 +298,9 @@ export async function PATCH(request) {
       return Response.json({ ok: true, result: await forwardPlatformImage(request, { imageId: body.imageId }, 'setPrimaryImage') });
     }
     if (body.action === 'setHotelPrimaryImage') {
+      return Response.json({ ok: true, result: await setHotelPrimaryImage(request, database, body.imageId) });
+    }
+    if (body.action === 'setHotelRoomPrimaryImage') {
       return Response.json({ ok: true, result: await setHotelPrimaryImage(request, database, body.imageId) });
     }
     if (body.action === 'removeCabinImage') {

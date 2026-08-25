@@ -27,25 +27,32 @@ const CATALOG_SERVICE_DETAIL_FIELDS = {
   vehicle: [['vehicle_type', '차량 유형'], ['route_from', '출발지'], ['route_to', '도착지'], ['capacity', '탑승 정원'], ['way_type', '운행 방식'], ['duration_hours', '이용 시간']],
 };
 const CATALOG_SELECTION_GROUP = {
-  id: 'catalog-selection', label: '서비스',
+  id: 'catalog-selection', label: '기타 서비스 관리',
   items: [
-    { id: 'catalog-cruise', label: '크루즈', catalogService: 'cruise' },
-    { id: 'catalog-hotel', label: '호텔', catalogService: 'hotel' },
-    { id: 'catalog-airport', label: '공항', catalogService: 'airport' },
-    { id: 'catalog-tour', label: '투어', catalogService: 'tour' },
-    { id: 'catalog-vehicle', label: '차량', catalogService: 'vehicle' },
+    { id: 'catalog-airport', label: '공항', catalogService: 'airport', catalogSection: 'product' },
+    { id: 'catalog-tour', label: '투어', catalogService: 'tour', catalogSection: 'product' },
+    { id: 'catalog-vehicle', label: '차량', catalogService: 'vehicle', catalogSection: 'product' },
   ],
 };
 const CRUISE_OPERATION_GROUP = {
   id: 'cruise', label: '크루즈 운영 데이터',
   items: [
-    { id: 'profile', label: '기본 정보' },
-    { id: 'tags', label: '추천 기준' },
-    { id: 'cabins', label: '객실 관리' },
-    { id: 'rates', label: '요금 관리' },
+    { id: 'profile', label: '기본 정보', catalogService: 'cruise', panel: 'profile' },
+    { id: 'tags', label: '추천 기준', catalogService: 'cruise', panel: 'tags' },
+    { id: 'cabins', label: '객실 관리', catalogService: 'cruise', panel: 'cabins' },
+    { id: 'rates', label: '요금 관리', catalogService: 'cruise', panel: 'rates' },
   ],
 };
-const CRUISE_OPERATION_PANEL_IDS = new Set(CRUISE_OPERATION_GROUP.items.map((item) => item.id));
+const HOTEL_OPERATION_GROUP = {
+  id: 'hotel', label: '호텔 운영 데이터',
+  items: [
+    { id: 'hotel-profile', label: '기본 정보', catalogService: 'hotel', catalogSection: 'product' },
+    { id: 'hotel-details', label: '호텔 상세 정보', catalogService: 'hotel', catalogSection: 'details' },
+    { id: 'hotel-rooms', label: '객실·객실 이미지 관리', catalogService: 'hotel', catalogSection: 'rooms' },
+    { id: 'hotel-images', label: '호텔 대표 이미지 관리', catalogService: 'hotel', catalogSection: 'images' },
+    { id: 'hotel-prices', label: '요금 관리', catalogService: 'hotel', catalogSection: 'prices' },
+  ],
+};
 const SYSTEM_MENU_GROUP = { id: 'system', label: '시스템 관리', adminOnly: true, items: [{ id: 'members', label: '회원 및 권한' }] };
 const CHANGE_REQUEST_GROUP = { id: 'requests', label: '협업 관리', items: [{ id: 'change-requests', label: '수정 신청' }, { id: 'change-request-status', label: '수정 신청 현황' }, { id: 'change-request-completed', label: '수정 완료 내역' }] };
 
@@ -119,10 +126,17 @@ function CruiseImageGallery({ images, busy, onSetPrimary, onRemove }) {
   </section>;
 }
 
-function HotelImageGallery({ images, busy, onSetPrimary }) {
+function HotelImageGallery({ images, busy, onUpload, onSetPrimary }) {
   return <section className="cabin-image-gallery wide" aria-label="호텔 업로드 이미지 관리">
-    <div className="cabin-image-gallery-heading"><div><span>HOTEL GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>대표로 지정한 이미지는 호텔 대표 이미지에 즉시 반영됩니다.</small></div></div>
-    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <figure key={image.id} className="cabin-gallery-image" role="img" aria-label={image.image_name || `호텔 이미지 ${index + 1}`} style={{ backgroundImage: `url(${image.image_url})` }}><figcaption><span>{image.is_primary ? '대표 이미지' : image.hotel_price_code ? '객실 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></figure>)}</div> : <p className="admin-gallery-empty">네이버 카페 가져오기에서 저장한 호텔 이미지가 없습니다.</p>}
+    <div className="cabin-image-gallery-heading"><div><span>HOTEL GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>첫 이미지는 대표 이미지로 지정됩니다. 대표 이미지는 호텔 카드에 즉시 반영됩니다.</small></div><ImageFilePicker label="호텔 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div>
+    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <figure key={image.id} className="cabin-gallery-image" role="img" aria-label={image.image_name || `호텔 이미지 ${index + 1}`} style={{ backgroundImage: `url(${image.image_url})` }}><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></figure>)}</div> : <p className="admin-gallery-empty">저장된 호텔 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
+  </section>;
+}
+
+function HotelRoomImageGallery({ roomName, images, busy, onUpload, onSetPrimary }) {
+  return <section className="cabin-image-gallery wide" aria-label={`${roomName} 객실 이미지 관리`}>
+    <div className="cabin-image-gallery-heading"><div><span>ROOM GALLERY</span><strong>{roomName} 이미지 {images.length}장</strong><small>첫 이미지는 이 객실의 대표 이미지로 지정됩니다.</small></div><ImageFilePicker label="객실 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div>
+    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <figure key={image.id} className="cabin-gallery-image" role="img" aria-label={image.image_name || `${roomName} 이미지 ${index + 1}`} style={{ backgroundImage: `url(${image.image_url})` }}><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></figure>)}</div> : <p className="admin-gallery-empty">저장된 객실 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
   </section>;
 }
 
@@ -137,7 +151,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const [activePanel, setActivePanel] = useState(importOnly ? 'naver-import' : 'profile');
   const [catalogSection, setCatalogSection] = useState('product');
   const [expandedRateCabinId, setExpandedRateCabinId] = useState('');
-  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, 'catalog-management': false, cruise: true, requests: false, system: false });
+  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, cruise: true, hotel: false, requests: false, system: false });
   const [selectedUnmatchedRate, setSelectedUnmatchedRate] = useState('');
   const [cruiseForm, setCruiseForm] = useState(null);
   const [message, setMessage] = useState('');
@@ -243,6 +257,17 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const hotelImages = useMemo(() => (data.hotelImages || [])
     .filter((image) => image.product_id === selectedCatalogId && !image.hotel_price_code)
     .sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order || String(left.created_at).localeCompare(String(right.created_at))), [data.hotelImages, selectedCatalogId]);
+  const hotelImagesByRoom = useMemo(() => {
+    const grouped = new Map();
+    for (const image of data.hotelImages || []) {
+      if (image.product_id !== selectedCatalogId || !image.hotel_price_code) continue;
+      const images = grouped.get(String(image.hotel_price_code)) || [];
+      images.push(image);
+      grouped.set(String(image.hotel_price_code), images);
+    }
+    for (const images of grouped.values()) images.sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order || String(left.created_at).localeCompare(String(right.created_at)));
+    return grouped;
+  }, [data.hotelImages, selectedCatalogId]);
   const catalogPrices = useMemo(() => data.catalogPrices.filter((price) => price.product_id === selectedCatalogId), [data.catalogPrices, selectedCatalogId]);
   const hotelRooms = useMemo(() => {
     if (catalogService !== 'hotel') return [];
@@ -279,7 +304,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     }
   }
 
-  async function uploadImages(target, entityId, selectedFiles) {
+  async function uploadImages(target, entityId, selectedFiles, extra = {}) {
     const files = [...(selectedFiles || [])];
     if (!files.length) return;
     const label = `image-upload-${target}-${entityId}`;
@@ -288,7 +313,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
       for (const file of files) {
         const ticket = await adminRequest('/api/admin/images', {
           method: 'POST',
-          body: JSON.stringify({ target, entityId, filename: file.name, contentType: file.type, size: file.size }),
+          body: JSON.stringify({ target, entityId, filename: file.name, contentType: file.type, size: file.size, ...extra }),
         });
         const { error: uploadError } = await supabase.storage
           .from(ticket.upload.bucket)
@@ -296,7 +321,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
         if (uploadError) throw uploadError;
         await adminRequest('/api/admin/images', {
           method: 'PATCH',
-          body: JSON.stringify({ action: 'completeUpload', target, entityId, path: ticket.upload.path, altText: file.name }),
+          body: JSON.stringify({ action: 'completeUpload', target, entityId, path: ticket.upload.path, altText: file.name, ...extra }),
         });
       }
       setMessage(`${files.length}개 이미지를 Storage에 저장했습니다.`);
@@ -336,12 +361,12 @@ export default function AdminCruiseManager({ importOnly = false }) {
     }
   }
 
-  async function changeHotelImage(imageId) {
-    const label = `hotel-image-primary-${imageId}`;
+  async function changeHotelImage(action, imageId) {
+    const label = `hotel-image-${action}-${imageId}`;
     setSaving(label); setMessage(''); setError('');
     try {
-      await adminRequest('/api/admin/images', { method: 'PATCH', body: JSON.stringify({ action: 'setHotelPrimaryImage', imageId }) });
-      setMessage('호텔 대표 이미지를 변경했습니다.');
+      await adminRequest('/api/admin/images', { method: 'PATCH', body: JSON.stringify({ action, imageId }) });
+      setMessage(action === 'setHotelRoomPrimaryImage' ? '객실 대표 이미지를 변경했습니다.' : '호텔 대표 이미지를 변경했습니다.');
       await load();
     } catch (imageError) {
       setError(imageError.message || '호텔 대표 이미지를 변경하지 못했습니다.');
@@ -546,42 +571,30 @@ export default function AdminCruiseManager({ importOnly = false }) {
     setCatalogService(service);
     setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === service)?.id || '');
     setCatalogSection('product');
-    setExpandedMenuGroups({ 'catalog-selection': true, 'catalog-management': true, cruise: service === 'cruise', requests: false, system: false });
+    setExpandedMenuGroups({ 'catalog-selection': !['cruise', 'hotel'].includes(service), cruise: service === 'cruise', hotel: service === 'hotel', requests: false, system: false });
     setMessage(''); setError('');
   }
   function openAdminMenu(item, groupId) {
     if (item.catalogService) {
-      setActivePanel(item.catalogService === 'cruise' ? 'profile' : 'catalog');
       selectCatalogService(item.catalogService);
+      if (item.catalogSection) setCatalogSection(item.catalogSection);
+      setActivePanel(item.panel || 'catalog');
       return;
     }
-    if (item.catalogSection) {
-      setActivePanel('catalog');
-      setCatalogSection(item.catalogSection);
-      setExpandedMenuGroups({ 'catalog-selection': true, 'catalog-management': true, cruise: false, system: false });
-      setMessage(''); setError('');
-      return;
-    }
-    if (groupId === CRUISE_OPERATION_GROUP.id) {
-      setCatalogService('cruise');
-      setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === 'cruise')?.id || '');
-    }
-    setExpandedMenuGroups({ 'catalog-selection': false, 'catalog-management': false, cruise: groupId === 'cruise', requests: groupId === 'requests', system: groupId === 'system' });
+    setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: groupId === 'requests', system: groupId === 'system' });
     setActivePanel(item.id);
     setMessage(''); setError('');
   }
   function toggleMenuGroup(groupId) {
     setExpandedMenuGroups((current) => {
       const isOpening = !current[groupId];
-      if (groupId === 'catalog-selection') return { ...current, 'catalog-selection': isOpening, 'catalog-management': isOpening ? current['catalog-management'] : false };
-      if (groupId === 'catalog-management') return { ...current, 'catalog-selection': true, 'catalog-management': isOpening, cruise: false, system: false };
-      return { 'catalog-selection': false, 'catalog-management': false, cruise: groupId === 'cruise' && isOpening, requests: groupId === 'requests' && isOpening, system: groupId === 'system' && isOpening };
+      return { 'catalog-selection': groupId === 'catalog-selection' && isOpening, cruise: groupId === 'cruise' && isOpening, hotel: groupId === 'hotel' && isOpening, requests: groupId === 'requests' && isOpening, system: groupId === 'system' && isOpening };
     });
   }
   function isMenuItemSelected(item) {
-    if (item.catalogSection) return activePanel === 'catalog' && catalogSection === item.catalogSection;
+    if (item.catalogSection) return catalogService === item.catalogService && activePanel === 'catalog' && catalogSection === item.catalogSection;
     return item.catalogService
-      ? catalogService === item.catalogService && (activePanel === 'catalog' || (item.catalogService === 'cruise' && CRUISE_OPERATION_PANEL_IDS.has(activePanel)))
+      ? catalogService === item.catalogService && activePanel === (item.panel || 'catalog')
       : activePanel === item.id;
   }
 
@@ -600,17 +613,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
   if (!session) return <div className="admin-state"><p>이 페이지는 로그인한 운영자만 사용할 수 있습니다.</p><Link className="btn-primary" href="/login?next=/admin">운영자 로그인</Link></div>;
 
   const requiresCruiseSelection = !importOnly && !['catalog', 'members', 'change-requests', 'change-request-status', 'change-request-completed'].includes(activePanel);
-  const activeCatalogManagementGroup = {
-    id: 'catalog-management', label: '관리',
-    items: [
-      { id: 'catalog-product', label: '상품 기본 정보', catalogSection: 'product' },
-      ...(catalogService === 'hotel' ? [{ id: 'catalog-rooms', label: '객실 관리', catalogSection: 'rooms' }] : []),
-      ...(catalogService === 'cruise' ? [] : [{ id: 'catalog-details', label: '서비스 상세 정보', catalogSection: 'details' }]),
-      { id: 'catalog-prices', label: '상품 요금 관리', catalogSection: 'prices' },
-    ],
-  };
-  const activeServiceMenuItems = catalogService === 'cruise' ? CRUISE_OPERATION_GROUP.items : activeCatalogManagementGroup.items;
   const visibleMenuGroups = [
+    CRUISE_OPERATION_GROUP,
+    HOTEL_OPERATION_GROUP,
     CATALOG_SELECTION_GROUP,
     CHANGE_REQUEST_GROUP,
     ...(operator?.role === 'admin' ? [SYSTEM_MENU_GROUP] : []),
@@ -627,25 +632,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
         </> : <>
         {visibleMenuGroups.map((group) => {
           const groupIsActive = group.items.some(isMenuItemSelected);
-          const isServiceNavigationGroup = group.id === 'catalog-selection';
-          const isProductNavigationGroup = isServiceNavigationGroup;
-          const isExpanded = isProductNavigationGroup || expandedMenuGroups[group.id];
-          if (isServiceNavigationGroup) return <div className={`admin-menu-group${groupIsActive ? ' has-selected' : ''}`} key={group.id}>
-            <div className="admin-menu-group-toggle"><span>{group.label}</span><b aria-hidden="true">−</b></div>
-            <div className="admin-menu-items" id={`admin-menu-${group.id}`}>
-              {group.items.map((item, index) => {
-                const selected = isMenuItemSelected(item);
-                return <div className="admin-service-menu-item" key={item.id}>
-                  <button type="button" className={selected ? 'selected' : ''} onClick={() => openAdminMenu(item, group.id)}><i>{String.fromCharCode(65 + index)}</i>{item.label}</button>
-                  {selected && <div className="admin-service-submenu" aria-label={`${item.label} 하위 메뉴`}>{activeServiceMenuItems.map((subItem, subIndex) => <button type="button" key={subItem.id} className={isMenuItemSelected(subItem) ? 'selected' : ''} onClick={() => openAdminMenu(subItem, catalogService === 'cruise' ? 'cruise' : 'catalog-management')}><i>{subIndex + 1}</i>{subItem.label}</button>)}</div>}
-                </div>;
-              })}
-            </div>
-          </div>;
+          const isExpanded = expandedMenuGroups[group.id];
           return <div className={`admin-menu-group${groupIsActive ? ' has-selected' : ''}`} key={group.id}>
-            {isProductNavigationGroup
-              ? <div className="admin-menu-group-toggle"><span>{group.label}</span><b aria-hidden="true">−</b></div>
-              : <button type="button" className="admin-menu-group-toggle" aria-expanded={isExpanded} aria-controls={`admin-menu-${group.id}`} onClick={() => toggleMenuGroup(group.id)}><span>{group.label}</span><b aria-hidden="true">{isExpanded ? '−' : '+'}</b></button>}
+            <button type="button" className="admin-menu-group-toggle" aria-expanded={isExpanded} aria-controls={`admin-menu-${group.id}`} onClick={() => toggleMenuGroup(group.id)}><span>{group.label}</span><b aria-hidden="true">{isExpanded ? '−' : '+'}</b></button>
             <div className="admin-menu-items" id={`admin-menu-${group.id}`} hidden={!isExpanded}>
               {group.items.map((item, index) => <button type="button" key={item.id} className={isMenuItemSelected(item) ? 'selected' : ''} onClick={() => openAdminMenu(item, group.id)}><i>{String(index + 1).padStart(2, '0')}</i>{item.label}</button>)}
             </div>
@@ -706,12 +695,13 @@ export default function AdminCruiseManager({ importOnly = false }) {
               <label>서비스<select value={catalogService} onChange={(event) => selectCatalogService(event.target.value)}>{[['cruise', '크루즈'], ['hotel', '호텔'], ['tour', '투어'], ['vehicle', '차량'], ['airport', '공항']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
               <label>수정할 상품<select value={selectedCatalogId} onChange={(event) => setSelectedCatalogId(event.target.value)}><option value="">상품을 선택하세요</option>{catalogProducts.map((product) => <option key={product.id} value={product.id}>{product.name_ko}{product.is_active ? '' : ' (비공개)'}</option>)}</select></label>
             </div>
-            {selectedCatalogProduct && <>{catalogSection === 'product' && <CatalogProductForm product={selectedCatalogProduct} hotelImages={hotelImages} saving={saving === `catalog-product-${selectedCatalogProduct.id}`} imageBusy={saving === `image-upload-catalog-hero-${selectedCatalogProduct.id}`} hotelImageBusy={saving.startsWith('hotel-image-primary-')} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('catalog-hero', selectedCatalogProduct.id, files)} onSetHotelPrimaryImage={changeHotelImage} />}
+            {selectedCatalogProduct && <>{catalogSection === 'product' && <CatalogProductForm product={selectedCatalogProduct} saving={saving === `catalog-product-${selectedCatalogProduct.id}`} imageBusy={saving === `image-upload-catalog-hero-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-product-${selectedCatalogProduct.id}`, 'updateCatalogProduct', selectedCatalogProduct.id, values)} onUpload={(files) => uploadImages('catalog-hero', selectedCatalogProduct.id, files)} />}
               {catalogSection === 'details' && <CatalogDetailsForm product={selectedCatalogProduct} saving={saving === `catalog-details-${selectedCatalogProduct.id}`} onSave={(values) => save(`catalog-details-${selectedCatalogProduct.id}`, 'updateCatalogDetails', selectedCatalogProduct.id, values)} />}
               {catalogSection === 'rooms' && <section className="hotel-room-manager" aria-label="호텔 객실 관리">
-                <div className="catalog-price-heading"><span>PLATFORM HOTEL ROOMS</span><strong>객실 {hotelRooms.length}건</strong><small>객실 기본 정보는 플랫폼 원본에서 동기화됩니다. 이 화면에서는 홈페이지에 표시할 객실 요금을 조정할 수 있습니다.</small></div>
-                {hotelRooms.length === 0 ? <p className="admin-loading">동기화된 객실 데이터가 없습니다.</p> : <div className="rate-editor">{hotelRooms.map(({ detail, room, price }) => <HotelRoomForm key={detail.id} room={room} price={price} saving={price ? saving === `catalog-price-${price.id}` : false} onSave={price ? (values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values) : null} />)}</div>}
+                <div className="catalog-price-heading"><span>HOTEL ROOMS</span><strong>객실 {hotelRooms.length}건</strong><small>호텔별 객실 정보·홈페이지 요금·객실 이미지를 한 곳에서 관리합니다. 객실 기본 정보는 플랫폼 원본과 동기화됩니다.</small></div>
+                {hotelRooms.length === 0 ? <p className="admin-loading">동기화된 객실 데이터가 없습니다.</p> : <div className="rate-editor">{hotelRooms.map(({ detail, room, price }) => <HotelRoomForm key={detail.id} room={room} price={price} images={hotelImagesByRoom.get(String(detail.source_id)) || []} saving={price ? saving === `catalog-price-${price.id}` : false} imageBusy={saving === `image-upload-hotel-room-gallery-${selectedCatalogProduct.id}` || saving.startsWith('hotel-image-setHotelRoomPrimaryImage-')} onSave={price ? (values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values) : null} onUpload={(files) => uploadImages('hotel-room-gallery', selectedCatalogProduct.id, files, { hotelPriceCode: String(detail.source_id) })} onSetPrimary={(imageId) => changeHotelImage('setHotelRoomPrimaryImage', imageId)} />)}</div>}
               </section>}
+              {catalogSection === 'images' && catalogService === 'hotel' && <section className="hotel-room-manager" aria-label="호텔 대표 이미지 관리"><div className="catalog-price-heading"><span>HOTEL GALLERY</span><strong>대표·갤러리 이미지 {hotelImages.length}장</strong><small>이미지를 Storage에 직접 저장하고, 첫 이미지 또는 선택한 이미지를 대표 이미지로 지정할 수 있습니다.</small></div><HotelImageGallery images={hotelImages} busy={saving === `image-upload-hotel-gallery-${selectedCatalogProduct.id}` || saving.startsWith('hotel-image-setHotelPrimaryImage-')} onUpload={(files) => uploadImages('hotel-gallery', selectedCatalogProduct.id, files)} onSetPrimary={(imageId) => changeHotelImage('setHotelPrimaryImage', imageId)} /></section>}
               {catalogSection === 'prices' && <><div className="catalog-price-heading"><span>PRICE DATA</span><strong>상품 요금 {catalogPrices.length}건</strong></div>
                 <div className="rate-editor">{catalogPrices.map((price) => <CatalogPriceForm key={price.id} price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values)} />)}</div>
               </>}
@@ -752,7 +742,7 @@ function RateForm({ rate, itinerary, onSave, saving }) {
   return <form onSubmit={(event) => { event.preventDefault(); const valid_during = dateRange(form.valid_from, form.valid_to); if (!valid_during) return; onSave({ valid_during, price_basis: form.price_basis, price_adult: numeric(form.price_adult), price_child: numeric(form.price_child), price_infant: numeric(form.price_infant), price_single: numeric(form.price_single), price_extra_bed: numeric(form.price_extra_bed), season_name: form.season_name || null, single_available: form.single_available, extra_bed_available: form.extra_bed_available, is_active: form.is_active }); }}><header><b>{SCHEDULE_LABELS[itinerary?.schedule_type] || '일정 정보 없음'}</b><label className="check"><input type="checkbox" checked={form.is_active} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} /> 공개</label></header><div className="rate-grid"><label>적용 시작<input type="date" value={form.valid_from} onChange={(event) => setForm({ ...form, valid_from: event.target.value })} required /></label><label>적용 종료<input type="date" value={form.valid_to} onChange={(event) => setForm({ ...form, valid_to: event.target.value })} required /></label><label>가격 단위<select value={form.price_basis} onChange={(event) => setForm({ ...form, price_basis: event.target.value })}>{['unknown','per_cabin','per_adult','per_person'].map((basis) => <option value={basis} key={basis}>{basis}</option>)}</select></label><label>시즌<input value={form.season_name || ''} onChange={(event) => setForm({ ...form, season_name: event.target.value })} /></label>{[['price_adult','성인'],['price_child','아동'],['price_infant','유아'],['price_single','싱글'],['price_extra_bed','엑스트라베드']].map(([key, label]) => <label key={key}>{label} (VND)<input type="number" min="0" value={form[key] ?? ''} onChange={(event) => setForm({ ...form, [key]: event.target.value })} /></label>)}</div><div className="feature-checks"><label className="check"><input type="checkbox" checked={form.single_available} onChange={(event) => setForm({ ...form, single_available: event.target.checked })} /> 싱글 가능</label><label className="check"><input type="checkbox" checked={form.extra_bed_available} onChange={(event) => setForm({ ...form, extra_bed_available: event.target.checked })} /> 엑스트라베드 가능</label></div><button className="admin-save" disabled={saving}>{saving ? '저장 중…' : '요금 저장 →'}</button></form>;
 }
 
-function CatalogProductForm({ product, hotelImages, onSave, onUpload, onSetHotelPrimaryImage, saving, imageBusy, hotelImageBusy }) {
+function CatalogProductForm({ product, onSave, onUpload, saving, imageBusy }) {
   const [form, setForm] = useState(product);
   useEffect(() => { queueMicrotask(() => setForm(product)); }, [product]);
   return <form className="admin-form catalog-product-form" onSubmit={(event) => { event.preventDefault(); onSave({ name_ko: form.name_ko, description: form.description || '', category: form.category || '', image_url: form.image_url || '', is_active: Boolean(form.is_active) }); }}>
@@ -762,7 +752,6 @@ function CatalogProductForm({ product, hotelImages, onSave, onUpload, onSetHotel
     <label className="wide">대표 이미지 URL<input value={form.image_url || ''} onChange={(event) => setForm({ ...form, image_url: event.target.value })} placeholder="https:// 또는 /images/..." /></label>
     <ImageFilePicker label="대표 이미지 선택" disabled={imageBusy} onSelect={onUpload} />
     <ImagePreview src={form.image_url} alt={`${form.name_ko || '상품'} 대표 이미지`} />
-    {product.service_type === 'hotel' && <HotelImageGallery images={hotelImages} busy={hotelImageBusy} onSetPrimary={onSetHotelPrimaryImage} />}
     <label className="wide">홈페이지 상품 설명<textarea rows="5" value={form.description || ''} onChange={(event) => setForm({ ...form, description: event.target.value })} /></label>
     <label className="check wide"><input type="checkbox" checked={Boolean(form.is_active)} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} /> 홈페이지에 공개</label>
     <button className="admin-save wide" disabled={saving}>{saving ? '저장 중…' : '홈페이지 상품 저장 →'}</button>
@@ -793,7 +782,7 @@ function CatalogPriceForm({ price, onSave, saving }) {
   return <form onSubmit={(event) => { event.preventDefault(); onSave({ label: form.label || '', price_amount: numeric(form.price_amount), currency: form.currency || 'VND', price_unit: form.price_unit, min_guests: numeric(form.min_guests), max_guests: numeric(form.max_guests), valid_from: form.valid_from, valid_to: form.valid_to, is_active: Boolean(form.is_active) }); }}><header><b>{form.label || '요금 이름 없음'}</b><label className="check"><input type="checkbox" checked={Boolean(form.is_active)} onChange={(event) => setForm({ ...form, is_active: event.target.checked })} /> 홈페이지 공개</label></header><div className="rate-grid"><label>요금명<input value={form.label || ''} onChange={(event) => setForm({ ...form, label: event.target.value })} /></label><label>금액<input type="number" min="0" value={form.price_amount ?? ''} onChange={(event) => setForm({ ...form, price_amount: event.target.value })} /></label><label>통화<input value={form.currency || 'VND'} maxLength="3" onChange={(event) => setForm({ ...form, currency: event.target.value.toUpperCase() })} /></label><label>요금 단위<select value={form.price_unit} onChange={(event) => setForm({ ...form, price_unit: event.target.value })}>{[['per_adult', '성인 1인'], ['per_person', '1인'], ['per_room', '객실'], ['per_vehicle', '차량'], ['unknown', '확인 필요']].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>최소 인원<input type="number" min="1" value={form.min_guests ?? ''} onChange={(event) => setForm({ ...form, min_guests: event.target.value })} /></label><label>최대 인원<input type="number" min="1" value={form.max_guests ?? ''} onChange={(event) => setForm({ ...form, max_guests: event.target.value })} /></label><label>적용 시작<input type="date" value={form.valid_from || ''} onChange={(event) => setForm({ ...form, valid_from: event.target.value })} /></label><label>적용 종료<input type="date" value={form.valid_to || ''} onChange={(event) => setForm({ ...form, valid_to: event.target.value })} /></label></div><button className="admin-save" disabled={saving}>{saving ? '저장 중…' : '홈페이지 요금 저장 →'}</button></form>;
 }
 
-function HotelRoomForm({ room, price, onSave, saving }) {
+function HotelRoomForm({ room, price, images, onSave, onUpload, onSetPrimary, saving, imageBusy }) {
   const roomName = room.room_name || room.room_type || '객실명 없음';
   const detailItems = [
     ['객실 유형', room.room_type], ['객실 구분', room.room_category], ['최대 투숙', room.occupancy_max ? `${room.occupancy_max}명` : null],
@@ -801,5 +790,5 @@ function HotelRoomForm({ room, price, onSave, saving }) {
     ['추가 인원', room.extra_person_price != null ? `${Number(room.extra_person_price).toLocaleString('ko-KR')} VND` : null], ['아동 정책', room.child_policy],
     ['요일', room.weekday_type], ['시즌', room.season_name], ['적용 기간', room.start_date || room.end_date ? `${room.start_date || '-'} ~ ${room.end_date || '-'}` : null],
   ].filter(([, value]) => value !== null && value !== undefined && value !== '');
-  return <article className="hotel-room-card"><header><div><span>ROOM / {room.hotel_price_code || '-'}</span><b>{roomName}</b></div><small>{room.hotel_name || ''}</small></header><dl className="hotel-room-details">{detailItems.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{room.notes && <p className="hotel-room-notes">{room.notes}</p>}{price ? <CatalogPriceForm price={price} onSave={onSave} saving={saving} /> : <p className="admin-notice error">이 객실의 홈페이지 요금 레코드를 찾지 못했습니다. 플랫폼 동기화를 다시 실행해 주세요.</p>}</article>;
+  return <article className="hotel-room-card"><header><div><span>ROOM / {room.hotel_price_code || '-'}</span><b>{roomName}</b></div><small>{room.hotel_name || ''}</small></header><dl className="hotel-room-details">{detailItems.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>{room.notes && <p className="hotel-room-notes">{room.notes}</p>}<HotelRoomImageGallery roomName={roomName} images={images} busy={imageBusy} onUpload={onUpload} onSetPrimary={onSetPrimary} />{price ? <CatalogPriceForm price={price} onSave={onSave} saving={saving} /> : <p className="admin-notice error">이 객실의 홈페이지 요금 레코드를 찾지 못했습니다. 플랫폼 동기화를 다시 실행해 주세요.</p>}</article>;
 }

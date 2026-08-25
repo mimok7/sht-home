@@ -35,7 +35,7 @@ const CATALOG_SELECTION_GROUP = {
   ],
 };
 const CRUISE_OPERATION_GROUP = {
-  id: 'cruise', label: '크루즈 운영 데이터',
+  id: 'cruise', label: '크루즈 선택',
   items: [
     { id: 'profile', label: '기본 정보', catalogService: 'cruise', panel: 'profile' },
     { id: 'tags', label: '추천 기준', catalogService: 'cruise', panel: 'tags' },
@@ -44,7 +44,7 @@ const CRUISE_OPERATION_GROUP = {
   ],
 };
 const HOTEL_OPERATION_GROUP = {
-  id: 'hotel', label: '호텔 운영 데이터',
+  id: 'hotel', label: '호텔 선택',
   items: [
     { id: 'hotel-profile', label: '기본 정보', catalogService: 'hotel', panel: 'profile' },
     { id: 'hotel-tags', label: '추천 기준', catalogService: 'hotel', panel: 'tags' },
@@ -151,7 +151,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
   const [catalogSection, setCatalogSection] = useState('product');
   const [expandedRateCabinId, setExpandedRateCabinId] = useState('');
   const [expandedHotelRateRoomId, setExpandedHotelRateRoomId] = useState('');
-  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, cruise: true, hotel: false, requests: false, system: false });
+  const [expandedMenuGroups, setExpandedMenuGroups] = useState({ 'catalog-selection': false, cruise: false, hotel: false, requests: false, system: false });
   const [selectedUnmatchedRate, setSelectedUnmatchedRate] = useState('');
   const [cruiseForm, setCruiseForm] = useState(null);
   const [message, setMessage] = useState('');
@@ -575,17 +575,17 @@ export default function AdminCruiseManager({ importOnly = false }) {
     setCatalogService(service);
     setSelectedCatalogId(data.catalogProducts.find((product) => product.service_type === service)?.id || '');
     setCatalogSection('product');
-    setExpandedMenuGroups({ 'catalog-selection': !['cruise', 'hotel'].includes(service), cruise: service === 'cruise', hotel: service === 'hotel', requests: false, system: false });
+    setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: false, system: false });
     setMessage(''); setError('');
   }
-  function openAdminMenu(item, groupId) {
+  function openAdminMenu(item) {
     if (item.catalogService) {
       selectCatalogService(item.catalogService);
       if (item.catalogSection) setCatalogSection(item.catalogSection);
       setActivePanel(item.panel || 'catalog');
       return;
     }
-    setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: groupId === 'requests', system: groupId === 'system' });
+    setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: false, system: false });
     setActivePanel(item.id);
     setMessage(''); setError('');
   }
@@ -641,7 +641,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
           return <div className={`admin-menu-group${groupIsActive ? ' has-selected' : ''}`} key={group.id}>
             <button type="button" className="admin-menu-group-toggle" aria-expanded={isExpanded} aria-controls={`admin-menu-${group.id}`} onClick={() => toggleMenuGroup(group.id)}><span>{group.label}</span><b aria-hidden="true">{isExpanded ? '−' : '+'}</b></button>
             <div className="admin-menu-items" id={`admin-menu-${group.id}`} hidden={!isExpanded}>
-              {group.items.map((item, index) => <button type="button" key={item.id} className={isMenuItemSelected(item) ? 'selected' : ''} onClick={() => openAdminMenu(item, group.id)}><i>{String(index + 1).padStart(2, '0')}</i>{item.label}</button>)}
+              {group.items.map((item, index) => <button type="button" key={item.id} className={isMenuItemSelected(item) ? 'selected' : ''} onClick={() => openAdminMenu(item)}><i>{String(index + 1).padStart(2, '0')}</i>{item.label}</button>)}
             </div>
           </div>;
         })}

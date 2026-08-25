@@ -368,14 +368,28 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     }
   }
   const [cachedCabinImages, cachedCafeImages] = await Promise.all([
-    database.from('cabin_images_v2').select('id'), database.from('cruise_cafe_import_images_v2').select('id'),
+    database.from('cabin_images_v2').select('id,storage_bucket,storage_path'), database.from('cruise_cafe_import_images_v2').select('id,cruise_id,storage_path'),
   ]);
   if (cachedCabinImages.error || cachedCafeImages.error) throw cachedCabinImages.error || cachedCafeImages.error;
+
+  // 원본 이미지가 같은 경로로 재수집(id 변경)되면 캐시에는 예전 id 행이 남아
+  // 고유 제약(storage_bucket+storage_path, cruise_id+storage_path)과 충돌한다.
+  // upsert 전에 경로가 같고 id만 다른 잔재 행을 먼저 지운다.
+  const incomingCabinImageIds = new Set(cabinImageRows.map((row) => row.id));
+  const staleCabinPathIds = (cachedCabinImages.data || [])
+    .filter((row) => cabinImageRows.some((incoming) => incoming.storage_bucket === row.storage_bucket && incoming.storage_path === row.storage_path && incoming.id !== row.id))
+    .map((row) => row.id);
+  if (staleCabinPathIds.length) await throwOnError(await database.from('cabin_images_v2').delete().in('id', staleCabinPathIds), '객실 이미지 캐시 잔재 정리 실패');
+
+  const incomingCafeImageIds = new Set(cafeImageRows.map((row) => row.id));
+  const staleCafePathIds = (cachedCafeImages.data || [])
+    .filter((row) => cafeImageRows.some((incoming) => incoming.cruise_id === row.cruise_id && incoming.storage_path === row.storage_path && incoming.id !== row.id))
+    .map((row) => row.id);
+  if (staleCafePathIds.length) await throwOnError(await database.from('cruise_cafe_import_images_v2').delete().in('id', staleCafePathIds), '가져온 이미지 캐시 잔재 정리 실패');
+
   await throwOnError(await database.from('cabin_images_v2').update({ is_primary: false, updated_at: now }).eq('is_primary', true), '객실 이미지 대표 상태 초기화 실패');
   if (cabinImageRows.length) await throwOnError(await database.from('cabin_images_v2').upsert(cabinImageRows, { onConflict: 'id' }), '객실 이미지 캐시 저장 실패');
   if (cafeImageRows.length) await throwOnError(await database.from('cruise_cafe_import_images_v2').upsert(cafeImageRows, { onConflict: 'id' }), '가져온 이미지 캐시 저장 실패');
-  const incomingCabinImageIds = new Set(cabinImageRows.map((row) => row.id));
-  const incomingCafeImageIds = new Set(cafeImageRows.map((row) => row.id));
   const staleCabinImageIds = (cachedCabinImages.data || []).filter((row) => !incomingCabinImageIds.has(row.id)).map((row) => row.id);
   const staleCafeImageIds = (cachedCafeImages.data || []).filter((row) => !incomingCafeImageIds.has(row.id)).map((row) => row.id);
   for (let index = 0; index < staleCabinImageIds.length; index += 200) {

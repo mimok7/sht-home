@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
+import './HotelCollection.css';
 
 function hotelArea(location) {
   if (/하노이/.test(location)) return 'hanoi';

@@ -619,7 +619,8 @@ export default function AdminCruiseManager({ importOnly = false }) {
       selectCatalogService(item.catalogService);
       if (item.catalogSection) setCatalogSection(item.catalogSection);
       setActivePanel(item.panel || 'catalog');
-      setExpandedService(item.catalogService === 'cruise' || item.catalogService === 'hotel' ? item.catalogService : '');
+      // 하위 메뉴를 선택해도 현재 서비스의 메뉴는 계속 펼쳐 둔다.
+      setExpandedService(item.catalogService);
       return;
     }
     setExpandedMenuGroups({ 'catalog-selection': false, cruise: false, hotel: false, requests: false, system: false });

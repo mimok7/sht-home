@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
-const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
+const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags,platform_rate_card_id';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const MEDIA_CATEGORY_LABELS = {
@@ -179,9 +179,6 @@ export default function ProductDetail({ params }) {
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
-  const [userName, setUserName] = useState('');
-  const [userPhone, setUserPhone] = useState('');
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,38 +297,6 @@ export default function ProductDetail({ params }) {
     const scheduleType = event.target.value;
     setSelectedSchedule(scheduleType);
     setSelectedCabinId(cabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType))?.id || null);
-  }
-
-  async function handleReservation(event) {
-    event.preventDefault();
-    if (!selectedCabin || !date || !userName.trim() || !userPhone.trim()) {
-      alert('객실, 이용일, 예약자 이름과 연락처를 모두 입력해 주세요.');
-      return;
-    }
-
-    setSubmitting(true);
-    const { error } = await supabase.from('reservations').insert({
-      user_name: userName.trim(),
-      user_phone: userPhone.trim(),
-      cruise_id: cruise.id,
-      cabin_id: selectedCabin.id,
-      reservation_date: date,
-      guests_count: adults + children + infants,
-      total_price: 0,
-      status: 'pending',
-    });
-    setSubmitting(false);
-
-    if (error) {
-      console.error('Reservation inquiry failed:', error.message);
-      alert('예약 문의를 접수하지 못했습니다. 카카오톡 상담으로 연락해 주세요.');
-      return;
-    }
-
-    alert('예약 문의가 접수되었습니다. 객실 가능 여부와 최종 요금 확인 후 연락드리겠습니다.');
-    setDate('');
-    setUserName('');
-    setUserPhone('');
   }
 
   if (loading) {
@@ -454,9 +419,20 @@ export default function ProductDetail({ params }) {
 
         <aside className="product-sidebar">
           <div className="reservation-card sticky">
-            <h3>예약 문의</h3>
-            <p className="reservation-intro">실시간 객실과 최종 금액은 현지 데스크 확인 후 안내합니다.</p>
-            <form className="reservation-form" onSubmit={handleReservation}>
+            <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
+            <h3>예약 시작</h3>
+            <p className="reservation-intro">선택 조건을 예약 플랫폼으로 안전하게 이어갑니다. 로그인 후 예약자 정보를 입력하고 최종 견적을 확인하세요.</p>
+            <form className="reservation-form" action="/api/platform/booking-handoff" method="get">
+              <input type="hidden" name="sourceProductId" value={cruise.id} />
+              <input type="hidden" name="sourceProductSlug" value={cruise.slug} />
+              <input type="hidden" name="rateCardId" value={selectedRate?.platform_rate_card_id || ''} />
+              <input type="hidden" name="cruiseName" value={cruise.name} />
+              <input type="hidden" name="roomType" value={selectedCabin?.name || ''} />
+              <input type="hidden" name="schedule" value={selectedSchedule} />
+              <input type="hidden" name="adultCount" value={adults} />
+              <input type="hidden" name="childCount" value={children} />
+              <input type="hidden" name="infantCount" value={infants} />
+              <input type="hidden" name="roomCount" value="1" />
               <div className="form-group">
                 <label>선택한 객실</label>
                 <input type="text" value={selectedCabin?.name || '객실을 선택하세요'} readOnly />
@@ -474,25 +450,18 @@ export default function ProductDetail({ params }) {
               </div>
               <div className="form-group">
                 <label htmlFor="date">이용일</label>
-                <input type="date" id="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+                <input type="date" id="date" name="checkin" value={date} onChange={(event) => setDate(event.target.value)} required />
               </div>
-              {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 문의 접수 후 별도 확인합니다.</p>}
-              <div className="form-group">
-                <label htmlFor="userName">예약자 성함</label>
-                <input type="text" id="userName" value={userName} onChange={(event) => setUserName(event.target.value)} placeholder="이름" required />
-              </div>
-              <div className="form-group">
-                <label htmlFor="userPhone">연락처</label>
-                <input type="tel" id="userPhone" value={userPhone} onChange={(event) => setUserPhone(event.target.value)} placeholder="010-1234-5678" required />
-              </div>
+              {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 예약 플랫폼에서 별도 확인합니다.</p>}
               <div className="total-price-box">
                 <span>등록 요금 참고</span>
                 <strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong>
-                <small>가격 단위·아동 규정·최종 합계는 상담 확인</small>
+                <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
               </div>
-              <button type="submit" className="btn-primary w-100" disabled={submitting || !selectedCabin}>
-                {submitting ? '문의 접수 중...' : '예약 문의 접수'}
+              <button type="submit" className="btn-primary w-100" disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
+                예약 플랫폼에서 계속하기　→
               </button>
+              <p className="handoff-note">개인정보와 결제 정보는 다음 화면에서 입력합니다.</p>
               <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
             </form>
           </div>

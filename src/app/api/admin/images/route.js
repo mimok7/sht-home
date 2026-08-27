@@ -262,11 +262,10 @@ async function removeStoredImages(database, rows) {
   }
 }
 
-async function removeCabinImages(request, database, imageIds) {
+async function removeCabinImages(database, imageIds) {
   const { data: images, error } = await database.from('cabin_images_v2')
     .select('id,storage_bucket,storage_path').in('id', imageIds);
   if (error || (images || []).length !== imageIds.length) throw error || new Error('삭제할 객실 이미지를 찾을 수 없습니다.');
-  for (const image of images) await forwardPlatformImage(request, { imageId: image.id }, 'removeImage');
   const { error: deleteError } = await database.from('cabin_images_v2').delete().in('id', imageIds);
   if (deleteError) throw deleteError;
   await removeStoredImages(database, images);
@@ -275,11 +274,10 @@ async function removeCabinImages(request, database, imageIds) {
   return { deletedCount: images.length };
 }
 
-async function removeCruiseImages(request, database, imageIds) {
+async function removeCruiseImages(database, imageIds) {
   const { data: images, error } = await database.from('cruise_cafe_import_images_v2')
     .select('id,storage_bucket,storage_path').in('id', imageIds).is('cabin_id', null);
   if (error || (images || []).length !== imageIds.length) throw error || new Error('삭제할 크루즈 이미지를 찾을 수 없습니다.');
-  for (const image of images) await forwardPlatformImage(request, { imageId: image.id }, 'removeImage');
   const { error: deleteError } = await database.from('cruise_cafe_import_images_v2').delete().in('id', imageIds);
   if (deleteError) throw deleteError;
   await removeStoredImages(database, images);
@@ -387,19 +385,19 @@ export async function PATCH(request) {
       return Response.json({ ok: true, result: await setHotelPrimaryImage(request, database, body.imageId) });
     }
     if (body.action === 'removeCabinImages') {
-      return Response.json({ ok: true, result: await removeCabinImages(request, database, selectedImageIds(body.imageIds)) });
+      return Response.json({ ok: true, result: await removeCabinImages(database, selectedImageIds(body.imageIds)) });
     }
     if (body.action === 'removeCruiseImages') {
-      return Response.json({ ok: true, result: await removeCruiseImages(request, database, selectedImageIds(body.imageIds)) });
+      return Response.json({ ok: true, result: await removeCruiseImages(database, selectedImageIds(body.imageIds)) });
     }
     if (body.action === 'removeHotelImages') {
       return Response.json({ ok: true, result: await removeHotelImages(database, selectedImageIds(body.imageIds)) });
     }
     if (body.action === 'removeCabinImage') {
-      return Response.json({ ok: true, result: await removeCabinImages(request, database, selectedImageIds([body.imageId])) });
+      return Response.json({ ok: true, result: await removeCabinImages(database, selectedImageIds([body.imageId])) });
     }
     if (body.action === 'removeCruiseImage') {
-      return Response.json({ ok: true, result: await removeCruiseImages(request, database, selectedImageIds([body.imageId])) });
+      return Response.json({ ok: true, result: await removeCruiseImages(database, selectedImageIds([body.imageId])) });
     }
     return Response.json({ error: '지원하지 않는 이미지 작업입니다.' }, { status: 400 });
   } catch (error) {

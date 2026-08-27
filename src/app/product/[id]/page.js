@@ -421,8 +421,8 @@ export default function ProductDetail({ params }) {
           <div className="reservation-card sticky">
             <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
             <h3>예약 시작</h3>
-            <p className="reservation-intro">선택 조건을 예약 플랫폼으로 안전하게 이어갑니다. 로그인 후 예약자 정보를 입력하고 최종 견적을 확인하세요.</p>
-            <form className="reservation-form" action="/api/platform/booking-handoff" method="get">
+            <p className="reservation-intro">선택 조건을 홈페이지의 새 예약 화면으로 이어갑니다. 플랫폼 원본 요금을 다시 확인한 뒤 안전하게 초안을 만듭니다.</p>
+            <form className="reservation-form" action="/booking/cruise" method="get">
               <input type="hidden" name="sourceProductId" value={cruise.id} />
               <input type="hidden" name="sourceProductSlug" value={cruise.slug} />
               <input type="hidden" name="rateCardId" value={selectedRate?.platform_rate_card_id || ''} />
@@ -459,9 +459,10 @@ export default function ProductDetail({ params }) {
                 <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
               </div>
               <button type="submit" className="btn-primary w-100" disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
-                예약 플랫폼에서 계속하기　→
+                홈페이지 예약 베타　→
               </button>
-              <p className="handoff-note">개인정보와 결제 정보는 다음 화면에서 입력합니다.</p>
+              <p className="handoff-note">기존 예약 플랫폼은 그대로 운영됩니다. 새 화면에서는 검증 전 플랫폼 예약 데이터를 변경하지 않습니다.</p>
+              <a className="kakao-link" href="https://customer.stayhalong.com/mypage/direct-booking/cruise" target="_blank" rel="noreferrer">기존 플랫폼에서 예약하기 ↗</a>
               <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
             </form>
           </div>

@@ -61,8 +61,25 @@ function mergeCartItems(first, second) {
 }
 
 async function platformSession() {
-  const { data } = await platformSupabase.auth.getSession();
-  return data.session || null;
+  try {
+    const { data } = await platformSupabase.auth.getSession();
+    let session = data.session || null;
+    if (!session?.access_token) return null;
+
+    // Do not send a stale browser token to the protected cart API. Refresh it
+    // shortly before expiry, then verify it with the platform Auth service.
+    if (session.expires_at && session.expires_at * 1000 <= Date.now() + 30_000) {
+      const { data: refreshed, error: refreshError } = await platformSupabase.auth.refreshSession();
+      if (refreshError || !refreshed.session?.access_token) return null;
+      session = refreshed.session;
+    }
+
+    const { data: userData, error: userError } = await platformSupabase.auth.getUser(session.access_token);
+    if (userError || !userData.user) return null;
+    return session;
+  } catch {
+    return null;
+  }
 }
 
 export async function syncBookingCart(items = readBookingCart()) {

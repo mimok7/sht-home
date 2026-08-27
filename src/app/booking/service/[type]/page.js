@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { use, useState } from 'react';
-import { addBookingCartItem } from '@/lib/booking-cart';
+import { use, useEffect, useState } from 'react';
+import { hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../../booking.css';
 
 const SERVICES = {
@@ -18,20 +18,36 @@ export default function ServiceDraftPage({ params }) {
   const { type } = use(params);
   const service = SERVICES[type];
   const [form, setForm] = useState({ name: service?.example || '', date: '', adults: 2, children: 0, quantity: 1, note: '' });
-  const [saved, setSaved] = useState(false);
+  const [savedMessage, setSavedMessage] = useState('');
+  const [editingCartItemId, setEditingCartItemId] = useState('');
+
+  useEffect(() => {
+    if (!service) return;
+    const editCartItemId = new URLSearchParams(window.location.search).get('editCartItem');
+    if (!editCartItemId) return;
+    void hydrateBookingCart().then((cart) => {
+      const item = cart.items.find((current) => current.id === editCartItemId && current.serviceType === type);
+      if (!item) return;
+      setForm({ name: item.name, date: item.startDate, adults: item.adults, children: item.children, quantity: item.quantity, note: item.metadata?.requestNote || '' });
+      setEditingCartItemId(item.id);
+    }).catch(() => {});
+  }, [service, type]);
+
   if (!service) return <div className="booking-page"><div className="booking-shell"><div className="booking-empty"><h1>서비스를 찾을 수 없습니다.</h1><Link href="/booking">예약 홈으로 →</Link></div></div></div>;
 
-  function update(field, value) { setForm((current) => ({ ...current, [field]: value })); setSaved(false); }
+  function update(field, value) { setForm((current) => ({ ...current, [field]: value })); setSavedMessage(''); }
   function add(event) {
     event.preventDefault();
-    addBookingCartItem({
+    const wasEditing = Boolean(editingCartItemId);
+    const savedItem = replaceBookingCartItem(editingCartItemId, {
       id: `${type}:${form.date}:${form.name}`,
       serviceType: type, productId: `${type}-request`, name: form.name, optionName: '상세 조건 매니저 확인',
       startDate: form.date, adults: Number(form.adults), children: Number(form.children), infants: 0,
       quantity: Number(form.quantity), unitPrice: 0, currency: 'VND', priceStatus: 'reference',
       sourceHref: `/booking/service/${type}`, metadata: { requestNote: form.note },
     });
-    setSaved(true);
+    setEditingCartItemId(savedItem.id);
+    setSavedMessage(wasEditing ? '선택 내용을 수정하고 기존 장바구니 항목을 교체했습니다.' : '장바구니에 담았습니다.');
   }
 
   return <div className="booking-page"><div className="booking-shell">
@@ -47,8 +63,8 @@ export default function ServiceDraftPage({ params }) {
         <div className="booking-field full"><label htmlFor="service-note">픽업 위치·항공편·요청사항</label><textarea id="service-note" value={form.note} onChange={(event) => update('note', event.target.value)} /></div>
       </div>
       <div className="booking-warning">현재 홈페이지에 공개 상품 카탈로그가 없는 서비스는 요청 초안으로 담습니다. 매니저가 기존 플랫폼에서 상품과 금액을 확인한 뒤 결제 금액이 확정됩니다.</div>
-      {saved && <p className="booking-warning" role="status">장바구니에 담았습니다.</p>}
-      <div className="booking-controls"><button type="submit">장바구니에 담기 ＋</button><Link href="/booking/cart" className="secondary">장바구니 보기 →</Link></div>
+      {savedMessage && <p className="booking-warning" role="status">{savedMessage}</p>}
+      <div className="booking-controls"><button type="submit">{editingCartItemId ? '선택 수정 저장 →' : '장바구니에 담기 ＋'}</button><Link href="/booking/cart" className="secondary">장바구니 보기 →</Link></div>
     </form></section>
   </div></div>;
 }

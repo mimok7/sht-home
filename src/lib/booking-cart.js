@@ -31,6 +31,16 @@ export function addBookingCartItem(item) {
   return nextItem;
 }
 
+export function replaceBookingCartItem(previousItemId, item) {
+  const nextItem = normalizeBookingCartItem(item);
+  if (!nextItem) throw new Error('장바구니 상품 정보가 올바르지 않습니다.');
+  const current = readBookingCart();
+  const next = [...current.filter((entry) => entry.id !== previousItemId && entry.id !== nextItem.id), nextItem];
+  writeBookingCart(next);
+  void syncBookingCart(next).catch(() => {});
+  return nextItem;
+}
+
 export function removeBookingCartItem(id) {
   const next = writeBookingCart(readBookingCart().filter((item) => item.id !== id));
   void syncBookingCart(next).catch(() => {});

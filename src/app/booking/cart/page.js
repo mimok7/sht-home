@@ -6,6 +6,7 @@ import { bookingCartTotal, hydrateBookingCart, readBookingCart, removeBookingCar
 import '../booking.css';
 
 function money(value, currency) { return value > 0 ? `${value.toLocaleString('ko-KR')} ${currency}` : '견적 확인'; }
+function editHref(item) { return `${item.sourceHref}${item.sourceHref.includes('?') ? '&' : '?'}editCartItem=${encodeURIComponent(item.id)}`; }
 
 export default function BookingCartPage() {
   const [items, setItems] = useState([]);
@@ -30,7 +31,7 @@ export default function BookingCartPage() {
     {items.length === 0 ? <div className="booking-empty"><h2>장바구니가 비어 있습니다.</h2><p>크루즈나 호텔 상품에서 일정과 옵션을 선택해 담아주세요.</p><Link className="booking-action primary" href="/cruises">크루즈 선택하기 →</Link></div> : <>
       <div className="cart-list">{items.map((item, index) => <article className="cart-item" key={item.id}>
         <div className="cart-number">{String(index + 1).padStart(2, '0')}</div>
-        <div className="cart-copy"><span>{item.serviceLabel}</span><h2>{item.name}</h2><p>{[item.optionName, item.startDate, item.endDate && `~ ${item.endDate}`, `성인 ${item.adults}`, item.children ? `아동 ${item.children}` : '', item.infants ? `유아 ${item.infants}` : '', `수량 ${item.quantity}`].filter(Boolean).join(' · ')}</p><Link href={item.sourceHref}>선택 수정 ↗</Link></div>
+        <div className="cart-copy"><span>{item.serviceLabel}</span><h2>{item.name}</h2><p>{[item.optionName, item.startDate, item.endDate && `~ ${item.endDate}`, `성인 ${item.adults}`, item.children ? `아동 ${item.children}` : '', item.infants ? `유아 ${item.infants}` : '', `수량 ${item.quantity}`].filter(Boolean).join(' · ')}</p><Link href={editHref(item)}>선택 수정 ↗</Link></div>
         <div className="cart-price"><small>{item.priceStatus === 'confirmed' ? '확정 금액' : '등록 요금 참고'}</small><strong>{money(item.unitPrice * item.quantity, item.currency)}</strong><button type="button" onClick={() => remove(item.id)}>삭제</button></div>
       </article>)}</div>
       <section className="cart-total"><div><span>REFERENCE TOTAL</span><p>할증·프로모션·재고 확인 전 참고 합계입니다.</p></div><div>{vndTotal > 0 && <strong>{money(vndTotal, 'VND')}</strong>}{usdTotal > 0 && <strong>{money(usdTotal, 'USD')}</strong>}</div></section>

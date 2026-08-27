@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { addBookingCartItem } from '@/lib/booking-cart';
+import { hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
@@ -166,6 +166,11 @@ function cabinFeatures(cabin) {
   ].filter(Boolean);
 }
 
+function editCartItemIdFromLocation() {
+  if (typeof window === 'undefined') return '';
+  return new URLSearchParams(window.location.search).get('editCartItem') || '';
+}
+
 export default function ProductDetail({ params }) {
   const { id } = use(params);
   const [loading, setLoading] = useState(true);
@@ -181,6 +186,7 @@ export default function ProductDetail({ params }) {
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
   const [cartMessage, setCartMessage] = useState('');
+  const [editingCartItemId, setEditingCartItemId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -240,6 +246,15 @@ export default function ProductDetail({ params }) {
       if (importsResult.error || cabinImagesResult.error) {
         console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
       }
+      let editingItem = null;
+      const editCartItemId = editCartItemIdFromLocation();
+      if (editCartItemId) {
+        const cart = await hydrateBookingCart();
+        if (cancelled) return;
+        editingItem = cart.items.find((item) => item.id === editCartItemId && item.serviceType === 'cruise' && String(item.productId) === String(first.cruise_id)) || null;
+      }
+      const editingSchedule = schedules.includes(editingItem?.metadata?.schedule) ? editingItem.metadata.schedule : (schedules[0] || '');
+      const editingCabin = editingItem && nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === editingSchedule && String(rate.platform_rate_card_id) === String(editingItem.optionId)));
       setCruise({
         id: first.cruise_id,
         slug: first.slug,
@@ -253,8 +268,13 @@ export default function ProductDetail({ params }) {
       });
       setCabins(nextCabins);
       setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins));
-      setSelectedSchedule(schedules[0] || '');
-      setSelectedCabinId(nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === schedules[0]))?.id || nextCabins[0]?.id || null);
+      setSelectedSchedule(editingSchedule);
+      setSelectedCabinId(editingCabin?.id || nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === editingSchedule))?.id || nextCabins[0]?.id || null);
+      setDate(editingItem?.startDate || '');
+      setAdults(Math.max(1, Number(editingItem?.adults || 2)));
+      setChildren(Number(editingItem?.children || 0));
+      setInfants(Number(editingItem?.infants || 0));
+      setEditingCartItemId(editingItem?.id || '');
       setLoading(false);
     }
 
@@ -306,7 +326,7 @@ export default function ProductDetail({ params }) {
     const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
     const childPrice = positiveNumber(selectedRate.price_child) || 0;
     const infantPrice = positiveNumber(selectedRate.price_infant) || 0;
-    addBookingCartItem({
+    const savedItem = replaceBookingCartItem(editingCartItemId, {
       id: `cruise:${selectedRate.platform_rate_card_id}:${date}`,
       serviceType: 'cruise', productId: cruise.id, optionId: selectedRate.platform_rate_card_id,
       name: cruise.name, optionName: `${selectedCabin.name} · ${SCHEDULE_LABELS[selectedSchedule] || selectedSchedule}`,
@@ -315,7 +335,8 @@ export default function ProductDetail({ params }) {
       currency: selectedRate.currency, priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
       metadata: { schedule: selectedSchedule, roomCount: 1 },
     });
-    setCartMessage('장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
+    setEditingCartItemId(savedItem.id);
+    setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
   }
 
   if (loading) {
@@ -478,7 +499,7 @@ export default function ProductDetail({ params }) {
                 <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
               </div>
               <button type="button" className="btn-primary w-100" onClick={handleAddToCart} disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
-                장바구니에 담기　＋
+                {editingCartItemId ? '선택 수정 저장　→' : '장바구니에 담기　＋'}
               </button>
               {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}
               <p className="handoff-note">기존 예약 플랫폼은 그대로 운영됩니다. 새 화면에서는 검증 전 플랫폼 예약 데이터를 변경하지 않습니다.</p>

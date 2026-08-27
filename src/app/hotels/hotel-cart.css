@@ -1,0 +1,6 @@
+.hotel-booking-card button.hotel-booking-cta{width:100%;border-radius:0;text-align:left}
+.hotel-booking-card button.hotel-booking-cta:disabled{cursor:not-allowed;opacity:.45}
+.hotel-booking-card>p[role="status"]{margin:10px 0 0;padding:10px;background:var(--acid);color:var(--navy);font-size:.68rem;font-weight:750}
+.hotel-booking-card>p[role="status"] a{text-decoration:underline}
+.hotel-booking-secondary{margin-top:9px;border:1px solid var(--navy);background:#fff;color:var(--navy)}
+.hotel-booking-secondary span{color:var(--navy)}

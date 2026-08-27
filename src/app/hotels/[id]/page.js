@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import { supabase } from '@/lib/supabase';
+import { addBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
+import '../hotel-cart.css';
 
 function positiveNumber(value) {
   const number = Number(value);
@@ -76,6 +78,8 @@ export default function HotelDetail({ params }) {
   const [detailRoomId, setDetailRoomId] = useState('');
   const [stayDate, setStayDate] = useState('');
   const [guests, setGuests] = useState(2);
+  const [roomCount, setRoomCount] = useState(1);
+  const [cartMessage, setCartMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -101,14 +105,9 @@ export default function HotelDetail({ params }) {
     return () => { cancelled = true; };
   }, [id]);
 
-  const selectedRoom = rooms.find((room) => room.id === selectedRoomId) || rooms[0] || null;
-  const detailRoom = rooms.find((room) => room.id === detailRoomId) || null;
   const availableRooms = useMemo(() => rooms.filter((room) => dateMatches(room, stayDate)), [rooms, stayDate]);
-
-  useEffect(() => {
-    if (!availableRooms.length || availableRooms.some((room) => room.id === selectedRoomId)) return;
-    setSelectedRoomId(availableRooms[0].id);
-  }, [availableRooms, selectedRoomId]);
+  const selectedRoom = availableRooms.find((room) => room.id === selectedRoomId) || availableRooms[0] || null;
+  const detailRoom = rooms.find((room) => room.id === detailRoomId) || null;
 
   useEffect(() => {
     if (!detailRoom) return undefined;
@@ -117,6 +116,20 @@ export default function HotelDetail({ params }) {
     document.body.style.overflow = 'hidden'; window.addEventListener('keydown', closeOnEscape);
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); };
   }, [detailRoom]);
+
+  function handleAddToCart() {
+    if (!selectedRoom || !stayDate) return;
+    addBookingCartItem({
+      id: `hotel:${selectedRoom.id}:${stayDate}`,
+      serviceType: 'hotel', productId: hotel.id, optionId: selectedRoom.id,
+      name: hotel.name, optionName: selectedRoom.name, startDate: stayDate,
+      adults: guests, children: 0, infants: 0, quantity: roomCount,
+      unitPrice: positiveNumber(selectedRoom.price) || 0, currency: selectedRoom.currency,
+      priceStatus: 'reference', sourceHref: `/hotels/${encodeURIComponent(hotel.id)}`,
+      metadata: { priceUnit: selectedRoom.priceUnit },
+    });
+    setCartMessage('호텔을 장바구니에 담았습니다. 크루즈와 다른 서비스도 함께 결제 준비할 수 있습니다.');
+  }
 
   if (loading) return <div className="hotel-detail-state"><span>STAY HALONG / HOTEL</span><h1>호텔 객실을<br />불러오는 중입니다.</h1><i aria-hidden="true" /><p>객실 정보와 등록 요금을 확인하고 있습니다.</p></div>;
   if (!hotel || loadError) return <div className="hotel-detail-state hotel-detail-state-error"><span>STAY HALONG / NOT FOUND</span><h1>호텔을 찾을 수 없습니다.</h1><p>{loadError}</p><Link href="/hotels">호텔 목록으로 돌아가기 →</Link></div>;
@@ -137,7 +150,7 @@ export default function HotelDetail({ params }) {
           })}</div>}
         </section>
       </main>
-      <aside className="hotel-booking-sidebar"><div className="hotel-booking-card"><span>SELECTED ROOM</span><h2>객실 예약 문의</h2><p>선택한 객실의 실시간 가능 여부와 최종 견적을 현지 데스크가 안내합니다.</p><label>선택 객실<input value={selectedRoom?.name || '객실을 선택하세요'} readOnly /></label><label>투숙일<input type="date" value={stayDate} onChange={(event) => setStayDate(event.target.value)} /></label><label>투숙 인원<select value={guests} onChange={(event) => setGuests(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((value) => <option value={value} key={value}>{value}명</option>)}</select></label><div className="hotel-booking-price"><span>등록 요금 참고</span><strong>{formatPrice(selectedRoom?.price, selectedRoom?.currency)}</strong><small>{selectedRoom?.priceUnit === 'per_room' ? '객실 1실 기준' : '가격 기준은 상담 시 확인'}</small></div><a className="hotel-booking-cta" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 예약 문의 <span>→</span></a></div></aside>
+      <aside className="hotel-booking-sidebar"><div className="hotel-booking-card"><span>SELECTED ROOM</span><h2>객실 예약</h2><p>호텔과 크루즈 등 선택 상품을 한 장바구니에서 확인할 수 있습니다.</p><label>선택 객실<input value={selectedRoom?.name || '객실을 선택하세요'} readOnly /></label><label>투숙일<input type="date" value={stayDate} onChange={(event) => { setStayDate(event.target.value); setCartMessage(''); }} /></label><label>투숙 인원<select value={guests} onChange={(event) => setGuests(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((value) => <option value={value} key={value}>{value}명</option>)}</select></label><label>객실 수<select value={roomCount} onChange={(event) => setRoomCount(Number(event.target.value))}>{[1, 2, 3, 4, 5].map((value) => <option value={value} key={value}>{value}실</option>)}</select></label><div className="hotel-booking-price"><span>등록 요금 참고</span><strong>{formatPrice((positiveNumber(selectedRoom?.price) || 0) * roomCount, selectedRoom?.currency)}</strong><small>{selectedRoom?.priceUnit === 'per_room' ? `객실 ${roomCount}실 기준` : '가격 기준은 상담 시 확인'}</small></div><button type="button" className="hotel-booking-cta" onClick={handleAddToCart} disabled={!selectedRoom || !stayDate}>장바구니에 담기 <span>＋</span></button>{cartMessage && <p role="status">{cartMessage} <Link href="/booking/cart">장바구니 보기 →</Link></p>}<a className="hotel-booking-cta hotel-booking-secondary" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 예약 문의 <span>→</span></a></div></aside>
     </div>
     {detailRoom && <div className="hotel-room-modal" role="dialog" aria-modal="true" aria-labelledby="hotel-room-modal-title" onClick={(event) => { if (event.target === event.currentTarget) setDetailRoomId(''); }}><section><header><div><span>ROOM DETAIL</span><h2 id="hotel-room-modal-title">{detailRoom.name}</h2></div><button type="button" onClick={() => setDetailRoomId('')}>닫기 ×</button></header><div className="hotel-room-modal-content"><div className="hotel-room-facts">{roomFacts(detailRoom).map((fact) => <span key={fact}>{fact}</span>)}</div>{detailRoom.notes && <div><strong>객실 안내</strong><p>{detailRoom.notes}</p></div>}{detailRoom.childPolicy && <div><strong>아동 정책</strong><p>{detailRoom.childPolicy}</p></div>}<dl><div><dt>등록 요금</dt><dd>{formatPrice(detailRoom.price, detailRoom.currency)}</dd></div><div><dt>적용 기간</dt><dd>{detailRoom.validFrom || detailRoom.validTo ? `${detailRoom.validFrom || '상시'} ~ ${detailRoom.validTo || '상시'}` : '상담 확인'}</dd></div><div><dt>가격 기준</dt><dd>{detailRoom.priceUnit === 'per_room' ? '객실 1실 기준' : '상담 확인'}</dd></div></dl></div></section></div>}
   </div>;

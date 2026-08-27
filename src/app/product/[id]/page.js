@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { addBookingCartItem } from '@/lib/booking-cart';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
@@ -179,6 +180,7 @@ export default function ProductDetail({ params }) {
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
   const [infants, setInfants] = useState(0);
+  const [cartMessage, setCartMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -297,6 +299,23 @@ export default function ProductDetail({ params }) {
     const scheduleType = event.target.value;
     setSelectedSchedule(scheduleType);
     setSelectedCabinId(cabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType))?.id || null);
+  }
+
+  function handleAddToCart() {
+    if (!selectedCabin || !selectedRate || !date) return;
+    const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
+    const childPrice = positiveNumber(selectedRate.price_child) || 0;
+    const infantPrice = positiveNumber(selectedRate.price_infant) || 0;
+    addBookingCartItem({
+      id: `cruise:${selectedRate.platform_rate_card_id}:${date}`,
+      serviceType: 'cruise', productId: cruise.id, optionId: selectedRate.platform_rate_card_id,
+      name: cruise.name, optionName: `${selectedCabin.name} · ${SCHEDULE_LABELS[selectedSchedule] || selectedSchedule}`,
+      startDate: date, adults, children, infants, quantity: 1,
+      unitPrice: adultPrice * adults + childPrice * children + infantPrice * infants,
+      currency: selectedRate.currency, priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
+      metadata: { schedule: selectedSchedule, roomCount: 1 },
+    });
+    setCartMessage('장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
   }
 
   if (loading) {
@@ -458,9 +477,10 @@ export default function ProductDetail({ params }) {
                 <strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong>
                 <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
               </div>
-              <button type="submit" className="btn-primary w-100" disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
-                홈페이지 예약 베타　→
+              <button type="button" className="btn-primary w-100" onClick={handleAddToCart} disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
+                장바구니에 담기　＋
               </button>
+              {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}
               <p className="handoff-note">기존 예약 플랫폼은 그대로 운영됩니다. 새 화면에서는 검증 전 플랫폼 예약 데이터를 변경하지 않습니다.</p>
               <a className="kakao-link" href="https://customer.stayhalong.com/mypage/direct-booking/cruise" target="_blank" rel="noreferrer">기존 플랫폼에서 예약하기 ↗</a>
               <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>

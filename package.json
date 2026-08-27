@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "db:cli": "node scripts/supabase-cli.mjs",
-    "browser:smoke": "node scripts/browser-smoke.mjs"
+    "browser:smoke": "node scripts/browser-smoke.mjs",
+    "browser:cart": "node scripts/browser-cart-smoke.mjs"
   },
   "dependencies": {
     "@sparticuz/chromium": "149.0.0",

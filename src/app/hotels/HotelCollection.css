@@ -2,6 +2,10 @@
   width: 100%;
 }
 
+.hotel-card-image > .duration-tag {
+  display: none;
+}
+
 .hotel-card-image > .image-open-hint {
   top: auto;
   left: 16px;

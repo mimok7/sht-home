@@ -27,7 +27,13 @@ export async function GET(request) {
     console.error('[booking-cart] read failed', error.message);
     return Response.json({ error: '장바구니를 불러오지 못했습니다.' }, { status: 500 });
   }
-  return Response.json({ items: normalizeBookingCartItems(data?.items), itemCount: data?.item_count || 0, status: data?.status || 'active', updatedAt: data?.updated_at || null });
+  return Response.json({
+    exists: Boolean(data),
+    items: normalizeBookingCartItems(data?.items),
+    itemCount: data?.item_count || 0,
+    status: data?.status || 'active',
+    updatedAt: data?.updated_at || null,
+  });
 }
 
 export async function PUT(request) {

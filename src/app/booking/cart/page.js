@@ -12,13 +12,28 @@ export default function BookingCartPage() {
   const [items, setItems] = useState([]);
   const [syncMessage, setSyncMessage] = useState('');
   useEffect(() => {
-    queueMicrotask(() => {
-      setItems(readBookingCart());
+    let cancelled = false;
+    const refresh = () => {
       void hydrateBookingCart().then((result) => {
+        if (cancelled) return;
         setItems(result.items);
         setSyncMessage(result.synced ? '로그인 계정의 홈페이지 장바구니에 저장되어 있습니다.' : (result.error || '로그인하면 홈페이지 장바구니에 저장됩니다.'));
-      }).catch(() => setSyncMessage('장바구니 동기화 상태를 확인하지 못했습니다.'));
+      }).catch(() => {
+        if (!cancelled) setSyncMessage('장바구니 동기화 상태를 확인하지 못했습니다.');
+      });
+    };
+    const updateFromLocalCart = () => setItems(readBookingCart());
+    queueMicrotask(() => {
+      updateFromLocalCart();
+      refresh();
     });
+    window.addEventListener('storage', updateFromLocalCart);
+    window.addEventListener('focus', refresh);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('storage', updateFromLocalCart);
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
   function remove(id) { setItems(removeBookingCartItem(id)); }
   const vndTotal = bookingCartTotal(items);

@@ -107,7 +107,18 @@ function ImagePreview({ src, alt }) {
   if (!imageUrl) {
     return <div className="admin-image-preview wide is-empty" aria-live="polite"><span>IMAGE PREVIEW</span><strong>이미지 URL을 입력하면 여기에 표시됩니다.</strong></div>;
   }
-  return <figure className="admin-image-preview wide" role="img" aria-label={alt} style={{ backgroundImage: `url(${imageUrl})` }}><figcaption>현재 대표 이미지 미리보기</figcaption></figure>;
+  return <ImageSurface key={imageUrl} className="admin-image-preview wide" src={imageUrl} alt={alt}><figcaption>현재 대표 이미지 미리보기</figcaption></ImageSurface>;
+}
+
+function ImageSurface({ className, src, alt, children }) {
+  const imageUrl = typeof src === 'string' ? src.trim() : '';
+  const [failed, setFailed] = useState(!imageUrl);
+
+  return <figure className={className} role="img" aria-label={alt}>
+    {!failed && <img src={imageUrl} alt="" onError={() => setFailed(true)} />}
+    {failed && <span className="admin-image-unavailable">이미지 파일을 찾을 수 없습니다.</span>}
+    {children}
+  </figure>;
 }
 
 function ImageFilePicker({ label, multiple = false, disabled = false, onSelect }) {
@@ -147,9 +158,9 @@ function CabinImageGallery({ images, busy, onUpload, onSetPrimary, onRemove, onR
     <div className="cabin-image-gallery-heading"><div><span>ROOM GALLERY</span><strong>객실 이미지 {images.length}장</strong><small>첫 이미지는 대표 이미지로 자동 지정됩니다.</small></div><ImageFilePicker label="객실 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
     {images.length > 0 && <div className="cabin-image-grid">{images.map((image, index) => {
       const imageUrl = supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
-      return <figure key={image.id} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} role="img" aria-label={image.alt_text || `객실 이미지 ${index + 1}`} style={{ backgroundImage: `url(${imageUrl})` }}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
+      return <ImageSurface key={`${image.id}-${imageUrl}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={imageUrl} alt={image.alt_text || `객실 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
         <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
-      </figure>;
+      </ImageSurface>;
     })}</div>}
   </section>;
 }
@@ -164,9 +175,9 @@ function CruiseImageGallery({ images, busy, onSetPrimary, onRemove, onRemoveSele
     <div className="cabin-image-gallery-heading"><div><span>CRUISE GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>대표 이미지는 한 장만 지정됩니다. 다른 이미지를 대표로 바꾸거나 삭제할 수 있습니다.</small></div></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
     {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => {
       const imageUrl = supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
-      return <figure key={image.id} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} role="img" aria-label={image.image_name || `크루즈 이미지 ${index + 1}`} style={{ backgroundImage: `url(${imageUrl})` }}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
+      return <ImageSurface key={`${image.id}-${imageUrl}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={imageUrl} alt={image.image_name || `크루즈 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
         <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
-      </figure>;
+      </ImageSurface>;
     })}</div> : <p className="admin-gallery-empty">업로드된 크루즈 이미지가 없습니다. 위의 대표 이미지 선택에서 이미지를 추가하세요.</p>}
   </section>;
 }
@@ -179,7 +190,7 @@ function HotelImageGallery({ images, busy, onUpload, onSetPrimary, onRemoveSelec
   }
   return <section className="cabin-image-gallery wide" aria-label="호텔 업로드 이미지 관리">
     <div className="cabin-image-gallery-heading"><div><span>HOTEL GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>첫 이미지는 대표 이미지로 지정됩니다. 대표 이미지는 호텔 카드에 즉시 반영됩니다.</small></div><ImageFilePicker label="호텔 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
-    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <figure key={image.id} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} role="img" aria-label={image.image_name || `호텔 이미지 ${index + 1}`} style={{ backgroundImage: `url(${image.image_url})` }}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></figure>)}</div> : <p className="admin-gallery-empty">저장된 호텔 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
+    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <ImageSurface key={`${image.id}-${image.image_url || ''}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={image.image_url} alt={image.image_name || `호텔 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></ImageSurface>)}</div> : <p className="admin-gallery-empty">저장된 호텔 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
   </section>;
 }
 
@@ -191,7 +202,7 @@ function HotelRoomImageGallery({ roomName, images, busy, onUpload, onSetPrimary,
   }
   return <section className="cabin-image-gallery wide" aria-label={`${roomName} 객실 이미지 관리`}>
     <div className="cabin-image-gallery-heading"><div><span>ROOM GALLERY</span><strong>{roomName} 이미지 {images.length}장</strong><small>첫 이미지는 이 객실의 대표 이미지로 지정됩니다.</small></div><ImageFilePicker label="객실 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
-    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <figure key={image.id} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} role="img" aria-label={image.image_name || `${roomName} 이미지 ${index + 1}`} style={{ backgroundImage: `url(${image.image_url})` }}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></figure>)}</div> : <p className="admin-gallery-empty">저장된 객실 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
+    {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => <ImageSurface key={`${image.id}-${image.image_url || ''}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={image.image_url} alt={image.image_name || `${roomName} 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label><figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}</div></figcaption></ImageSurface>)}</div> : <p className="admin-gallery-empty">저장된 객실 이미지가 없습니다. 위 버튼으로 이미지를 추가하세요.</p>}
   </section>;
 }
 

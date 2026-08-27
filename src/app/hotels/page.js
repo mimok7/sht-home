@@ -104,7 +104,7 @@ export default async function Hotels() {
       <header className="hotel-page-header">
         <div className="container">
           <span>02 / STAY COLLECTION</span>
-          <h1>하롱베이 호텔 예약</h1>
+          <h1>럭셔리 호텔 예약</h1>
           <p>크루즈 일정의 전후를 더 편안하게 잇는 하롱베이와 하노이의 엄선된 호텔을 소개합니다.</p>
         </div>
       </header>

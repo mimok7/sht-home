@@ -1,67 +1,97 @@
+import { normalizeBookingCartItem, normalizeBookingCartItems } from './booking-cart-contract';
+import { platformSupabase } from './platform-supabase';
+
 export const BOOKING_CART_KEY = 'stayhalong-booking-cart-v1';
 export const BOOKING_CART_EVENT = 'stayhalong:booking-cart-change';
-
-const SERVICE_LABELS = {
-  cruise: '크루즈', cruise_vehicle: '크루즈 차량', airport: '공항 이동', hotel: '호텔',
-  rentcar: '렌터카', tour: '투어', package: '패키지', ticket: '티켓',
-};
-
-function safeNumber(value, fallback = 0) {
-  const number = Number(value);
-  return Number.isFinite(number) && number >= 0 ? number : fallback;
-}
-
-function normalizeItem(item) {
-  if (!item || !SERVICE_LABELS[item.serviceType] || !item.productId || !item.name) return null;
-  return {
-    id: String(item.id || `${item.serviceType}:${item.productId}:${item.optionId || 'base'}:${item.startDate || 'open'}`),
-    serviceType: item.serviceType,
-    serviceLabel: SERVICE_LABELS[item.serviceType],
-    productId: String(item.productId),
-    optionId: item.optionId ? String(item.optionId) : '',
-    name: String(item.name).slice(0, 160),
-    optionName: String(item.optionName || '').slice(0, 160),
-    startDate: String(item.startDate || '').slice(0, 10),
-    endDate: String(item.endDate || '').slice(0, 10),
-    adults: safeNumber(item.adults), children: safeNumber(item.children), infants: safeNumber(item.infants),
-    quantity: Math.max(1, safeNumber(item.quantity, 1)),
-    unitPrice: safeNumber(item.unitPrice), currency: item.currency === 'USD' ? 'USD' : 'VND',
-    priceStatus: item.priceStatus === 'confirmed' ? 'confirmed' : 'reference',
-    sourceHref: String(item.sourceHref || '').startsWith('/') ? String(item.sourceHref) : '/booking',
-    metadata: item.metadata && typeof item.metadata === 'object' ? item.metadata : {},
-    addedAt: item.addedAt || new Date().toISOString(),
-  };
-}
+const BOOKING_CART_OWNER_KEY = 'stayhalong-booking-cart-owner-v1';
 
 export function readBookingCart() {
   if (typeof window === 'undefined') return [];
   try {
     const parsed = JSON.parse(window.localStorage.getItem(BOOKING_CART_KEY) || '[]');
-    return Array.isArray(parsed) ? parsed.map(normalizeItem).filter(Boolean).slice(0, 40) : [];
+    return normalizeBookingCartItems(parsed);
   } catch { return []; }
 }
 
 export function writeBookingCart(items) {
   if (typeof window === 'undefined') return [];
-  const normalized = items.map(normalizeItem).filter(Boolean).slice(0, 40);
+  const normalized = normalizeBookingCartItems(items);
   window.localStorage.setItem(BOOKING_CART_KEY, JSON.stringify(normalized));
   window.dispatchEvent(new CustomEvent(BOOKING_CART_EVENT, { detail: normalized }));
   return normalized;
 }
 
 export function addBookingCartItem(item) {
-  const nextItem = normalizeItem(item);
+  const nextItem = normalizeBookingCartItem(item);
   if (!nextItem) throw new Error('장바구니 상품 정보가 올바르지 않습니다.');
   const current = readBookingCart();
   const next = [...current.filter((entry) => entry.id !== nextItem.id), nextItem];
   writeBookingCart(next);
+  void syncBookingCart(next).catch(() => {});
   return nextItem;
 }
 
 export function removeBookingCartItem(id) {
-  return writeBookingCart(readBookingCart().filter((item) => item.id !== id));
+  const next = writeBookingCart(readBookingCart().filter((item) => item.id !== id));
+  void syncBookingCart(next).catch(() => {});
+  return next;
 }
 
 export function bookingCartTotal(items, currency = 'VND') {
   return items.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+}
+
+function mergeCartItems(first, second) {
+  const byId = new Map();
+  for (const item of [...first, ...second]) {
+    const existing = byId.get(item.id);
+    if (!existing || Date.parse(item.addedAt) >= Date.parse(existing.addedAt)) byId.set(item.id, item);
+  }
+  return normalizeBookingCartItems([...byId.values()]);
+}
+
+async function platformSession() {
+  const { data } = await platformSupabase.auth.getSession();
+  return data.session || null;
+}
+
+export async function syncBookingCart(items = readBookingCart()) {
+  if (typeof window === 'undefined') return { synced: false };
+  const session = await platformSession();
+  if (!session) return { synced: false };
+
+  const owner = window.localStorage.getItem(BOOKING_CART_OWNER_KEY);
+  if (owner && owner !== session.user.id) return { synced: false, ownerChanged: true };
+  window.localStorage.setItem(BOOKING_CART_OWNER_KEY, session.user.id);
+
+  const response = await fetch('/api/booking/cart', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ items: normalizeBookingCartItems(items) }),
+  });
+  if (!response.ok) throw new Error('장바구니를 홈페이지 DB에 저장하지 못했습니다.');
+  const data = await response.json();
+  return { synced: true, items: normalizeBookingCartItems(data.items) };
+}
+
+export async function hydrateBookingCart() {
+  if (typeof window === 'undefined') return { items: [], synced: false };
+  const localItems = readBookingCart();
+  const session = await platformSession();
+  if (!session) return { items: localItems, synced: false };
+
+  const storedOwner = window.localStorage.getItem(BOOKING_CART_OWNER_KEY);
+  const canMigrateLocalItems = !storedOwner || storedOwner === session.user.id;
+  const response = await fetch('/api/booking/cart', { headers: { Authorization: `Bearer ${session.access_token}` } });
+  if (!response.ok) return { items: localItems, synced: false, error: '저장된 장바구니를 불러오지 못했습니다.' };
+
+  const remote = await response.json();
+  const items = mergeCartItems(normalizeBookingCartItems(remote.items), canMigrateLocalItems ? localItems : []);
+  window.localStorage.setItem(BOOKING_CART_OWNER_KEY, session.user.id);
+  writeBookingCart(items);
+
+  if (JSON.stringify(items) !== JSON.stringify(normalizeBookingCartItems(remote.items))) {
+    try { await syncBookingCart(items); } catch { return { items, synced: false, error: '장바구니를 동기화하지 못했습니다.' }; }
+  }
+  return { items, synced: true, updatedAt: remote.updatedAt || null };
 }

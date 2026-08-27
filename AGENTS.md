@@ -15,7 +15,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - Do not modify the existing `sht-platform` customer, manager, reservation, or payment implementation. It must remain independently operable throughout the migration.
 - Build the replacement customer booking experience only in this homepage repository. Keep the existing customer platform and the new homepage flow running in parallel until explicit acceptance and cutover approval.
 - Keep manager reservation operations in the existing platform. The homepage replaces customer-facing functions only.
-- Use the platform Supabase project as the authority for customer identity, reservations, quotes, and payments. Use the homepage Supabase project only for public catalog/content data and derived caches.
+- Use the platform Supabase project as the authority for customer identity, reservations, quotes, and payments. The homepage Supabase project may additionally store the customer-facing `homepage_booking_carts` selection draft, but never a reservation, quote, or payment ledger.
 - Do not change platform tables, columns, RLS policies, functions, triggers, or payment endpoints without separate explicit approval and a zero-impact compatibility review. Prefer using the existing data contract as-is.
 - Do not remove or redirect the existing platform entry points during parallel operation. Clearly label the homepage flow as a new/beta flow until cutover.
 - Revalidate availability and price against platform data before a reservation mutation. Never trust URL parameters or homepage cache values as final price data.

@@ -2,14 +2,23 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { bookingCartTotal, readBookingCart, removeBookingCartItem } from '@/lib/booking-cart';
+import { bookingCartTotal, hydrateBookingCart, readBookingCart, removeBookingCartItem } from '@/lib/booking-cart';
 import '../booking.css';
 
 function money(value, currency) { return value > 0 ? `${value.toLocaleString('ko-KR')} ${currency}` : '견적 확인'; }
 
 export default function BookingCartPage() {
   const [items, setItems] = useState([]);
-  useEffect(() => { queueMicrotask(() => setItems(readBookingCart())); }, []);
+  const [syncMessage, setSyncMessage] = useState('');
+  useEffect(() => {
+    queueMicrotask(() => {
+      setItems(readBookingCart());
+      void hydrateBookingCart().then((result) => {
+        setItems(result.items);
+        setSyncMessage(result.synced ? '로그인 계정의 홈페이지 장바구니에 저장되어 있습니다.' : (result.error || '로그인하면 홈페이지 장바구니에 저장됩니다.'));
+      }).catch(() => setSyncMessage('장바구니 동기화 상태를 확인하지 못했습니다.'));
+    });
+  }, []);
   function remove(id) { setItems(removeBookingCartItem(id)); }
   const vndTotal = bookingCartTotal(items);
   const usdTotal = bookingCartTotal(items, 'USD');
@@ -17,6 +26,7 @@ export default function BookingCartPage() {
   return <div className="booking-page"><div className="booking-shell cart-shell">
     <Link href="/booking" className="booking-back">← 서비스 더 담기</Link>
     <div className="booking-title-row"><div><span className="booking-section-kicker">ONE JOURNEY / ONE CART</span><h1>여행 장바구니</h1></div><span className="beta-badge">{items.length} SERVICES</span></div>
+    {syncMessage && <p className="booking-sync-note">{syncMessage}</p>}
     {items.length === 0 ? <div className="booking-empty"><h2>장바구니가 비어 있습니다.</h2><p>크루즈나 호텔 상품에서 일정과 옵션을 선택해 담아주세요.</p><Link className="booking-action primary" href="/cruises">크루즈 선택하기 →</Link></div> : <>
       <div className="cart-list">{items.map((item, index) => <article className="cart-item" key={item.id}>
         <div className="cart-number">{String(index + 1).padStart(2, '0')}</div>

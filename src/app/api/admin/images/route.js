@@ -241,6 +241,89 @@ function failureResponse(error, fallback) {
   return Response.json({ error: status === 400 ? message : fallback }, { status });
 }
 
+function selectedImageIds(value) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 100) throw new Error('삭제할 이미지 선택을 확인해 주세요.');
+  const ids = [...new Set(value.filter((id) => typeof id === 'string' && id.length > 0 && id.length <= 100))];
+  if (!ids.length || ids.length !== value.length) throw new Error('삭제할 이미지 선택을 확인해 주세요.');
+  return ids;
+}
+
+async function removeStoredImages(database, rows) {
+  const pathsByBucket = new Map();
+  for (const row of rows) {
+    if (!row.storage_bucket || !row.storage_path) continue;
+    const paths = pathsByBucket.get(row.storage_bucket) || [];
+    paths.push(row.storage_path);
+    pathsByBucket.set(row.storage_bucket, paths);
+  }
+  for (const [bucket, paths] of pathsByBucket) {
+    const { error } = await database.storage.from(bucket).remove(paths);
+    if (error && storageStatus(error) !== 404) throw error;
+  }
+}
+
+async function removeCabinImages(request, database, imageIds) {
+  const { data: images, error } = await database.from('cabin_images_v2')
+    .select('id,storage_bucket,storage_path').in('id', imageIds);
+  if (error || (images || []).length !== imageIds.length) throw error || new Error('삭제할 객실 이미지를 찾을 수 없습니다.');
+  for (const image of images) await forwardPlatformImage(request, { imageId: image.id }, 'removeImage');
+  const { error: deleteError } = await database.from('cabin_images_v2').delete().in('id', imageIds);
+  if (deleteError) throw deleteError;
+  await removeStoredImages(database, images);
+  revalidatePath('/cruises');
+  revalidatePath('/product/[id]', 'page');
+  return { deletedCount: images.length };
+}
+
+async function removeCruiseImages(request, database, imageIds) {
+  const { data: images, error } = await database.from('cruise_cafe_import_images_v2')
+    .select('id,storage_bucket,storage_path').in('id', imageIds).is('cabin_id', null);
+  if (error || (images || []).length !== imageIds.length) throw error || new Error('삭제할 크루즈 이미지를 찾을 수 없습니다.');
+  for (const image of images) await forwardPlatformImage(request, { imageId: image.id }, 'removeImage');
+  const { error: deleteError } = await database.from('cruise_cafe_import_images_v2').delete().in('id', imageIds);
+  if (deleteError) throw deleteError;
+  await removeStoredImages(database, images);
+  revalidatePath('/cruises');
+  revalidatePath('/product/[id]', 'page');
+  return { deletedCount: images.length };
+}
+
+async function removeHotelImages(database, imageIds) {
+  const { data: images, error } = await database.from('hotel_gallery_images_v2')
+    .select('id,product_id,hotel_price_code,storage_bucket,storage_path').in('id', imageIds);
+  if (error || (images || []).length !== imageIds.length) throw error || new Error('삭제할 호텔 이미지를 찾을 수 없습니다.');
+
+  const { error: deleteError } = await database.from('hotel_gallery_images_v2').delete().in('id', imageIds);
+  if (deleteError) throw deleteError;
+  const scopes = new Map();
+  for (const image of images) scopes.set(`${image.product_id}:${image.hotel_price_code || ''}`, { productId: image.product_id, hotelPriceCode: image.hotel_price_code || null });
+  const now = new Date().toISOString();
+  for (const scope of scopes.values()) {
+    let query = database.from('hotel_gallery_images_v2').select('id,image_url').eq('product_id', scope.productId).order('sort_order').limit(1);
+    query = scope.hotelPriceCode ? query.eq('hotel_price_code', scope.hotelPriceCode) : query.is('hotel_price_code', null);
+    const { data: remaining, error: remainingError } = await query;
+    if (remainingError) throw remainingError;
+    let clearQuery = database.from('hotel_gallery_images_v2').update({ is_primary: false, updated_at: now }).eq('product_id', scope.productId);
+    clearQuery = scope.hotelPriceCode ? clearQuery.eq('hotel_price_code', scope.hotelPriceCode) : clearQuery.is('hotel_price_code', null);
+    const { error: clearError } = await clearQuery;
+    if (clearError) throw clearError;
+    if (remaining?.[0]) {
+      const { error: primaryError } = await database.from('hotel_gallery_images_v2').update({ is_primary: true, updated_at: now }).eq('id', remaining[0].id);
+      if (primaryError) throw primaryError;
+    }
+    if (!scope.hotelPriceCode) {
+      const { data: product, error: productError } = await database.from('catalog_products_v2').select('manual_override').eq('id', scope.productId).maybeSingle();
+      if (productError || !product) throw productError || new Error('호텔 상품을 찾을 수 없습니다.');
+      const { error: productUpdateError } = await database.from('catalog_products_v2').update({ image_url: remaining?.[0]?.image_url || null, manual_override: { ...(product.manual_override || {}), image_url: remaining?.[0]?.image_url || '' }, updated_at: now }).eq('id', scope.productId);
+      if (productUpdateError) throw productUpdateError;
+    }
+  }
+  await removeStoredImages(database, images);
+  revalidatePath('/hotels');
+  revalidatePath('/hotels/[id]', 'page');
+  return { deletedCount: images.length };
+}
+
 export async function POST(request) {
   const operator = await getHomepageOperator(request);
   if (!operator) return Response.json({ error: '운영자 로그인이 필요합니다.' }, { status: 401 });
@@ -303,21 +386,20 @@ export async function PATCH(request) {
     if (body.action === 'setHotelRoomPrimaryImage') {
       return Response.json({ ok: true, result: await setHotelPrimaryImage(request, database, body.imageId) });
     }
+    if (body.action === 'removeCabinImages') {
+      return Response.json({ ok: true, result: await removeCabinImages(request, database, selectedImageIds(body.imageIds)) });
+    }
+    if (body.action === 'removeCruiseImages') {
+      return Response.json({ ok: true, result: await removeCruiseImages(request, database, selectedImageIds(body.imageIds)) });
+    }
+    if (body.action === 'removeHotelImages') {
+      return Response.json({ ok: true, result: await removeHotelImages(database, selectedImageIds(body.imageIds)) });
+    }
     if (body.action === 'removeCabinImage') {
-      const { data: image, error } = await database.from('cabin_images_v2').select('storage_bucket,storage_path').eq('id', body.imageId).maybeSingle();
-      if (error || !image) throw error || new Error('삭제할 이미지를 찾을 수 없습니다.');
-      const result = await forwardPlatformImage(request, { imageId: body.imageId }, 'removeImage');
-      const { error: storageError } = await database.storage.from(image.storage_bucket).remove([image.storage_path]);
-      if (storageError) throw storageError;
-      return Response.json({ ok: true, result });
+      return Response.json({ ok: true, result: await removeCabinImages(request, database, selectedImageIds([body.imageId])) });
     }
     if (body.action === 'removeCruiseImage') {
-      const { data: image, error } = await database.from('cruise_cafe_import_images_v2').select('storage_bucket,storage_path').eq('id', body.imageId).maybeSingle();
-      if (error || !image) throw error || new Error('삭제할 이미지를 찾을 수 없습니다.');
-      const result = await forwardPlatformImage(request, { imageId: body.imageId }, 'removeImage');
-      const { error: storageError } = await database.storage.from(image.storage_bucket).remove([image.storage_path]);
-      if (storageError && storageStatus(storageError) !== 404) throw storageError;
-      return Response.json({ ok: true, result });
+      return Response.json({ ok: true, result: await removeCruiseImages(request, database, selectedImageIds([body.imageId])) });
     }
     return Response.json({ error: '지원하지 않는 이미지 작업입니다.' }, { status: 400 });
   } catch (error) {

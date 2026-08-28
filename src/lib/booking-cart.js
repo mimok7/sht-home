@@ -5,6 +5,7 @@ export const BOOKING_CART_KEY = 'stayhalong-booking-cart-v1';
 export const BOOKING_CART_EVENT = 'stayhalong:booking-cart-change';
 const BOOKING_CART_OWNER_KEY = 'stayhalong-booking-cart-owner-v1';
 const PENDING_BOOKING_CART_ACTION_KEY = 'stayhalong-pending-booking-cart-action-v1';
+const PLATFORM_AUTH_CHECK_TIMEOUT_MS = 4_000;
 let cartSyncQueue = Promise.resolve();
 let cartMutationVersion = 0;
 
@@ -105,6 +106,20 @@ export function bookingCartTotal(items, currency = 'VND') {
   return items.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
 }
 
+async function withPlatformAuthTimeout(promise) {
+  let timeoutId;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise((resolve) => {
+        timeoutId = globalThis.setTimeout(() => resolve(null), PLATFORM_AUTH_CHECK_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== undefined) globalThis.clearTimeout(timeoutId);
+  }
+}
+
 function mergeCartItems(first, second) {
   const byId = new Map();
   for (const item of [...first, ...second]) {
@@ -116,19 +131,26 @@ function mergeCartItems(first, second) {
 
 export async function getPlatformCartSession() {
   try {
-    const { data } = await platformSupabase.auth.getSession();
+    const sessionResult = await withPlatformAuthTimeout(platformSupabase.auth.getSession());
+    if (!sessionResult) return null;
+    const { data } = sessionResult;
     let session = data.session || null;
     if (!session?.access_token) return null;
 
     // Do not send a stale browser token to the protected cart API. Refresh it
     // shortly before expiry, then verify it with the platform Auth service.
     if (session.expires_at && session.expires_at * 1000 <= Date.now() + 30_000) {
-      const { data: refreshed, error: refreshError } = await platformSupabase.auth.refreshSession();
+      const refreshResult = await withPlatformAuthTimeout(platformSupabase.auth.refreshSession());
+      if (!refreshResult) return null;
+
+      const { data: refreshed, error: refreshError } = refreshResult;
       if (refreshError || !refreshed.session?.access_token) return null;
       session = refreshed.session;
     }
 
-    const { data: userData, error: userError } = await platformSupabase.auth.getUser(session.access_token);
+    const userResult = await withPlatformAuthTimeout(platformSupabase.auth.getUser(session.access_token));
+    if (!userResult) return null;
+    const { data: userData, error: userError } = userResult;
     if (userError || !userData.user) return null;
     return session;
   } catch {

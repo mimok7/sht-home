@@ -35,7 +35,10 @@ function chooseRate(cabin, scheduleType, date) {
   const scheduled = cabin?.rates.filter((rate) => rate.schedule_type === scheduleType) || [];
   const dated = scheduled.filter((rate) => rateMatchesDate(rate, date));
   const candidates = date ? dated : scheduled;
-  return [...candidates].sort((left, right) => {
+  // Prefer a rate that can be revalidated against the platform before using a
+  // display-only legacy rate. The latter must never reach the cart.
+  const bookableCandidates = candidates.filter((rate) => rate.platform_rate_card_id);
+  return [...(bookableCandidates.length ? bookableCandidates : candidates)].sort((left, right) => {
     const leftPrice = positiveNumber(left.price_adult) ?? Number.MAX_SAFE_INTEGER;
     const rightPrice = positiveNumber(right.price_adult) ?? Number.MAX_SAFE_INTEGER;
     return leftPrice - rightPrice;
@@ -171,6 +174,12 @@ function editCartItemIdFromLocation() {
   return new URLSearchParams(window.location.search).get('editCartItem') || '';
 }
 
+function initialCabinId(cabins, scheduleType) {
+  const hasSchedule = (cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType);
+  const hasPlatformRate = (cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType && rate.platform_rate_card_id);
+  return cabins.find(hasPlatformRate)?.id || cabins.find(hasSchedule)?.id || null;
+}
+
 export default function ProductDetail({ params }) {
   const { id } = use(params);
   const [loading, setLoading] = useState(true);
@@ -269,7 +278,7 @@ export default function ProductDetail({ params }) {
       setCabins(nextCabins);
       setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins));
       setSelectedSchedule(editingSchedule);
-      setSelectedCabinId(editingCabin?.id || nextCabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === editingSchedule))?.id || nextCabins[0]?.id || null);
+      setSelectedCabinId(editingCabin?.id || initialCabinId(nextCabins, editingSchedule) || nextCabins[0]?.id || null);
       setDate(editingItem?.startDate || '');
       setAdults(Math.max(1, Number(editingItem?.adults || 2)));
       setChildren(Number(editingItem?.children || 0));
@@ -318,11 +327,22 @@ export default function ProductDetail({ params }) {
   function handleScheduleChange(event) {
     const scheduleType = event.target.value;
     setSelectedSchedule(scheduleType);
-    setSelectedCabinId(cabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType))?.id || null);
+    setSelectedCabinId(initialCabinId(cabins, scheduleType));
   }
 
   async function handleAddToCart() {
-    if (!selectedCabin || !selectedRate || !date) return;
+    if (!selectedCabin || !date) {
+      setCartMessage('객실과 이용일을 선택해 주세요.');
+      return;
+    }
+    if (!selectedRate) {
+      setCartMessage('선택한 이용일에 적용되는 요금을 찾지 못했습니다. 다른 날짜를 선택해 주세요.');
+      return;
+    }
+    if (!selectedRate.platform_rate_card_id) {
+      setCartMessage('이 객실의 플랫폼 원본 요금이 아직 연결되지 않아 장바구니에 담을 수 없습니다. 카카오톡 상담으로 문의해 주세요.');
+      return;
+    }
     const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
     const childPrice = positiveNumber(selectedRate.price_child) || 0;
     const infantPrice = positiveNumber(selectedRate.price_infant) || 0;
@@ -506,7 +526,7 @@ export default function ProductDetail({ params }) {
                 <strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong>
                 <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
               </div>
-              <button type="button" className="btn-primary w-100" onClick={handleAddToCart} disabled={!selectedCabin || !date || !selectedRate?.platform_rate_card_id}>
+              <button type="button" className="btn-primary w-100" onClick={handleAddToCart}>
                 {editingCartItemId ? '선택 수정 저장　→' : '장바구니에 담기　＋'}
               </button>
               {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}

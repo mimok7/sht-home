@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
@@ -323,16 +323,10 @@ export default function ProductDetail({ params }) {
 
   async function handleAddToCart() {
     if (!selectedCabin || !selectedRate || !date) return;
-    const session = await getPlatformCartSession();
-    if (!session) {
-      const next = `${window.location.pathname}${window.location.search}`;
-      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
-      return;
-    }
     const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
     const childPrice = positiveNumber(selectedRate.price_child) || 0;
     const infantPrice = positiveNumber(selectedRate.price_infant) || 0;
-    const savedItem = replaceBookingCartItem(editingCartItemId, {
+    const nextItem = {
       id: `cruise:${selectedRate.platform_rate_card_id}:${date}`,
       serviceType: 'cruise', productId: cruise.id, optionId: selectedRate.platform_rate_card_id,
       name: cruise.name, optionName: `${selectedCabin.name} · ${SCHEDULE_LABELS[selectedSchedule] || selectedSchedule}`,
@@ -340,7 +334,15 @@ export default function ProductDetail({ params }) {
       unitPrice: adultPrice * adults + childPrice * children + infantPrice * infants,
       currency: selectedRate.currency, priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
       metadata: { schedule: selectedSchedule, roomCount: 1 },
-    });
+    };
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      queueBookingCartItemAfterLogin(nextItem, editingCartItemId, next);
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
     setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
   }

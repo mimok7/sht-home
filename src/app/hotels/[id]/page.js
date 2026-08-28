@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import { supabase } from '@/lib/supabase';
-import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
 import '../hotel-cart.css';
 
@@ -134,13 +134,7 @@ export default function HotelDetail({ params }) {
 
   async function handleAddToCart() {
     if (!selectedRoom || !stayDate) return;
-    const session = await getPlatformCartSession();
-    if (!session) {
-      const next = `${window.location.pathname}${window.location.search}`;
-      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
-      return;
-    }
-    const savedItem = replaceBookingCartItem(editingCartItemId, {
+    const nextItem = {
       id: `hotel:${selectedRoom.id}:${stayDate}`,
       serviceType: 'hotel', productId: hotel.id, optionId: selectedRoom.id,
       name: hotel.name, optionName: selectedRoom.name, startDate: stayDate,
@@ -148,7 +142,15 @@ export default function HotelDetail({ params }) {
       unitPrice: positiveNumber(selectedRoom.price) || 0, currency: selectedRoom.currency,
       priceStatus: 'reference', sourceHref: `/hotels/${encodeURIComponent(hotel.id)}`,
       metadata: { priceUnit: selectedRoom.priceUnit },
-    });
+    };
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      queueBookingCartItemAfterLogin(nextItem, editingCartItemId, next);
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
     setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '호텔을 장바구니에 담았습니다. 크루즈와 다른 서비스도 함께 결제 준비할 수 있습니다.');
   }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
 import BookingCartLink from '@/components/BookingCartLink';
-import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../../booking.css';
 
 const SERVICES = {
@@ -39,20 +39,22 @@ export default function ServiceDraftPage({ params }) {
   function update(field, value) { setForm((current) => ({ ...current, [field]: value })); setSavedMessage(''); }
   async function add(event) {
     event.preventDefault();
-    const session = await getPlatformCartSession();
-    if (!session) {
-      const next = `${window.location.pathname}${window.location.search}`;
-      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
-      return;
-    }
-    const wasEditing = Boolean(editingCartItemId);
-    const savedItem = replaceBookingCartItem(editingCartItemId, {
+    const nextItem = {
       id: `${type}:${form.date}:${form.name}`,
       serviceType: type, productId: `${type}-request`, name: form.name, optionName: '상세 조건 매니저 확인',
       startDate: form.date, adults: Number(form.adults), children: Number(form.children), infants: 0,
       quantity: Number(form.quantity), unitPrice: 0, currency: 'VND', priceStatus: 'reference',
       sourceHref: `/booking/service/${type}`, metadata: { requestNote: form.note },
-    });
+    };
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      queueBookingCartItemAfterLogin(nextItem, editingCartItemId, next);
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+    const wasEditing = Boolean(editingCartItemId);
+    const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
     setSavedMessage(wasEditing ? '선택 내용을 수정하고 기존 장바구니 항목을 교체했습니다.' : '장바구니에 담았습니다.');
   }

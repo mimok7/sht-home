@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { restorePendingBookingCartItemAfterLogin, safeBookingReturnPath } from '@/lib/booking-cart';
 import { platformSupabase } from '@/lib/platform-supabase';
 import { supabase } from '@/lib/supabase';
 import './auth.css';
@@ -13,6 +14,11 @@ export default function Login() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  function getSafeNextPath() {
+    const next = new URLSearchParams(window.location.search).get('next');
+    return safeBookingReturnPath(next);
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -36,8 +42,15 @@ export default function Login() {
       : { data: null };
     const role = profile?.role || authData.user.app_metadata?.role || '';
     const isOperator = role === 'admin' || role === 'manager';
-    const next = new URLSearchParams(window.location.search).get('next');
-    router.replace(isOperator ? '/admin' : (next?.startsWith('/') ? next : '/'));
+    const next = getSafeNextPath();
+    if (!isOperator) {
+      try {
+        await restorePendingBookingCartItemAfterLogin(next);
+      } catch {
+        // A temporary cart-storage error must not prevent a successful login.
+      }
+    }
+    router.replace(isOperator ? '/admin' : next);
     router.refresh();
   }
 

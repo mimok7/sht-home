@@ -4,8 +4,19 @@ import { platformSupabase } from './platform-supabase';
 export const BOOKING_CART_KEY = 'stayhalong-booking-cart-v1';
 export const BOOKING_CART_EVENT = 'stayhalong:booking-cart-change';
 const BOOKING_CART_OWNER_KEY = 'stayhalong-booking-cart-owner-v1';
+const PENDING_BOOKING_CART_ACTION_KEY = 'stayhalong-pending-booking-cart-action-v1';
 let cartSyncQueue = Promise.resolve();
 let cartMutationVersion = 0;
+
+export function safeBookingReturnPath(value, fallback = '/') {
+  if (typeof value !== 'string' || !value.startsWith('/')) return fallback;
+  try {
+    const decoded = decodeURIComponent(value);
+    return decoded.startsWith('/') && !decoded.startsWith('//') && !decoded.startsWith('/\\') ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export function readBookingCart() {
   if (typeof window === 'undefined') return [];
@@ -41,6 +52,42 @@ export function replaceBookingCartItem(previousItemId, item) {
   writeCartMutation(next);
   void syncBookingCart(next).catch(() => {});
   return nextItem;
+}
+
+// A pending action only contains the customer's selection draft. It is kept
+// locally until platform Auth establishes the account that owns the cart.
+export function queueBookingCartItemAfterLogin(item, previousItemId = '', returnPath = '/') {
+  if (typeof window === 'undefined') return null;
+  const nextItem = normalizeBookingCartItem(item);
+  if (!nextItem) throw new Error('장바구니 상품 정보가 올바르지 않습니다.');
+  window.localStorage.setItem(PENDING_BOOKING_CART_ACTION_KEY, JSON.stringify({
+    item: nextItem,
+    previousItemId: String(previousItemId || '').slice(0, 240),
+    returnPath: safeBookingReturnPath(returnPath),
+  }));
+  return nextItem;
+}
+
+export async function restorePendingBookingCartItemAfterLogin(returnPath = '/') {
+  if (typeof window === 'undefined') return null;
+  let pending;
+  try {
+    pending = JSON.parse(window.localStorage.getItem(PENDING_BOOKING_CART_ACTION_KEY) || 'null');
+  } catch {
+    window.localStorage.removeItem(PENDING_BOOKING_CART_ACTION_KEY);
+    return null;
+  }
+
+  const item = normalizeBookingCartItem(pending?.item);
+  if (!item || pending?.returnPath !== safeBookingReturnPath(returnPath)) return null;
+
+  // Load the signed-in user's remote cart first. This prevents a previous
+  // browser user's local draft from being written into the newly signed-in
+  // customer's cart.
+  await hydrateBookingCart();
+  const savedItem = replaceBookingCartItem(pending.previousItemId, item);
+  window.localStorage.removeItem(PENDING_BOOKING_CART_ACTION_KEY);
+  return savedItem;
 }
 
 export function removeBookingCartItem(id) {

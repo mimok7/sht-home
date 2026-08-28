@@ -2,35 +2,57 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { bookingCartTotal, hydrateBookingCart, readBookingCart, removeBookingCartItem } from '@/lib/booking-cart';
+import { platformSupabase } from '@/lib/platform-supabase';
+import { bookingCartTotal, getPlatformCartSession, hydrateBookingCart, readBookingCart, removeBookingCartItem } from '@/lib/booking-cart';
 import '../booking.css';
 
 function money(value, currency) { return value > 0 ? `${value.toLocaleString('ko-KR')} ${currency}` : '견적 확인'; }
 function editHref(item) { return `${item.sourceHref}${item.sourceHref.includes('?') ? '&' : '?'}editCartItem=${encodeURIComponent(item.id)}`; }
 
 export default function BookingCartPage() {
+  const [authorized, setAuthorized] = useState(false);
   const [items, setItems] = useState([]);
   const [syncMessage, setSyncMessage] = useState('');
   useEffect(() => {
     let cancelled = false;
+    const redirectToLogin = () => {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+    };
     const refresh = () => {
       void hydrateBookingCart().then((result) => {
         if (cancelled) return;
         setItems(result.items);
-        setSyncMessage(result.synced ? '로그인 계정의 홈페이지 장바구니에 저장되어 있습니다.' : (result.error || '로그인하면 홈페이지 장바구니에 저장됩니다.'));
+        setSyncMessage(result.synced ? '로그인 계정의 홈페이지 장바구니에 저장되어 있습니다.' : (result.error || '장바구니 동기화 상태를 확인하지 못했습니다.'));
       }).catch(() => {
         if (!cancelled) setSyncMessage('장바구니 동기화 상태를 확인하지 못했습니다.');
       });
     };
     const updateFromLocalCart = () => setItems(readBookingCart());
-    queueMicrotask(() => {
+    async function load() {
+      const session = await getPlatformCartSession();
+      if (cancelled) return;
+      if (!session) {
+        redirectToLogin();
+        return;
+      }
+      setAuthorized(true);
       updateFromLocalCart();
       refresh();
+    }
+    void load();
+    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, session) => {
+      if (!session) {
+        setAuthorized(false);
+        setItems([]);
+        redirectToLogin();
+      }
     });
     window.addEventListener('storage', updateFromLocalCart);
     window.addEventListener('focus', refresh);
     return () => {
       cancelled = true;
+      listener.subscription.unsubscribe();
       window.removeEventListener('storage', updateFromLocalCart);
       window.removeEventListener('focus', refresh);
     };
@@ -39,6 +61,7 @@ export default function BookingCartPage() {
   const vndTotal = bookingCartTotal(items);
   const usdTotal = bookingCartTotal(items, 'USD');
 
+  if (!authorized) return null;
   return <div className="booking-page"><div className="booking-shell cart-shell">
     <Link href="/booking" className="booking-back">← 서비스 더 담기</Link>
     <div className="booking-title-row"><div><span className="booking-section-kicker">ONE JOURNEY / ONE CART</span><h1>여행 장바구니</h1></div><span className="beta-badge">{items.length} SERVICES</span></div>

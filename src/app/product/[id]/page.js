@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
@@ -321,8 +321,14 @@ export default function ProductDetail({ params }) {
     setSelectedCabinId(cabins.find((cabin) => cabin.rates.some((rate) => rate.schedule_type === scheduleType))?.id || null);
   }
 
-  function handleAddToCart() {
+  async function handleAddToCart() {
     if (!selectedCabin || !selectedRate || !date) return;
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
     const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
     const childPrice = positiveNumber(selectedRate.price_child) || 0;
     const infantPrice = positiveNumber(selectedRate.price_infant) || 0;

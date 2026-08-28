@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import { supabase } from '@/lib/supabase';
-import { hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
 import '../hotel-cart.css';
 
@@ -132,8 +132,14 @@ export default function HotelDetail({ params }) {
     return () => { document.body.style.overflow = previousOverflow; window.removeEventListener('keydown', closeOnEscape); };
   }, [detailRoom]);
 
-  function handleAddToCart() {
+  async function handleAddToCart() {
     if (!selectedRoom || !stayDate) return;
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
     const savedItem = replaceBookingCartItem(editingCartItemId, {
       id: `hotel:${selectedRoom.id}:${stayDate}`,
       serviceType: 'hotel', productId: hotel.id, optionId: selectedRoom.id,

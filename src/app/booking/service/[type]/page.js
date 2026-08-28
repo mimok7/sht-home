@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { use, useEffect, useState } from 'react';
-import { hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
+import BookingCartLink from '@/components/BookingCartLink';
+import { getPlatformCartSession, hydrateBookingCart, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../../booking.css';
 
 const SERVICES = {
@@ -36,8 +37,14 @@ export default function ServiceDraftPage({ params }) {
   if (!service) return <div className="booking-page"><div className="booking-shell"><div className="booking-empty"><h1>서비스를 찾을 수 없습니다.</h1><Link href="/booking">예약 홈으로 →</Link></div></div></div>;
 
   function update(field, value) { setForm((current) => ({ ...current, [field]: value })); setSavedMessage(''); }
-  function add(event) {
+  async function add(event) {
     event.preventDefault();
+    const session = await getPlatformCartSession();
+    if (!session) {
+      const next = `${window.location.pathname}${window.location.search}`;
+      window.location.replace(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
     const wasEditing = Boolean(editingCartItemId);
     const savedItem = replaceBookingCartItem(editingCartItemId, {
       id: `${type}:${form.date}:${form.name}`,
@@ -64,7 +71,7 @@ export default function ServiceDraftPage({ params }) {
       </div>
       <div className="booking-warning">현재 홈페이지에 공개 상품 카탈로그가 없는 서비스는 요청 초안으로 담습니다. 매니저가 기존 플랫폼에서 상품과 금액을 확인한 뒤 결제 금액이 확정됩니다.</div>
       {savedMessage && <p className="booking-warning" role="status">{savedMessage}</p>}
-      <div className="booking-controls"><button type="submit">{editingCartItemId ? '선택 수정 저장 →' : '장바구니에 담기 ＋'}</button><Link href="/booking/cart" className="secondary">장바구니 보기 →</Link></div>
+      <div className="booking-controls"><button type="submit">{editingCartItemId ? '선택 수정 저장 →' : '장바구니에 담기 ＋'}</button><BookingCartLink className="secondary" showCount={false} header={false}>장바구니 보기 →</BookingCartLink></div>
     </form></section>
   </div></div>;
 }

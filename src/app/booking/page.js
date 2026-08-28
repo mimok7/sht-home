@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import BookingCartLink from '@/components/BookingCartLink';
 import './booking.css';
 
 export const metadata = { title: '새 예약 베타 | STAY HALONG' };
@@ -23,7 +24,7 @@ export default function BookingHome() {
         <h1>예약은 새롭게.<br /><span>운영은 그대로.</span></h1>
         <p>홈페이지 고객 예약 화면을 단계적으로 옮기고 있습니다. 기존 플랫폼과 같은 계정·예약 데이터를 사용하며, 매니저 업무와 기존 예약 기능은 변경하지 않습니다.</p>
         <div className="booking-hero-actions">
-          <Link href="/booking/cart" className="booking-action primary">여행 장바구니 →</Link>
+          <BookingCartLink className="booking-action primary" showCount={false} header={false}>여행 장바구니 →</BookingCartLink>
           <Link href="/booking/reservations" className="booking-action primary">내 예약 확인 →</Link>
           <a href={PLATFORM} target="_blank" rel="noreferrer" className="booking-action">기존 예약 플랫폼 ↗</a>
         </div>

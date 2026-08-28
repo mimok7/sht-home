@@ -67,7 +67,7 @@ function mergeCartItems(first, second) {
   return normalizeBookingCartItems([...byId.values()]);
 }
 
-async function platformSession() {
+export async function getPlatformCartSession() {
   try {
     const { data } = await platformSupabase.auth.getSession();
     let session = data.session || null;
@@ -91,7 +91,7 @@ async function platformSession() {
 
 async function persistBookingCart(items) {
   if (typeof window === 'undefined') return { synced: false };
-  const session = await platformSession();
+  const session = await getPlatformCartSession();
   if (!session) return { synced: false };
 
   const owner = window.localStorage.getItem(BOOKING_CART_OWNER_KEY);
@@ -120,7 +120,7 @@ export async function hydrateBookingCart() {
   await cartSyncQueue.catch(() => undefined);
   const localItems = readBookingCart();
   const mutationVersion = cartMutationVersion;
-  const session = await platformSession();
+  const session = await getPlatformCartSession();
   if (!session) return { items: localItems, synced: false };
 
   const storedOwner = window.localStorage.getItem(BOOKING_CART_OWNER_KEY);

@@ -1,6 +1,6 @@
 import Image from 'next/image';
-import Link from 'next/link';
 import styles from '@/app/page.module.css';
+import landingStyles from './StayHalongLanding.module.css';
 
 export default function StayHalongLanding() {
   return <div className={styles.home}>
@@ -10,8 +10,13 @@ export default function StayHalongLanding() {
         <h1>하롱베이,<br /><span>머무는 여행<br />되다.</span></h1>
         <p className={styles.description}>배 한 척이 여행의 분위기를 바꿉니다. 현지에서 직접 보고 고른 크루즈로 복잡한 선택은 줄이고, 좋은 순간은 더 오래 남겨보세요.</p>
         <div className={styles.actions}>
-          <Link href="/booking" className={styles.yellowButton}>행복 여행 예약 <span>→</span></Link>
-          <Link href="/booking/reservations" className={styles.yellowButton}>내 예약 확인 <span>→</span></Link>
+          <a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.yellowButton} target="_blank" rel="noreferrer">예약하기 <span>↗</span></a>
+          <a href="https://customer.stayhalong.com/mypage/reservations" className={styles.yellowButton} target="_blank" rel="noreferrer">예약 확인 <span>↗</span></a>
+        </div>
+        <div className={landingStyles.contactActions}>
+          <a href="http://pf.kakao.com/_zvsxaG/chat" className={styles.yellowButton} target="_blank" rel="noreferrer">카톡 상담 <span>↗</span></a>
+          <a href="https://cafe.naver.com/f-e/cafes/31003053/menus/792?viewType=I" className={styles.yellowButton} target="_blank" rel="noreferrer">내 크루즈 찾기 <span>↗</span></a>
+          <a href="https://www.youtube.com/@Realhalong" className={styles.yellowButton} target="_blank" rel="noreferrer">유튜브 <span>↗</span></a>
         </div>
         <div className={styles.meta}><span><b>KR</b> 현지 한국어 상담</span><span><b>1:1</b> 맞춤 여행 제안</span></div>
       </div>
@@ -29,8 +34,8 @@ export default function StayHalongLanding() {
     </section>
     <section className={styles.route}>
       <div className={styles.routeImage}><Image src="/images/cruises/111.png" alt="크루즈 내부 프리미엄 다이닝 공간" fill sizes="(max-width:800px) 100vw, 48vw" /><strong>ON<br />BOARD</strong></div>
-      <div className={styles.routeCopy}><small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2><ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol><Link href="/booking" className={styles.darkButton}>행복 여행 예약　→</Link></div>
+      <div className={styles.routeCopy}><small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2><ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol><a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.darkButton} target="_blank" rel="noreferrer">예약하기　↗</a></div>
     </section>
-    <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><Link href="/booking">예약 시작하기　→</Link></section>
+    <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><a href="https://customer.stayhalong.com/mypage/direct-booking" target="_blank" rel="noreferrer">예약 시작하기　↗</a></section>
   </div>;
 }

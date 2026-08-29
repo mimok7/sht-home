@@ -21,7 +21,7 @@ export const viewport = {
 
 export default async function RootLayout({ children }) {
   const host = (await headers()).get('host')?.split(':')[0].toLowerCase();
-  const showRootNavigation = host === 'shthome.stayhalong.com';
+  const showRootNavigation = ['shthome.stayhalong.com', 'localhost', '127.0.0.1'].includes(host);
 
   return (
     <html lang="ko">

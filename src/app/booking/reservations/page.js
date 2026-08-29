@@ -51,7 +51,7 @@ export default function ReservationListPage() {
       }
       const { data: reservations, error } = await platformSupabase
         .from('reservation')
-        .select('re_id,re_type,re_status,re_created_at,total_amount,paid_amount,payment_status,reservation_date,pax_count')
+        .select('re_id,re_type,re_status,re_created_at,re_quote_id,total_amount,paid_amount,payment_status,reservation_date,pax_count')
         .eq('re_user_id', auth.user.id)
         .order('re_created_at', { ascending: false });
       if (cancelled) return;
@@ -108,6 +108,7 @@ export default function ReservationListPage() {
               <div><dt>결제 잔액</dt><dd>{balanceAmount === null ? '매니저 확인 중' : formatRecordedAmount(balanceAmount)}</dd></div>
             </dl>
             <div className="reservation-payment-note"><span>결제 기록</span><strong>{reservation.payment ? `${paymentMethodLabel(reservation.payment.payment_method)} · ${formatDateTime(reservation.payment.created_at)}` : '매니저 결제 안내 전'}</strong></div>
+            <div className="reservation-detail-actions"><Link className="booking-action secondary" href={`/booking/reservations/${reservation.re_id}`}>상세 보기 →</Link><Link className="booking-action primary" href={`/booking/reservations/${reservation.re_id}/confirmation`}>예약 확인서 →</Link></div>
           </div>
         </article>;
       })}

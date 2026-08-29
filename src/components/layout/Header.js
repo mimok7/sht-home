@@ -24,6 +24,7 @@ export default function Header({ showRootNavigation = false }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [profileName, setProfileName] = useState('');
+  const [isOperator, setIsOperator] = useState(false);
   const temporary = pathname === '/' && !showRootNavigation;
 
   useEffect(() => { queueMicrotask(() => setMenuOpen(false)); }, [pathname]);
@@ -34,9 +35,13 @@ export default function Header({ showRootNavigation = false }) {
       const nextUser = session?.user || null;
       if (!mounted) return;
       setUser(nextUser);
-      if (!nextUser) { setProfileName(''); return; }
-      const { data } = await platformSupabase.from('users').select('name').eq('id', nextUser.id).maybeSingle();
-      if (mounted) setProfileName(data?.name || nextUser.user_metadata?.full_name || nextUser.user_metadata?.name || '');
+      if (!nextUser) { setProfileName(''); setIsOperator(false); return; }
+      const { data } = await platformSupabase.from('users').select('name, role').eq('id', nextUser.id).maybeSingle();
+      if (mounted) {
+        setProfileName(data?.name || nextUser.user_metadata?.full_name || nextUser.user_metadata?.name || '');
+        const role = data?.role || nextUser.app_metadata?.role || '';
+        setIsOperator(role === 'admin' || role === 'manager');
+      }
     }
     let homepageListener;
     async function loadSessions() {
@@ -56,11 +61,12 @@ export default function Header({ showRootNavigation = false }) {
     await Promise.all([platformSupabase.auth.signOut(), supabase.auth.signOut()]);
     setUser(null);
     setProfileName('');
+    setIsOperator(false);
   }
 
   const identityLabel = profileName ? `${profileName}님 환영합니다.` : `${user?.email || ''}님 환영합니다.`;
   const accountActions = user ? <><span className="header-user" title={user.email}>{identityLabel}</span><button type="button" className="header-logout" onClick={handleSignOut}>로그아웃</button></> : <Link href="/login">로그인</Link>;
-  const adminLink = <Link href="/admin" className="header-admin">관리자</Link>;
+  const adminLink = isOperator ? <Link href="/admin" className="header-admin">관리자</Link> : null;
   const searchForm = <form className="site-search" action="/search" role="search"><label className="sr-only" htmlFor="site-search-input">홈페이지 검색</label><input id="site-search-input" name="q" type="search" placeholder="사이트 검색" /><button type="submit" aria-label="검색">검색</button></form>;
 
   return (

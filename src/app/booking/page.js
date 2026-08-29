@@ -2,7 +2,7 @@ import Link from 'next/link';
 import BookingCartLink from '@/components/BookingCartLink';
 import './booking.css';
 
-export const metadata = { title: '예약 | STAY HALONG' };
+export const metadata = { title: '행복 여행 예약 | STAY HALONG' };
 
 const services = [
   { key: 'cruise', name: '크루즈', copy: '객실과 일정을 고르고 여행 장바구니에 담습니다.', href: '/cruises' },
@@ -20,7 +20,7 @@ export default function BookingHome() {
     <section className="booking-hero">
       <div className="container">
         <span className="booking-kicker">CUSTOMER BOOKING</span>
-        <h1>예약</h1>
+        <h1>행복 여행 예약</h1>
         <p>여행에 필요한 서비스를 선택하고, 나만의 하롱베이 여행을 준비해 보세요.</p>
         <div className="booking-hero-actions">
           <BookingCartLink className="booking-action primary" showCount={false} header={false}>여행 장바구니 →</BookingCartLink>

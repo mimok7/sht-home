@@ -71,7 +71,7 @@ export default function ReservationListPage() {
         const paymentStatus = reservation.payment?.payment_status || reservation.payment_status || 'pending';
         return <article className="reservation-item" key={reservation.re_id}>
           <div className="reservation-type">{TYPE_LABEL[reservation.re_type] || reservation.re_type}</div>
-          <div><h2>{TYPE_LABEL[reservation.re_type] || '여행'} 예약</h2><div className="reservation-meta"><span>이용일 {formatDate(reservation.reservation_date)}</span><span>인원 {reservation.pax_count || '—'}명</span><span>{formatAmount(reservation.total_amount)}</span><span>예약번호 {String(reservation.re_id).slice(0, 8)}</span></div></div>
+          <div><h2>{TYPE_LABEL[reservation.re_type] || '여행'} 예약</h2><div className="reservation-meta"><span>이용일 {formatDate(reservation.reservation_date)}</span><span>인원 {reservation.pax_count || '—'}명</span><span>예약번호 {String(reservation.re_id).slice(0, 8)}</span><span className="reservation-amount">{formatAmount(reservation.total_amount)}</span></div></div>
           <div className="reservation-status"><strong>{STATUS_LABEL[reservation.re_status] || reservation.re_status}</strong><span>{PAYMENT_LABEL[paymentStatus] || paymentStatus}</span></div>
         </article>;
       })}

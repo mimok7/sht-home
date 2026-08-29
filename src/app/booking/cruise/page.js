@@ -94,7 +94,7 @@ export default function CruiseBookingPage() {
           <div className="booking-field"><label htmlFor="cruise-infant">유아</label><input id="cruise-infant" type="number" min="0" max="10" value={draft.infantCount} onChange={(event) => update('infantCount', numberValue(event.target.value))} /></div>
           <div className="booking-field full"><label htmlFor="cruise-note">요청사항</label><textarea id="cruise-note" value={draft.requestNote} onChange={(event) => update('requestNote', event.target.value)} placeholder="객실 배치, 기념일 등 요청사항을 적어주세요." /></div>
         </div>
-        {rate && <dl className="booking-summary"><div><dt>플랫폼 요금 ID</dt><dd>{String(rate.id).slice(0, 8)}</dd></div><div><dt>성인 등록요금</dt><dd>{Number(rate.price_adult || 0).toLocaleString('ko-KR')} VND</dd></div><div><dt>적용 기간</dt><dd>{rate.valid_from} ~ {rate.valid_to}</dd></div></dl>}
+        {rate && <dl className="booking-summary"><div><dt>플랫폼 요금 ID</dt><dd>{String(rate.id).slice(0, 8)}</dd></div><div className="booking-summary-price"><dt>성인 등록요금</dt><dd>{Number(rate.price_adult || 0).toLocaleString('ko-KR')} VND</dd></div><div><dt>적용 기간</dt><dd>{rate.valid_from} ~ {rate.valid_to}</dd></div></dl>}
         <div className="booking-warning">현재 단계는 플랫폼 원본 요금의 활성 여부와 적용일을 검증하고 홈페이지에 초안을 저장합니다. 프로모션·휴일 할증·아동 규정 계산 결과가 기존 플랫폼과 일치하기 전에는 플랫폼 예약 행을 만들지 않습니다.</div>
         {state.error && <p className="booking-error" role="alert">{state.error}</p>}
         {state.saved && <p className="booking-warning" role="status">이 기기에 예약 초안을 저장했습니다. 플랫폼 데이터는 변경하지 않았습니다.</p>}

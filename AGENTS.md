@@ -13,6 +13,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Reservation and payment migration
 
+- Display every customer-facing price or amount right-aligned on desktop and mobile. Do not introduce mobile CSS overrides that move a price, total, or rate value to the left.
 - Follow `docs/homepage-reservation-payment-plan.md` for all reservation and payment work.
 - Do not modify the existing `sht-platform` customer, manager, reservation, or payment implementation. It must remain independently operable throughout the migration.
 - Build the replacement customer booking experience only in this homepage repository. Keep the existing customer platform and the new homepage flow running in parallel until explicit acceptance and cutover approval.

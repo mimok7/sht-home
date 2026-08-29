@@ -12,8 +12,8 @@ export default function ShthomeLanding() {
         <p className={styles.description}>현지에서 직접 보고 고른 크루즈와 여행 정보를 한곳에서 만나보세요. 취향에 맞는 하롱베이의 시간을 차분하게 골라드립니다.</p>
         <div className={landingStyles.officialActions}>
           <div className={landingStyles.officialActionRow}>
-            <Link href="/cruises" className={styles.yellowButton}>크루즈 보기 <span>→</span></Link>
-            <Link href="/hotels" className={styles.yellowButton}>호텔 보기 <span>→</span></Link>
+            <Link href="/cruises" className={styles.yellowButton}>크루즈 <span>→</span></Link>
+            <Link href="/hotels" className={styles.yellowButton}>호텔 <span>→</span></Link>
           </div>
           <div className={landingStyles.officialActionRow}>
             <Link href="/travel-guide" className={styles.yellowButton}>여행 안내 <span>→</span></Link>

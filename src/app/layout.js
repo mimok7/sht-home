@@ -1,4 +1,5 @@
 import './globals.css';
+import { headers } from 'next/headers';
 import Header from '../components/layout/Header';
 import Footer from '../components/layout/Footer';
 import GlobalAlert from '../components/GlobalAlert';
@@ -18,11 +19,14 @@ export const viewport = {
   themeColor: '#06272a',
 };
 
-export default function RootLayout({ children }) {
+export default async function RootLayout({ children }) {
+  const host = (await headers()).get('host')?.split(':')[0].toLowerCase();
+  const showRootNavigation = host === 'shthome.stayhalong.com';
+
   return (
     <html lang="ko">
       <body>
-        <Header />
+        <Header showRootNavigation={showRootNavigation} />
         <main className="main-content">
           {children}
           <GlobalAlert />

@@ -6,8 +6,10 @@ This version has breaking changes — APIs, conventions, and file structure may 
 
 ## Homepage work
 
-- Until the homepage is finalized, make all first-screen/homepage changes in `src/app/temp-home/page.js` (`/temp-home`).
-- Keep `src/app/page.js` as the current temporary root homepage. The `temp-home` route will replace it only after the homepage is complete.
+- `shthome.stayhalong.com` is the fixed official homepage initial screen. Do not change its screen, menu, or calls to action while the homepage remains under review, unless the user explicitly requests a change to that domain.
+- `stayhalong.com` is the temporary homepage operating screen until final acceptance. Make ongoing homepage changes only to its `StayHalongLanding` experience.
+- The two domains are selected in `src/app/page.js` by request host and must remain visibly distinct, including their header menu behavior and call-to-action labels and destinations.
+- Keep `/home` removed unless the user explicitly requests restoring that route.
 
 ## Reservation and payment migration
 

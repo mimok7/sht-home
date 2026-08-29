@@ -19,12 +19,12 @@ const NAV_ITEMS = [
   { href: '/faq', label: '고객센터' },
 ];
 
-export default function Header() {
+export default function Header({ showRootNavigation = false }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [profileName, setProfileName] = useState('');
-  const temporary = pathname === '/';
+  const temporary = pathname === '/' && !showRootNavigation;
 
   useEffect(() => { queueMicrotask(() => setMenuOpen(false)); }, [pathname]);
 

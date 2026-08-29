@@ -20,22 +20,6 @@ function formatAmount(value) {
   return Number.isFinite(amount) && amount > 0 ? `${amount.toLocaleString('ko-KR')} VND` : '매니저 확인 중';
 }
 
-function formatRecordedAmount(value) {
-  const amount = Number(value);
-  return Number.isFinite(amount) && amount >= 0 ? `${amount.toLocaleString('ko-KR')} VND` : '확인 중';
-}
-
-function formatDateTime(value) {
-  if (!value) return '기록 없음';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '기록 확인 중' : new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
-}
-
-function paymentMethodLabel(value) {
-  const methods = { onepay: 'OnePay', bank_transfer: '계좌이체', card: '카드', cash: '현장 결제', virtual: '가상결제' };
-  return methods[value] || value || '매니저 안내 전';
-}
-
 export default function ReservationListPage() {
   const [state, setState] = useState({ loading: true, error: '', reservations: [] });
 
@@ -51,7 +35,7 @@ export default function ReservationListPage() {
       }
       const { data: reservations, error } = await platformSupabase
         .from('reservation')
-        .select('re_id,re_type,re_status,re_created_at,re_quote_id,total_amount,paid_amount,payment_status,reservation_date,pax_count')
+        .select('re_id,re_type,re_status,re_created_at,total_amount,paid_amount,payment_status,reservation_date,pax_count')
         .eq('re_user_id', auth.user.id)
         .order('re_created_at', { ascending: false });
       if (cancelled) return;
@@ -86,30 +70,12 @@ export default function ReservationListPage() {
     {!state.loading && !state.error && state.reservations.length > 0 && <div className="reservation-list">
       {state.reservations.map((reservation) => {
         const paymentStatus = reservation.payment?.payment_status || reservation.payment_status || 'pending';
-        const totalAmount = Number(reservation.total_amount);
-        const recordedPaidAmount = Number(reservation.paid_amount);
-        const paymentAmount = Number(reservation.payment?.amount);
-        const isPaymentComplete = paymentStatus === 'completed' || paymentStatus === 'paid';
-        const paidAmount = Number.isFinite(recordedPaidAmount) && recordedPaidAmount > 0 ? recordedPaidAmount : (isPaymentComplete && Number.isFinite(paymentAmount) ? paymentAmount : 0);
-        const balanceAmount = Number.isFinite(totalAmount) && totalAmount >= 0 ? Math.max(totalAmount - paidAmount, 0) : null;
         return <article className="reservation-item" key={reservation.re_id}>
           <div className="reservation-type">{TYPE_LABEL[reservation.re_type] || reservation.re_type}</div>
-          <div className="reservation-detail">
-            <header className="reservation-item-head"><div><h2>{TYPE_LABEL[reservation.re_type] || '여행'} 예약</h2><span>플랫폼 예약 원장 기준</span></div><div className="reservation-status"><strong>{STATUS_LABEL[reservation.re_status] || reservation.re_status}</strong><span>{PAYMENT_LABEL[paymentStatus] || paymentStatus}</span></div></header>
-            <dl className="reservation-details">
-              <div><dt>이용 예정일</dt><dd>{formatDate(reservation.reservation_date)}</dd></div>
-              <div><dt>예약 접수일</dt><dd>{formatDateTime(reservation.re_created_at)}</dd></div>
-              <div><dt>여행 인원</dt><dd>{reservation.pax_count || '—'}명</dd></div>
-              <div><dt>예약번호</dt><dd>{String(reservation.re_id).slice(0, 8).toUpperCase()}</dd></div>
-            </dl>
-            <dl className="reservation-amounts">
-              <div><dt>예약 합계</dt><dd>{formatAmount(reservation.total_amount)}</dd></div>
-              <div><dt>결제 완료 금액</dt><dd>{formatRecordedAmount(paidAmount)}</dd></div>
-              <div><dt>결제 잔액</dt><dd>{balanceAmount === null ? '매니저 확인 중' : formatRecordedAmount(balanceAmount)}</dd></div>
-            </dl>
-            <div className="reservation-payment-note"><span>결제 기록</span><strong>{reservation.payment ? `${paymentMethodLabel(reservation.payment.payment_method)} · ${formatDateTime(reservation.payment.created_at)}` : '매니저 결제 안내 전'}</strong></div>
+          <div><h2>{TYPE_LABEL[reservation.re_type] || '여행'} 예약</h2><div className="reservation-meta"><span>이용일 {formatDate(reservation.reservation_date)}</span><span>인원 {reservation.pax_count || '—'}명</span><span>예약번호 {String(reservation.re_id).slice(0, 8)}</span><span className="reservation-amount">{formatAmount(reservation.total_amount)}</span></div>
             <div className="reservation-detail-actions"><Link className="booking-action secondary" href={`/booking/reservations/${reservation.re_id}`}>상세 보기 →</Link><Link className="booking-action primary" href={`/booking/reservations/${reservation.re_id}/confirmation`}>예약 확인서 →</Link></div>
           </div>
+          <div className="reservation-status"><strong>{STATUS_LABEL[reservation.re_status] || reservation.re_status}</strong><span>{PAYMENT_LABEL[paymentStatus] || paymentStatus}</span></div>
         </article>;
       })}
     </div>}

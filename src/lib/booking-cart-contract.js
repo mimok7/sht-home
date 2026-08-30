@@ -1,7 +1,7 @@
 export const BOOKING_CART_MAX_ITEMS = 40;
 
 export const SERVICE_LABELS = {
-  cruise: '크루즈', cruise_vehicle: '크루즈 차량', airport: '공항 이동', hotel: '호텔',
+  cruise: '크루즈', cruise_vehicle: '크루즈 차량예약', airport: '공항 이동', hotel: '호텔',
   rentcar: '렌터카', tour: '투어', package: '패키지', ticket: '티켓',
 };
 

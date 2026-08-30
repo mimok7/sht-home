@@ -399,8 +399,8 @@ export default function ProductDetail({ params }) {
     }
     const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
-    setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
     setReservationModalOpen(false);
+    window.location.assign('/booking/service/cruise_vehicle');
   }
 
   function renderReservationStartForm(fieldPrefix) {
@@ -408,7 +408,7 @@ export default function ProductDetail({ params }) {
     return <>
       <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
       <h3>예약 시작</h3>
-      <p className="reservation-intro">선택 조건을 홈페이지의 새 예약 화면으로 이어갑니다. 플랫폼 원본 요금을 다시 확인한 뒤 안전하게 초안을 만듭니다.</p>
+      <p className="reservation-intro">선택한 객실과 일정으로 여행 예약을 준비합니다.</p>
       <form className="reservation-form" action="/booking/cruise" method="get">
         <input type="hidden" name="sourceProductId" value={cruise.id} />
         <input type="hidden" name="sourceProductSlug" value={cruise.slug} />

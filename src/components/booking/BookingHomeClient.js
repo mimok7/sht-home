@@ -6,7 +6,7 @@ import BookingCartLink from '@/components/BookingCartLink';
 
 const SERVICES = [
   { key: 'cruise', name: '크루즈 예약', copy: '출항일, 일정, 크루즈와 객실 구성을 선택합니다.' },
-  { key: 'cruise_vehicle', name: '크루즈 차량만 추가', copy: '내 크루즈 예약을 선택하고 선착장 이동 차량을 추가합니다.' },
+  { key: 'cruise_vehicle', name: '크루즈 차량예약', copy: '크루즈 일정에 맞는 선착장 이동 차량을 선택합니다.' },
   { key: 'airport', name: '공항 서비스 예약', copy: '공항 픽업·샌딩의 경로와 차량, 항공편을 선택합니다.' },
   { key: 'hotel', name: '호텔 예약', copy: '체크인·체크아웃 날짜와 호텔 객실을 선택합니다.' },
   { key: 'rentcar', name: '렌터카 예약', copy: '이용 방식, 경로, 차량과 왕복 일정을 선택합니다.' },

@@ -249,6 +249,11 @@ function ServiceFields({ entries }) {
   return <dl className="reservation-service-fields">{entries.map((entry) => <div key={entry.key}><dt>{entry.label}</dt><dd>{entry.href ? <a href={entry.href} target="_blank" rel="noreferrer">{entry.value} ↗</a> : entry.value}</dd></div>)}</dl>;
 }
 
+function CompactDetailSection({ title, entries }) {
+  if (!entries.length) return null;
+  return <details className="reservation-collapsible"><summary><span>{title}</span><b>{entries.length}개 항목</b></summary><ServiceFields entries={entries} /></details>;
+}
+
 function CruiseDetails({ record }) {
   const info = record.cruiseInfo;
   if (!info) return null;
@@ -258,12 +263,12 @@ function CruiseDetails({ record }) {
   ].filter(([, , value]) => isPresent(value)).map(([key, label, value, href]) => ({ key, label, value, href }));
   return <section className="reservation-extra-info"><h3>크루즈 안내</h3><ServiceFields entries={infoEntries} />
     {promotion && <p className="reservation-promotion">{promotion} 적용</p>}
-    {record.cruiseCategories?.length > 0 && <div className="reservation-subdetails"><h4>객실별 상세</h4>{record.cruiseCategories.map((category, index) => {
+    {record.cruiseCategories?.length > 0 && <details className="reservation-collapsible reservation-subdetails"><summary><span>객실별 상세</span><b>{record.cruiseCategories.length}개 객실</b></summary><div>{record.cruiseCategories.map((category, index) => {
       const categoryEntries = [
         ['객실 타입', category.roomType], ['객실 수', category.roomCount ? `${category.roomCount.toLocaleString('ko-KR')}실` : ''], ['탑승 인원', category.guestCount ? `${category.guestCount.toLocaleString('ko-KR')}명` : ''], ['승선 코드', category.boardingCode], ['요청사항', category.requestNote],
       ].filter(([, value]) => isPresent(value)).map(([label, value]) => ({ key: `${category.key}-${label}`, label, value }));
       return <div className="reservation-subdetail" key={category.key}><h5>{index + 1}. {category.category}</h5><ServiceFields entries={categoryEntries} /></div>;
-    })}</div>}
+    })}</div></details>}
   </section>;
 }
 
@@ -279,7 +284,7 @@ function SeatPricingBreakdown({ record }) {
   const buckets = (record.details || []).flatMap((detail) => Array.isArray(detail.seat_pricing_breakdown) ? detail.seat_pricing_breakdown : []).filter((item) => item && typeof item === 'object' && item.bucket);
   if (!buckets.length) return null;
   const total = buckets.reduce((sum, item) => sum + (Number(item.total_price) || 0), 0);
-  return <section className="reservation-extra-info reservation-seat-breakdown"><h3>좌석군별 요금 내역</h3>{buckets.map((item, index) => <div key={`${item.bucket}-${index}`}><span>{item.bucket === 'ALL' ? '단독(ALL)' : `${item.bucket}석`} ({Array.isArray(item.seats) ? item.seats.join(', ') : ''})</span><strong>{formatAmount(item.unit_price)} × {Number(item.quantity || 0).toLocaleString('ko-KR')} = {formatAmount(item.total_price)}</strong></div>)}<div className="reservation-seat-total"><span>합계</span><strong>{formatAmount(total)}</strong></div></section>;
+  return <details className="reservation-collapsible reservation-seat-breakdown"><summary><span>좌석군별 요금 내역</span><b>{buckets.length}개 좌석군</b></summary><div className="reservation-seat-lines">{buckets.map((item, index) => <div key={`${item.bucket}-${index}`}><span>{item.bucket === 'ALL' ? '단독(ALL)' : `${item.bucket}석`} ({Array.isArray(item.seats) ? item.seats.join(', ') : ''})</span><strong>{formatAmount(item.unit_price)} × {Number(item.quantity || 0).toLocaleString('ko-KR')} = {formatAmount(item.total_price)}</strong></div>)}<div className="reservation-seat-total"><span>합계</span><strong>{formatAmount(total)}</strong></div></div></details>;
 }
 
 function RecordDetail({ record, confirmationLink }) {
@@ -291,9 +296,9 @@ function RecordDetail({ record, confirmationLink }) {
     <dl className="reservation-details"><div><dt>이용 예정일</dt><dd>{formatDate(record.reservation_date)}</dd></div><div><dt>예약 접수일</dt><dd>{formatDate(record.re_created_at, true)}</dd></div><div><dt>여행 인원</dt><dd>{record.pax_count || '—'}명</dd></div><div><dt>예약번호</dt><dd>{String(record.re_id).slice(0, 8).toUpperCase()}</dd></div></dl>
     <CruiseDetails record={record} />
     <PackageDetails record={record} />
-    <ServiceFields entries={entries} />
+    <CompactDetailSection title="서비스 상세 정보" entries={entries} />
     <SeatPricingBreakdown record={record} />
-    {linkedCarEntries.length > 0 && <section className="reservation-extra-info"><h3>연결 차량 정보</h3><ServiceFields entries={linkedCarEntries} /></section>}
+    {linkedCarEntries.length > 0 && <CompactDetailSection title="연결 차량 정보" entries={linkedCarEntries} />}
     <ReservationAmounts record={record} />
     <div className="reservation-payment-note"><span>결제 기록</span><strong>{payment ? `${paymentMethodLabel(payment.payment_method)} · ${formatDate(payment.created_at, true)}` : '매니저 결제 안내 전'}</strong></div>
     {isPresent(record.manager_note) && <p className="reservation-manager-note"><b>안내 메모</b>{record.manager_note}</p>}

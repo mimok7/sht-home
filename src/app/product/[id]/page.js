@@ -400,6 +400,7 @@ export default function ProductDetail({ params }) {
     const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
     setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
+    setReservationModalOpen(false);
   }
 
   function renderReservationStartForm(fieldPrefix) {

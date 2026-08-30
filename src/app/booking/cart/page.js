@@ -8,6 +8,13 @@ import '../booking.css';
 
 function money(value, currency) { return value > 0 ? `${value.toLocaleString('ko-KR')} ${currency}` : '견적 확인'; }
 function editHref(item) { return `${item.sourceHref}${item.sourceHref.includes('?') ? '&' : '?'}editCartItem=${encodeURIComponent(item.id)}`; }
+function cartPriceFormula(item) {
+  const total = item.unitPrice * item.quantity;
+  const passengers = Number(item.adults || 0) + Number(item.children || 0) + Number(item.infants || 0);
+  const quantity = item.serviceType === 'cruise' ? Math.max(1, passengers) : Math.max(1, Number(item.quantity || 1));
+  const unitPrice = total / quantity;
+  return `단가 ${money(unitPrice, item.currency)} × ${quantity}${item.serviceType === 'cruise' ? '명' : '개'}`;
+}
 
 export default function BookingCartPage() {
   const [authorized, setAuthorized] = useState(false);
@@ -71,10 +78,10 @@ export default function BookingCartPage() {
       <div className="cart-list">{items.map((item, index) => <article className="cart-item" key={item.id}>
         <div className="cart-number">{String(index + 1).padStart(2, '0')}</div>
         <div className="cart-copy"><span>{item.serviceLabel}</span><h2>{item.name}</h2><p>{[item.optionName, item.startDate, item.endDate && `~ ${item.endDate}`, `성인 ${item.adults}`, item.children ? `아동 ${item.children}` : '', item.infants ? `유아 ${item.infants}` : '', `수량 ${item.quantity}`].filter(Boolean).join(' · ')}</p><Link href={editHref(item)}>선택 수정 ↗</Link></div>
-        <div className="cart-price"><small>{item.priceStatus === 'confirmed' ? '확정 금액' : '등록 요금 참고'}</small><strong>{money(item.unitPrice * item.quantity, item.currency)}</strong><button type="button" onClick={() => remove(item.id)}>삭제</button></div>
+        <div className="cart-price"><small>{cartPriceFormula(item)}</small><strong>{money(item.unitPrice * item.quantity, item.currency)}</strong><button type="button" onClick={() => remove(item.id)}>삭제</button></div>
       </article>)}</div>
-      <section className="cart-total"><div><span>REFERENCE TOTAL</span><p>할증·프로모션·재고 확인 전 참고 합계입니다.</p></div><div>{vndTotal > 0 && <strong>{money(vndTotal, 'VND')}</strong>}{usdTotal > 0 && <strong>{money(usdTotal, 'USD')}</strong>}{krwTotal > 0 && <strong>{money(krwTotal, 'KRW')}</strong>}</div></section>
-      <div className="booking-warning">서로 다른 통화는 합산하지 않습니다. 최종 결제 금액은 모든 서비스가 플랫폼에서 승인되고 결제 레코드가 생성된 뒤 확정됩니다.</div>
+      <section className="cart-total"><div><span>ESTIMATED TOTAL</span><p>할증·프로모션·재고 확인 전 참고 합계입니다.</p></div><div>{vndTotal > 0 && <strong>{money(vndTotal, 'VND')}</strong>}{usdTotal > 0 && <strong>{money(usdTotal, 'USD')}</strong>}{krwTotal > 0 && <strong>{money(krwTotal, 'KRW')}</strong>}</div></section>
+      <div className="booking-warning">최종 결제 금액은 모든 서비스 선택이 완료된 후 매니저 승인되면 결제가 가능합니다. 결제 후 예약이 확정됩니다.</div>
       <div className="booking-controls"><Link href="/booking/checkout">전체 예약 확인 및 결제 준비 →</Link><Link href="/booking" className="secondary">서비스 더 담기</Link></div>
     </>}
   </div></div>;

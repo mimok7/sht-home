@@ -52,7 +52,7 @@ function vehicleSeed() {
 function initialForm(type) {
   const shared = { requestNote: '', adults: 2, children: 0, infants: 0 };
   if (type === 'cruise') return { ...shared, checkin: '', schedule: '1박2일', cruiseName: '', rooms: [roomSeed()], connectingRoom: false, birthdayEvent: false, birthdayName: '', tourOptions: [] };
-  if (type === 'cruise_vehicle') return { ...shared, cruiseReservationId: '', vehicleServiceType: 'private_rental', passengerCount: 2, requestNote: '', vehicles: [vehicleSeed()] };
+  if (type === 'cruise_vehicle') return { ...shared, cruiseReservationId: '', cruiseCartItemId: '', vehicleServiceType: 'private_rental', passengerCount: 2, requestNote: '', vehicles: [vehicleSeed()] };
   if (type === 'airport') return { ...shared, serviceType: 'both', passengerCount: 2, luggageCount: 0, requestNote: '', pickup: { category: '', route: '', vehicleType: '', airportPriceCode: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' }, sending: { category: '', route: '', vehicleType: '', airportPriceCode: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' } };
   if (type === 'hotel') return { ...shared, checkin: '', checkout: '', hotelName: '', hotelPriceCode: '', roomCount: 1 };
   if (type === 'rentcar') return { ...shared, passengerCount: 2, luggageCount: 0, vehicles: [vehicleSeed()] };
@@ -87,11 +87,42 @@ function findVehiclePrice(prices, vehicle) {
   return prices.find((row) => row.way_type === vehicle.wayType && row.route === vehicle.route && row.vehicle_type === vehicle.vehicleType) || null;
 }
 
-async function loadCruiseReservations(quoteId = '') {
+function todayInSeoul() {
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function selectedCruiseChoice(choices, form) {
+  if (form.cruiseCartItemId) return choices.find((choice) => choice.cartItemId === form.cruiseCartItemId) || null;
+  if (form.cruiseReservationId) return choices.find((choice) => choice.reservationId === form.cruiseReservationId) || null;
+  return null;
+}
+
+function applySingleShuttleDefaults(form, choices, prices) {
+  const cruise = selectedCruiseChoice(choices, form);
+  const shuttlePrices = (prices || []).filter((row) => cruise?.cruiseName && String(row.vehicle_type || '').includes('셔틀') && row.cruise === cruise.cruiseName);
+  if (!shuttlePrices.length) return form;
+  return {
+    ...form,
+    vehicles: form.vehicles.map((vehicle) => {
+      const ways = WAY_TYPES.filter((way) => shuttlePrices.some((row) => row.way_type === way));
+      const wayType = ways.length === 1 ? ways[0] : vehicle.wayType;
+      const routes = uniqueValues(shuttlePrices.filter((row) => row.way_type === wayType), 'route');
+      const route = routes.length === 1 ? routes[0] : vehicle.route;
+      const vehicleTypes = uniqueValues(shuttlePrices.filter((row) => row.way_type === wayType && row.route === route), 'vehicle_type');
+      const vehicleType = vehicleTypes.length === 1 ? vehicleTypes[0] : vehicle.vehicleType;
+      const price = shuttlePrices.find((row) => row.way_type === wayType && row.route === route && row.vehicle_type === vehicleType);
+      return { ...vehicle, wayType, route, vehicleType, rentcarPriceCode: price?.rent_code || vehicle.rentcarPriceCode };
+    }),
+  };
+}
+
+async function loadCruiseReservations() {
   const auth = await platformSupabase.auth.getUser();
   if (!auth.data.user) return [];
-  let query = platformSupabase.from('reservation').select('re_id,re_quote_id,reservation_date,price_breakdown,re_created_at').eq('re_user_id', auth.data.user.id).eq('re_type', 'cruise').order('re_created_at', { ascending: false });
-  if (quoteId) query = query.eq('re_quote_id', quoteId);
+  const today = todayInSeoul();
+  let query = platformSupabase.from('reservation').select('re_id,re_quote_id,reservation_date,re_adult_count,re_child_count,re_infant_count,pax_count,price_breakdown,re_created_at').eq('re_user_id', auth.data.user.id).eq('re_type', 'cruise').gte('reservation_date', today).order('re_created_at', { ascending: false });
   const reservations = await query;
   if (reservations.error || !reservations.data?.length) return [];
   const ids = reservations.data.map((row) => row.re_id);
@@ -102,8 +133,8 @@ async function loadCruiseReservations(quoteId = '') {
   return reservations.data.map((reservation) => {
     const detail = (details.data || []).find((row) => row.reservation_id === reservation.re_id);
     const rate = rateMap.get(detail?.room_price_code);
-    return { ...reservation, checkin: detail?.checkin || reservation.reservation_date, cruiseName: rate?.cruise_name || '크루즈', roomType: rate?.room_type || '', schedule: scheduleLabel(rate?.schedule_type || '') };
-  });
+    return { value: `reservation:${reservation.re_id}`, reservationId: reservation.re_id, cartItemId: '', checkin: String(detail?.checkin || reservation.reservation_date || '').slice(0, 10), cruiseName: rate?.cruise_name || '크루즈', roomType: rate?.room_type || '', schedule: scheduleLabel(rate?.schedule_type || ''), adults: n(reservation.re_adult_count), children: n(reservation.re_child_count), infants: n(reservation.re_infant_count), passengerCount: Math.max(1, n(reservation.pax_count)) };
+  }).filter((reservation) => reservation.checkin >= today);
 }
 
 export default function PlatformBookingForm({ type }) {
@@ -124,10 +155,23 @@ export default function PlatformBookingForm({ type }) {
       setLoading(true);
       setError('');
       try {
-        const [loaded, cruises] = await Promise.all([loadPlatformBookingOptions(type), type === 'cruise_vehicle' ? loadCruiseReservations(new URLSearchParams(window.location.search).get('quoteId') || '') : Promise.resolve([])]);
+        const [loaded, savedCruises, cart] = await Promise.all([
+          loadPlatformBookingOptions(type),
+          type === 'cruise_vehicle' ? loadCruiseReservations() : Promise.resolve([]),
+          type === 'cruise_vehicle' ? hydrateBookingCart() : Promise.resolve({ items: [] }),
+        ]);
         if (cancelled) return;
         setOptions(loaded);
-        setCruiseReservations(cruises);
+        if (type === 'cruise_vehicle') {
+          const today = todayInSeoul();
+          const cartCruises = (cart.items || []).filter((item) => item.serviceType === 'cruise' && item.startDate >= today).sort((left, right) => Date.parse(right.addedAt) - Date.parse(left.addedAt)).map((item) => ({
+            value: `cart:${item.id}`, reservationId: '', cartItemId: item.id, checkin: item.startDate, cruiseName: item.name, roomType: item.optionName, schedule: item.metadata?.platform?.schedule || '', adults: n(item.adults), children: n(item.children), infants: n(item.infants), passengerCount: Math.max(1, n(item.adults) + n(item.children) + n(item.infants)),
+          }));
+          const cruises = [...cartCruises, ...savedCruises];
+          setCruiseReservations(cruises);
+          const defaultCruise = cartCruises[0] || cruises[0];
+          if (defaultCruise) setForm((current) => current.cruiseReservationId || current.cruiseCartItemId ? current : ({ ...current, cruiseReservationId: defaultCruise.reservationId, cruiseCartItemId: defaultCruise.cartItemId, adults: defaultCruise.adults, children: defaultCruise.children, infants: defaultCruise.infants, passengerCount: defaultCruise.passengerCount }));
+        }
         const query = new URLSearchParams(window.location.search);
         if (type === 'cruise' && query.get('rateCardId')) {
           setForm((current) => ({
@@ -181,6 +225,14 @@ export default function PlatformBookingForm({ type }) {
   const setRoom = (key, field, value) => setForm((current) => ({ ...current, rooms: current.rooms.map((room) => room.key === key ? { ...room, [field]: value } : room) }));
   const setVehicle = (key, field, value) => setForm((current) => ({ ...current, vehicles: current.vehicles.map((vehicle) => vehicle.key === key ? { ...vehicle, [field]: value, ...(field === 'wayType' ? { route: '', vehicleType: '', rentcarPriceCode: '' } : {}), ...(field === 'route' ? { vehicleType: '', rentcarPriceCode: '' } : {}) } : vehicle) }));
   const setPackageItem = (itemId, field, value) => setForm((current) => ({ ...current, itemDetails: { ...current.itemDetails, [itemId]: { ...(current.itemDetails?.[itemId] || {}), [field]: value } } }));
+  const chooseCruiseVehicleSource = (value) => {
+    const choice = cruiseReservations.find((row) => row.value === value);
+    if (!choice) return;
+    setForm((current) => {
+      const next = { ...current, cruiseReservationId: choice.reservationId, cruiseCartItemId: choice.cartItemId, adults: choice.adults, children: choice.children, infants: choice.infants, passengerCount: choice.passengerCount, vehicles: [vehicleSeed()] };
+      return next.vehicleServiceType === 'cruise_shuttle' ? applySingleShuttleDefaults(next, cruiseReservations, options.prices) : next;
+    });
+  };
 
   const derived = useMemo(() => {
     if (type === 'cruise') {
@@ -210,7 +262,7 @@ export default function PlatformBookingForm({ type }) {
     }
     if (type === 'rentcar' || type === 'cruise_vehicle') {
       const selected = form.vehicles.map((vehicle) => findVehiclePrice(options.prices || [], vehicle)).filter(Boolean);
-      const cruise = cruiseReservations.find((row) => row.re_id === form.cruiseReservationId);
+      const cruise = selectedCruiseChoice(cruiseReservations, form);
       return { total: selected.reduce((sum, row, index) => sum + n(row.price) * n(form.vehicles[index]?.carCount, 1), 0), name: type === 'cruise_vehicle' ? `${cruise?.cruiseName || '크루즈'} 차량` : '렌터카', optionName: form.vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean).join(' · '), startDate: String(form.vehicles[0]?.pickupDatetime || '').slice(0, 10), endDate: String(form.vehicles[0]?.returnDatetime || '').slice(0, 10), adults: n(form.adults), children: n(form.children), infants: 0, quantity: form.vehicles.reduce((sum, vehicle) => sum + n(vehicle.carCount, 1), 0) };
     }
     if (type === 'tour') {
@@ -256,7 +308,7 @@ export default function PlatformBookingForm({ type }) {
       return { contractVersion: 1, passengerCount: n(form.passengerCount, 1), luggageCount: n(form.luggageCount), requestNote: form.requestNote, legs: requested.map(([wayType, leg]) => ({ ...leg, wayType })) };
     }
     if (type === 'rentcar' || type === 'cruise_vehicle') {
-      if (type === 'cruise_vehicle' && !form.cruiseReservationId) throw new Error('차량을 추가할 크루즈 예약을 선택해 주세요.');
+      if (type === 'cruise_vehicle' && !form.cruiseReservationId && !form.cruiseCartItemId) throw new Error('차량을 추가할 크루즈 예약을 선택해 주세요.');
       if (form.vehicles.some((vehicle) => !vehicle.rentcarPriceCode || !vehicle.pickupLocation || !vehicle.destination || (!vehicle.pickupDatetime && vehicle.oneWayDirection !== 'dropoff'))) throw new Error('모든 차량의 요금, 장소와 일시를 입력해 주세요.');
       return { contractVersion: 1, cruiseReservationId: form.cruiseReservationId || null, passengerCount: n(form.passengerCount, 1), luggageCount: n(form.luggageCount), requestNote: form.requestNote, vehicles: form.vehicles };
     }
@@ -329,7 +381,7 @@ export default function PlatformBookingForm({ type }) {
   }
 
   function vehicleFields(cruiseVehicle) {
-    const sourceCruise = cruiseReservations.find((row) => row.re_id === form.cruiseReservationId);
+    const sourceCruise = selectedCruiseChoice(cruiseReservations, form);
     const prices = (options.prices || []).filter((row) => {
       if (!cruiseVehicle) return row.car_category_code === '렌트카';
       if (!String(row.route || '').includes('하롱베이')) return false;
@@ -337,8 +389,8 @@ export default function PlatformBookingForm({ type }) {
       return row.rental_type === '단독대여' && ['공통', sourceCruise?.cruiseName].includes(row.cruise);
     });
     return <>
-      {cruiseVehicle && <Field label="차량을 추가할 크루즈 예약" full><Select value={form.cruiseReservationId} onChange={(value) => set('cruiseReservationId', value)} options={cruiseReservations} valueOf={(row) => row.re_id} label={(row) => `${row.checkin || '일정 미정'} · ${row.cruiseName} ${row.roomType}`} placeholder={cruiseReservations.length ? '크루즈 예약을 선택해 주세요' : '차량을 추가할 크루즈 예약이 없습니다'} /></Field>}
-      {cruiseVehicle && <div className="booking-step"><span>차량 서비스 유형</span><div className="booking-choice-grid"><Choice active={form.vehicleServiceType === 'private_rental'} onClick={() => setForm((current) => ({ ...current, vehicleServiceType: 'private_rental', vehicles: [vehicleSeed()] }))}>단독 차량</Choice><Choice active={form.vehicleServiceType === 'cruise_shuttle'} onClick={() => setForm((current) => ({ ...current, vehicleServiceType: 'cruise_shuttle', vehicles: [vehicleSeed()] }))}>크루즈사 셔틀</Choice></div></div>}
+      {cruiseVehicle && <Field label="차량을 추가할 크루즈 예약" full><Select value={form.cruiseCartItemId ? `cart:${form.cruiseCartItemId}` : form.cruiseReservationId ? `reservation:${form.cruiseReservationId}` : ''} onChange={chooseCruiseVehicleSource} options={cruiseReservations} valueOf={(row) => row.value} label={(row) => `${row.cartItemId ? '장바구니' : '기존 예약'} · ${row.checkin || '일정 미정'} · ${row.cruiseName} ${row.roomType}`} placeholder={cruiseReservations.length ? '크루즈 예약을 선택해 주세요' : '차량을 추가할 크루즈 예약이 없습니다'} /></Field>}
+      {cruiseVehicle && <div className="booking-step"><span>차량 서비스 유형</span><div className="booking-choice-grid"><Choice active={form.vehicleServiceType === 'private_rental'} onClick={() => setForm((current) => ({ ...current, vehicleServiceType: 'private_rental', vehicles: [vehicleSeed()] }))}>단독 차량</Choice><Choice active={form.vehicleServiceType === 'cruise_shuttle'} onClick={() => setForm((current) => applySingleShuttleDefaults({ ...current, vehicleServiceType: 'cruise_shuttle', vehicles: [vehicleSeed()] }, cruiseReservations, options.prices))}>크루즈사 셔틀</Choice></div></div>}
       {form.vehicles.map((vehicle, index) => {
         const ways = WAY_TYPES.filter((way) => prices.some((row) => row.way_type === way));
         const routes = uniqueValues(prices.filter((row) => row.way_type === vehicle.wayType), 'route');

@@ -203,11 +203,13 @@ async function saveAirport(platform, owner, quoteId, item) {
   return parent;
 }
 
-async function saveRentcar(platform, owner, quoteId, item, cruiseVehicle = false) {
+async function saveRentcar(platform, owner, quoteId, item, cruiseVehicle = false, linkedCruiseReservationId = '') {
   const data = platformData(item);
   let effectiveQuoteId = quoteId;
   if (cruiseVehicle) {
-    const source = await platform.from('reservation').select('re_id,re_quote_id,re_type').eq('re_id', data.cruiseReservationId).eq('re_user_id', owner.id).eq('re_type', 'cruise').maybeSingle();
+    const sourceReservationId = linkedCruiseReservationId || data.cruiseReservationId;
+    if (!sourceReservationId) throw new Error('차량을 연결할 크루즈 예약을 찾을 수 없습니다.');
+    const source = await platform.from('reservation').select('re_id,re_quote_id,re_type').eq('re_id', sourceReservationId).eq('re_user_id', owner.id).eq('re_type', 'cruise').maybeSingle();
     if (source.error) throw dbError(source.error, '연결할 크루즈 예약을 확인하지 못했습니다.');
     if (!source.data) throw new Error('차량을 연결할 크루즈 예약을 찾을 수 없습니다.');
     effectiveQuoteId = source.data.re_quote_id || quoteId;
@@ -226,7 +228,7 @@ async function saveRentcar(platform, owner, quoteId, item, cruiseVehicle = false
   }
   const reservationType = cruiseVehicle ? 'car' : 'rentcar';
   const firstDate = String(vehicles[0].pickupDatetime || vehicles[0].returnDatetime || '').slice(0, 10);
-  const parent = await insertParent(platform, owner.id, effectiveQuoteId, { re_type: reservationType, total_amount: total, pax_count: Math.max(1, integer(data.passengerCount, item.adults + item.children)), re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: firstDate || null, price_breakdown: { source: 'homepage_cart', source_cruise_reservation_id: data.cruiseReservationId || null, vehicles: vehicles.map((vehicle) => ({ code: vehicle.rentcarPriceCode, count: vehicle.carCount, price: number(priceMap.get(vehicle.rentcarPriceCode)?.price) })), grand_total: total } });
+  const parent = await insertParent(platform, owner.id, effectiveQuoteId, { re_type: reservationType, total_amount: total, pax_count: Math.max(1, integer(data.passengerCount, item.adults + item.children)), re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: firstDate || null, price_breakdown: { source: 'homepage_cart', source_cruise_reservation_id: linkedCruiseReservationId || data.cruiseReservationId || null, vehicles: vehicles.map((vehicle) => ({ code: vehicle.rentcarPriceCode, count: vehicle.carCount, price: number(priceMap.get(vehicle.rentcarPriceCode)?.price) })), grand_total: total } });
   const rows = vehicles.map((vehicle) => {
     const price = priceMap.get(vehicle.rentcarPriceCode);
     const count = Math.max(1, integer(vehicle.carCount, 1));
@@ -438,9 +440,9 @@ async function savePackage(platform, owner, item) {
   return parent;
 }
 
-async function saveItem(platform, owner, quoteId, item) {
+async function saveItem(platform, owner, quoteId, item, linkedCruiseReservationId = '') {
   if (item.serviceType === 'cruise') return saveCruise(platform, owner, quoteId, item);
-  if (item.serviceType === 'cruise_vehicle') return saveRentcar(platform, owner, quoteId, item, true);
+  if (item.serviceType === 'cruise_vehicle') return saveRentcar(platform, owner, quoteId, item, true, linkedCruiseReservationId);
   if (item.serviceType === 'airport') return saveAirport(platform, owner, quoteId, item);
   if (item.serviceType === 'hotel') return saveHotel(platform, owner, quoteId, item);
   if (item.serviceType === 'rentcar') return saveRentcar(platform, owner, quoteId, item, false);
@@ -487,14 +489,17 @@ export async function POST(request) {
   if (!items.length) return fail('저장할 장바구니 항목이 없습니다.');
 
   const createdIds = [];
+  const createdByCartItemId = new Map();
   try {
     items.forEach(platformData);
     // 견적 선택 UI 없이, 이번 장바구니의 일반 서비스만 새 견적에 묶는다.
     // 패키지는 고객앱 데이터 계약대로 독립 예약으로 저장한다.
     const quote = items.some((item) => item.serviceType !== 'package') ? await createAutomaticQuote(platform, owner) : null;
     for (const item of items) {
-      const reservation = await saveItem(platform, owner, quote?.id || null, item);
+      const linkedCruiseReservationId = item.serviceType === 'cruise_vehicle' ? createdByCartItemId.get(item.metadata?.platform?.cruiseCartItemId) || '' : '';
+      const reservation = await saveItem(platform, owner, quote?.id || null, item, linkedCruiseReservationId);
       createdIds.push(reservation.re_id);
+      createdByCartItemId.set(item.id, reservation.re_id);
       if (item.serviceType === 'cruise') await claimCruisePromotions(request, reservation, item);
     }
     const clearedAt = new Date().toISOString();

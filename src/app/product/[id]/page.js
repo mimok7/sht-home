@@ -196,6 +196,7 @@ export default function ProductDetail({ params }) {
   const [infants, setInfants] = useState(0);
   const [cartMessage, setCartMessage] = useState('');
   const [editingCartItemId, setEditingCartItemId] = useState('');
+  const [reservationModalOpen, setReservationModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -324,10 +325,29 @@ export default function ProductDetail({ params }) {
     };
   }, [detailCabin]);
 
+  useEffect(() => {
+    if (!reservationModalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setReservationModalOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [reservationModalOpen]);
+
   function handleScheduleChange(event) {
     const scheduleType = event.target.value;
     setSelectedSchedule(scheduleType);
     setSelectedCabinId(initialCabinId(cabins, scheduleType));
+  }
+
+  function selectCabinForReservation(cabinId) {
+    setSelectedCabinId(cabinId);
+    if (window.matchMedia('(max-width: 600px)').matches) setReservationModalOpen(true);
   }
 
   async function handleAddToCart() {
@@ -365,6 +385,41 @@ export default function ProductDetail({ params }) {
     const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
     setEditingCartItemId(savedItem.id);
     setCartMessage(editingCartItemId ? '선택 내용을 수정했습니다. 장바구니의 기존 항목을 교체했습니다.' : '장바구니에 담았습니다. 다른 서비스도 계속 선택할 수 있습니다.');
+  }
+
+  function renderReservationStartForm(fieldPrefix) {
+    const fieldId = (name) => `${fieldPrefix}-${name}`;
+    return <>
+      <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
+      <h3>예약 시작</h3>
+      <p className="reservation-intro">선택 조건을 홈페이지의 새 예약 화면으로 이어갑니다. 플랫폼 원본 요금을 다시 확인한 뒤 안전하게 초안을 만듭니다.</p>
+      <form className="reservation-form" action="/booking/cruise" method="get">
+        <input type="hidden" name="sourceProductId" value={cruise.id} />
+        <input type="hidden" name="sourceProductSlug" value={cruise.slug} />
+        <input type="hidden" name="rateCardId" value={selectedRate?.platform_rate_card_id || ''} />
+        <input type="hidden" name="cruiseName" value={cruise.name} />
+        <input type="hidden" name="roomType" value={selectedCabin?.name || ''} />
+        <input type="hidden" name="schedule" value={selectedSchedule} />
+        <input type="hidden" name="adultCount" value={adults} />
+        <input type="hidden" name="childCount" value={children} />
+        <input type="hidden" name="infantCount" value={infants} />
+        <input type="hidden" name="roomCount" value="1" />
+        <div className="form-group"><label>선택한 객실</label><input type="text" value={selectedCabin?.name || '객실을 선택하세요'} readOnly /></div>
+        <div className="form-group"><label htmlFor={fieldId('schedule')}>일정</label><select id={fieldId('schedule')} value={selectedSchedule} onChange={handleScheduleChange}>{cruise.schedules.map((type) => <option key={type} value={type}>{SCHEDULE_LABELS[type]}</option>)}</select></div>
+        <div className="guest-grid">
+          <div className="form-group"><label htmlFor={fieldId('adults')}>성인</label><select id={fieldId('adults')} value={adults} onChange={(event) => setAdults(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((number) => <option key={number}>{number}</option>)}</select></div>
+          <div className="form-group"><label htmlFor={fieldId('children')}>아동</label><select id={fieldId('children')} value={children} onChange={(event) => setChildren(Number(event.target.value))}>{[0, 1, 2, 3, 4].map((number) => <option key={number}>{number}</option>)}</select></div>
+          <div className="form-group"><label htmlFor={fieldId('infants')}>유아</label><select id={fieldId('infants')} value={infants} onChange={(event) => setInfants(Number(event.target.value))}>{[0, 1, 2, 3].map((number) => <option key={number}>{number}</option>)}</select></div>
+        </div>
+        <div className="form-group"><label htmlFor={fieldId('date')}>이용일</label><input type="date" id={fieldId('date')} name="checkin" value={date} onChange={(event) => setDate(event.target.value)} required /></div>
+        {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 예약 플랫폼에서 별도 확인합니다.</p>}
+        <div className="total-price-box"><span>등록 요금 참고</span><strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong><small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small></div>
+        <button type="button" className="btn-primary w-100" onClick={handleAddToCart}>{editingCartItemId ? '선택 수정 저장　→' : '장바구니에 담기　＋'}</button>
+        {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}
+        <p className="handoff-note">기존 예약 플랫폼은 그대로 운영됩니다. 새 화면에서는 검증 전 플랫폼 예약 데이터를 변경하지 않습니다.</p>
+        <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
+      </form>
+    </>;
   }
 
   if (loading) {
@@ -467,7 +522,7 @@ export default function ProductDetail({ params }) {
                       )}
                       <button type="button" className="cabin-detail-button" onClick={() => { setSelectedCabinId(cabin.id); setDetailCabinId(cabin.id); }}>상세 안내 <span>↗</span></button>
                     </div>
-                    <button type="button" className="cabin-select-button" onClick={() => setSelectedCabinId(cabin.id)}>
+                    <button type="button" className="cabin-select-button" onClick={() => selectCabinForReservation(cabin.id)}>
                       <span className="cabin-info">
                         <strong>{cabin.name}</strong>
                         <small>{[cabin.roomArea && `면적 ${cabin.roomArea}`, cabin.bedType && `침대 ${cabin.bedType}`, cabin.maxGuests && `최대 ${cabin.maxGuests}명`].filter(Boolean).join(' · ')}</small>
@@ -487,56 +542,19 @@ export default function ProductDetail({ params }) {
 
         <aside className="product-sidebar">
           <div className="reservation-card sticky">
-            <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
-            <h3>예약 시작</h3>
-            <p className="reservation-intro">선택 조건을 홈페이지의 새 예약 화면으로 이어갑니다. 플랫폼 원본 요금을 다시 확인한 뒤 안전하게 초안을 만듭니다.</p>
-            <form className="reservation-form" action="/booking/cruise" method="get">
-              <input type="hidden" name="sourceProductId" value={cruise.id} />
-              <input type="hidden" name="sourceProductSlug" value={cruise.slug} />
-              <input type="hidden" name="rateCardId" value={selectedRate?.platform_rate_card_id || ''} />
-              <input type="hidden" name="cruiseName" value={cruise.name} />
-              <input type="hidden" name="roomType" value={selectedCabin?.name || ''} />
-              <input type="hidden" name="schedule" value={selectedSchedule} />
-              <input type="hidden" name="adultCount" value={adults} />
-              <input type="hidden" name="childCount" value={children} />
-              <input type="hidden" name="infantCount" value={infants} />
-              <input type="hidden" name="roomCount" value="1" />
-              <div className="form-group">
-                <label>선택한 객실</label>
-                <input type="text" value={selectedCabin?.name || '객실을 선택하세요'} readOnly />
-              </div>
-              <div className="form-group">
-                <label htmlFor="schedule">일정</label>
-                <select id="schedule" value={selectedSchedule} onChange={handleScheduleChange}>
-                  {cruise.schedules.map((type) => <option key={type} value={type}>{SCHEDULE_LABELS[type]}</option>)}
-                </select>
-              </div>
-              <div className="guest-grid">
-                <div className="form-group"><label htmlFor="adults">성인</label><select id="adults" value={adults} onChange={(event) => setAdults(Number(event.target.value))}>{[1, 2, 3, 4, 5, 6].map((number) => <option key={number}>{number}</option>)}</select></div>
-                <div className="form-group"><label htmlFor="children">아동</label><select id="children" value={children} onChange={(event) => setChildren(Number(event.target.value))}>{[0, 1, 2, 3, 4].map((number) => <option key={number}>{number}</option>)}</select></div>
-                <div className="form-group"><label htmlFor="infants">유아</label><select id="infants" value={infants} onChange={(event) => setInfants(Number(event.target.value))}>{[0, 1, 2, 3].map((number) => <option key={number}>{number}</option>)}</select></div>
-              </div>
-              <div className="form-group">
-                <label htmlFor="date">이용일</label>
-                <input type="date" id="date" name="checkin" value={date} onChange={(event) => setDate(event.target.value)} required />
-              </div>
-              {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 예약 플랫폼에서 별도 확인합니다.</p>}
-              <div className="total-price-box">
-                <span>등록 요금 참고</span>
-                <strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong>
-                <small>플랫폼에서 최신 요금·아동 규정·객실 가능 여부를 다시 확인합니다.</small>
-              </div>
-              <button type="button" className="btn-primary w-100" onClick={handleAddToCart}>
-                {editingCartItemId ? '선택 수정 저장　→' : '장바구니에 담기　＋'}
-              </button>
-              {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}
-              <p className="handoff-note">기존 예약 플랫폼은 그대로 운영됩니다. 새 화면에서는 검증 전 플랫폼 예약 데이터를 변경하지 않습니다.</p>
-              <a className="kakao-link" href="https://customer.stayhalong.com/mypage/direct-booking/cruise" target="_blank" rel="noreferrer">기존 플랫폼에서 예약하기 ↗</a>
-              <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
-            </form>
+            {renderReservationStartForm('sidebar')}
           </div>
         </aside>
       </div>
+
+      {reservationModalOpen && (
+        <div className="product-reservation-modal" role="dialog" aria-modal="true" aria-labelledby="mobile-reservation-title" onClick={(event) => { if (event.target === event.currentTarget) setReservationModalOpen(false); }}>
+          <section className="product-reservation-modal-panel">
+            <header><div><span>CRUISE RESERVATION</span><strong id="mobile-reservation-title">{selectedCabin?.name || '객실 선택'}</strong></div><button type="button" onClick={() => setReservationModalOpen(false)} aria-label="예약 시작 닫기">닫기 ×</button></header>
+            <div className="reservation-card">{renderReservationStartForm('mobile')}</div>
+          </section>
+        </div>
+      )}
 
       {detailCabin && (
         <div className="cabin-detail-modal" role="dialog" aria-modal="true" aria-labelledby="cabin-detail-title" onClick={(event) => { if (event.target === event.currentTarget) setDetailCabinId(null); }}>

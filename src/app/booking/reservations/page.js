@@ -6,7 +6,6 @@ import { platformSupabase } from '@/lib/platform-supabase';
 import '../booking.css';
 
 const TYPE_LABEL = { cruise: '크루즈', cruise_car: '크루즈 차량', car: '차량', airport: '공항 이동', hotel: '호텔', rentcar: '렌터카', tour: '투어', package: '패키지', ticket: '티켓' };
-const STATUS_LABEL = { pending: '접수 대기', approved: '예약 승인', confirmed: '예약 확정', cancelled: '취소', rejected: '반려', completed: '완료' };
 const PAYMENT_LABEL = { pending: '결제 대기', completed: '결제 완료', paid: '결제 완료', failed: '결제 실패', refunded: '환불 완료', cancelled: '결제 취소' };
 const TYPE_ORDER = { cruise: 1, airport: 2, tour: 3, rentcar: 4, hotel: 5 };
 
@@ -82,7 +81,6 @@ export default function ReservationListPage() {
           <div className="reservation-item-content"><h2>{TYPE_LABEL[reservation.re_type] || '여행'} 예약 <small>({paymentLabel})</small></h2><div className="reservation-meta"><span>이용일 {formatDate(reservation.reservation_date)}</span><span>인원 {reservation.pax_count || '—'}명</span><span>예약번호 {String(reservation.re_id).slice(0, 8)}</span><span className="reservation-amount">{formatAmount(reservation.total_amount)}</span></div>
             <div className="reservation-detail-actions"><Link className="booking-action secondary" href={`/booking/reservations/${reservation.re_id}`}>상세 보기 →</Link><Link className="booking-action primary" href={`/booking/reservations/${reservation.re_id}/confirmation`}>예약 확인서 →</Link></div>
           </div>
-          <div className="reservation-status"><strong>{STATUS_LABEL[reservation.re_status] || reservation.re_status}</strong></div>
         </article>;
       })}
     </div>}

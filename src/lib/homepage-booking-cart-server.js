@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-function bearerToken(request) {
+export function getPlatformBearerToken(request) {
   const header = request.headers.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
 }
@@ -18,7 +18,7 @@ export function getHomepageBookingCartDatabase() {
 }
 
 export async function getPlatformCartOwner(request) {
-  const token = bearerToken(request);
+  const token = getPlatformBearerToken(request);
   const config = platformConfig();
   if (!token || !config) return null;
 
@@ -26,4 +26,14 @@ export async function getPlatformCartOwner(request) {
   const { data, error } = await platform.auth.getUser(token);
   if (error || !data.user) return null;
   return { id: data.user.id, email: data.user.email || '' };
+}
+
+export function getPlatformUserDatabase(request) {
+  const token = getPlatformBearerToken(request);
+  const config = platformConfig();
+  if (!token || !config) return null;
+  return createClient(config.url, config.key, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }

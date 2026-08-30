@@ -137,14 +137,17 @@ export default function HotelDetail({ params }) {
       setCartMessage('객실과 투숙일을 선택해 주세요.');
       return;
     }
+    const checkoutDate = new Date(`${stayDate}T00:00:00Z`);
+    checkoutDate.setUTCDate(checkoutDate.getUTCDate() + 1);
+    const checkout = checkoutDate.toISOString().slice(0, 10);
     const nextItem = {
       id: `hotel:${selectedRoom.id}:${stayDate}`,
       serviceType: 'hotel', productId: hotel.id, optionId: selectedRoom.id,
-      name: hotel.name, optionName: selectedRoom.name, startDate: stayDate,
+      name: hotel.name, optionName: selectedRoom.name, startDate: stayDate, endDate: checkout,
       adults: guests, children: 0, infants: 0, quantity: roomCount,
       unitPrice: positiveNumber(selectedRoom.price) || 0, currency: selectedRoom.currency,
       priceStatus: 'reference', sourceHref: `/hotels/${encodeURIComponent(hotel.id)}`,
-      metadata: { priceUnit: selectedRoom.priceUnit },
+      metadata: { priceUnit: selectedRoom.priceUnit, platform: { contractVersion: 1, hotelPriceCode: selectedRoom.id, checkin: stayDate, checkout, roomCount, adultCount: guests, childCount: 0, infantCount: 0, requestNote: '' } },
     };
     const session = await getPlatformCartSession();
     if (!session) {

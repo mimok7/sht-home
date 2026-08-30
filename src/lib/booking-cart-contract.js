@@ -14,7 +14,7 @@ function safeMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   try {
     const serialized = JSON.stringify(value);
-    return serialized.length <= 5000 ? JSON.parse(serialized) : {};
+    return serialized.length <= 20000 ? JSON.parse(serialized) : {};
   } catch {
     return {};
   }
@@ -34,7 +34,7 @@ export function normalizeBookingCartItem(item) {
     endDate: String(item.endDate || '').slice(0, 10),
     adults: safeNumber(item.adults), children: safeNumber(item.children), infants: safeNumber(item.infants),
     quantity: Math.max(1, safeNumber(item.quantity, 1)),
-    unitPrice: safeNumber(item.unitPrice), currency: item.currency === 'USD' ? 'USD' : 'VND',
+    unitPrice: safeNumber(item.unitPrice), currency: ['USD', 'KRW'].includes(item.currency) ? item.currency : 'VND',
     priceStatus: item.priceStatus === 'confirmed' ? 'confirmed' : 'reference',
     sourceHref: String(item.sourceHref || '').startsWith('/') ? String(item.sourceHref).slice(0, 500) : '/booking',
     metadata: safeMetadata(item.metadata),

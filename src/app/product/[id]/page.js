@@ -373,7 +373,22 @@ export default function ProductDetail({ params }) {
       startDate: date, adults, children, infants, quantity: 1,
       unitPrice: adultPrice * adults + childPrice * children + infantPrice * infants,
       currency: selectedRate.currency, priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
-      metadata: { schedule: selectedSchedule, roomCount: 1 },
+      metadata: {
+        schedule: selectedSchedule,
+        roomCount: 1,
+        platform: {
+          contractVersion: 1,
+          checkin: date,
+          schedule: SCHEDULE_LABELS[selectedSchedule] || selectedSchedule,
+          cruiseName: cruise.name,
+          rooms: [{ rateCardId: selectedRate.platform_rate_card_id, roomCount: 1, adultCount: adults, childCount: children, childExtraBedCount: 0, infantCount: infants, extraBedCount: 0, singleCount: 0 }],
+          connectingRoom: false,
+          birthdayEvent: false,
+          birthdayName: '',
+          tourOptions: [],
+          requestNote: '',
+        },
+      },
     };
     const session = await getPlatformCartSession();
     if (!session) {

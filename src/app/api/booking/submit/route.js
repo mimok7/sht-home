@@ -5,8 +5,6 @@ import { getHomepageBookingCartDatabase, getPlatformBearerToken, getPlatformCart
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const ALLOWED_QUOTE_STATUSES = ['draft', 'approved'];
-
 function fail(message, status = 400, details = '') {
   return Response.json({ error: message, details }, { status });
 }
@@ -61,20 +59,9 @@ function platformData(item) {
   return data;
 }
 
-async function resolveQuote(platform, owner, requestedQuoteId) {
-  if (requestedQuoteId) {
-    const result = await platform.from('quote').select('id,title,status').eq('id', requestedQuoteId).eq('user_id', owner.id).in('status', ALLOWED_QUOTE_STATUSES).maybeSingle();
-    if (result.error) throw dbError(result.error, '선택한 견적을 확인하지 못했습니다.');
-    if (!result.data) throw new Error('선택한 견적을 사용할 수 없습니다. 예약 홈에서 견적을 다시 선택해 주세요.');
-    return result.data;
-  }
-
-  const existing = await platform.from('quote').select('id,title,status,created_at').eq('user_id', owner.id).in('status', ALLOWED_QUOTE_STATUSES).order('created_at', { ascending: false });
-  if (existing.error) throw dbError(existing.error, '견적 목록을 확인하지 못했습니다.');
-  const sorted = [...(existing.data || [])].sort((a, b) => Number(b.status === 'approved') - Number(a.status === 'approved'));
-  if (sorted[0]) return sorted[0];
-
+async function createAutomaticQuote(platform, owner) {
   const profile = await platform.from('users').select('name').eq('id', owner.id).maybeSingle();
+  if (profile.error) throw dbError(profile.error, '예약자 정보를 확인하지 못했습니다.');
   const titleBase = profile.data?.name || owner.email.split('@')[0] || '고객';
   const allQuotes = await platform.from('quote').select('id').eq('user_id', owner.id);
   if (allQuotes.error) throw dbError(allQuotes.error, '견적 번호를 확인하지 못했습니다.');
@@ -494,9 +481,6 @@ export async function POST(request) {
   if (!owner || !platform) return fail('플랫폼 로그인이 필요합니다.', 401);
   if (!homepage) return fail('홈페이지 장바구니 저장소가 설정되지 않았습니다.', 503);
 
-  let body = {};
-  try { body = await request.json(); } catch { /* body is optional */ }
-
   const cartResult = await homepage.from('homepage_booking_carts').select('id,items,status,updated_at').eq('platform_user_id', owner.id).maybeSingle();
   if (cartResult.error) return fail('홈페이지 장바구니를 불러오지 못했습니다.', 500);
   const items = normalizeBookingCartItems(cartResult.data?.items);
@@ -505,16 +489,18 @@ export async function POST(request) {
   const createdIds = [];
   try {
     items.forEach(platformData);
-    const quote = await resolveQuote(platform, owner, typeof body.quoteId === 'string' ? body.quoteId : '');
+    // 견적 선택 UI 없이, 이번 장바구니의 일반 서비스만 새 견적에 묶는다.
+    // 패키지는 고객앱 데이터 계약대로 독립 예약으로 저장한다.
+    const quote = items.some((item) => item.serviceType !== 'package') ? await createAutomaticQuote(platform, owner) : null;
     for (const item of items) {
-      const reservation = await saveItem(platform, owner, quote.id, item);
+      const reservation = await saveItem(platform, owner, quote?.id || null, item);
       createdIds.push(reservation.re_id);
       if (item.serviceType === 'cruise') await claimCruisePromotions(request, reservation, item);
     }
     const clearedAt = new Date().toISOString();
     const cleared = await homepage.from('homepage_booking_carts').update({ items: [], item_count: 0, status: 'active', updated_at: clearedAt }).eq('id', cartResult.data.id).eq('updated_at', cartResult.data.updated_at).select('id').maybeSingle();
     if (cleared.error || !cleared.data) throw dbError(cleared.error, '플랫폼 예약은 저장했지만 홈페이지 장바구니를 비우지 못했습니다.') || new Error('장바구니가 다른 화면에서 변경되었습니다. 다시 확인해 주세요.');
-    return Response.json({ quoteId: quote.id, reservationIds: createdIds, itemCount: createdIds.length, clearedAt });
+    return Response.json({ quoteId: quote?.id || null, reservationIds: createdIds, itemCount: createdIds.length, clearedAt });
   } catch (error) {
     await rollback(platform, createdIds);
     console.error('[booking-submit] failed', error?.cause?.message || error?.message || error);

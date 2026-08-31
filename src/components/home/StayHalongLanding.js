@@ -11,7 +11,7 @@ export default function StayHalongLanding() {
         <p className={styles.description}>배 한 척이 여행의 분위기를 바꿉니다. 현지에서 직접 보고 고른 크루즈로 복잡한 선택은 줄이고, 좋은 순간은 더 오래 남겨보세요.</p>
         <div className={styles.actions}>
           <a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.yellowButton} target="_blank" rel="noreferrer">예약하기 <span>↗</span></a>
-          <a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.yellowButton} target="_blank" rel="noreferrer">예약 확인 <span>↗</span></a>
+          <a href="https://customer.stayhalong.com/mypage" className={styles.yellowButton} target="_blank" rel="noreferrer">예약 확인 <span>↗</span></a>
         </div>
         <div className={landingStyles.contactActions}>
           <a href="http://pf.kakao.com/_zvsxaG/chat" className={styles.yellowButton} target="_blank" rel="noreferrer">카톡 상담 <span>↗</span></a>

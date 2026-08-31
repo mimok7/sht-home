@@ -268,6 +268,7 @@ async function mutate(database, operator, body) {
     if (error) throw error;
     revalidatePath('/');
     revalidatePath('/temp-home');
+    revalidatePath('/travel-guide');
     return null;
   }
   if (operator.role !== 'admin') throw new Error('회원과 권한은 관리자만 변경할 수 있습니다.');

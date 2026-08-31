@@ -155,6 +155,7 @@ export default function PlatformBookingForm({ type }) {
       setLoading(true);
       setError('');
       try {
+        const query = new URLSearchParams(window.location.search);
         const [loaded, savedCruises, cart] = await Promise.all([
           loadPlatformBookingOptions(type),
           type === 'cruise_vehicle' ? loadCruiseReservations() : Promise.resolve([]),
@@ -169,10 +170,15 @@ export default function PlatformBookingForm({ type }) {
           }));
           const cruises = [...cartCruises, ...savedCruises];
           setCruiseReservations(cruises);
-          const defaultCruise = cartCruises[0] || cruises[0];
-          if (defaultCruise) setForm((current) => current.cruiseReservationId || current.cruiseCartItemId ? current : ({ ...current, cruiseReservationId: defaultCruise.reservationId, cruiseCartItemId: defaultCruise.cartItemId, adults: defaultCruise.adults, children: defaultCruise.children, infants: defaultCruise.infants, passengerCount: defaultCruise.passengerCount }));
+          const requestedCartItemId = query.get('cruiseCartItemId');
+          const requestedServiceType = query.get('vehicleServiceType');
+          const defaultCruise = cartCruises.find((item) => item.cartItemId === requestedCartItemId) || cartCruises[0] || cruises[0];
+          if (defaultCruise) setForm((current) => {
+            if (current.cruiseReservationId || current.cruiseCartItemId) return current;
+            const next = { ...current, cruiseReservationId: defaultCruise.reservationId, cruiseCartItemId: defaultCruise.cartItemId, adults: defaultCruise.adults, children: defaultCruise.children, infants: defaultCruise.infants, passengerCount: defaultCruise.passengerCount, vehicleServiceType: requestedServiceType === 'cruise_shuttle' ? 'cruise_shuttle' : 'private_rental' };
+            return next.vehicleServiceType === 'cruise_shuttle' ? applySingleShuttleDefaults(next, cruises, loaded.prices) : next;
+          });
         }
-        const query = new URLSearchParams(window.location.search);
         if (type === 'cruise' && query.get('rateCardId')) {
           setForm((current) => ({
             ...current,

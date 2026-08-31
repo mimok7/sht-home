@@ -2,7 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
-import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
+import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
@@ -197,6 +197,8 @@ export default function ProductDetail({ params }) {
   const [cartMessage, setCartMessage] = useState('');
   const [editingCartItemId, setEditingCartItemId] = useState('');
   const [reservationModalOpen, setReservationModalOpen] = useState(false);
+  const [vehicleChoiceModalOpen, setVehicleChoiceModalOpen] = useState(false);
+  const [savedCruiseCartItemId, setSavedCruiseCartItemId] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -339,6 +341,20 @@ export default function ProductDetail({ params }) {
     };
   }, [reservationModalOpen]);
 
+  useEffect(() => {
+    if (!vehicleChoiceModalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setVehicleChoiceModalOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [vehicleChoiceModalOpen]);
+
   function handleScheduleChange(event) {
     const scheduleType = event.target.value;
     setSelectedSchedule(scheduleType);
@@ -398,9 +414,31 @@ export default function ProductDetail({ params }) {
       return;
     }
     const savedItem = replaceBookingCartItem(editingCartItemId, nextItem);
+    let synced;
+    try {
+      synced = await syncBookingCart();
+    } catch {
+      setCartMessage('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    if (!synced.synced) {
+      setCartMessage('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
     setEditingCartItemId(savedItem.id);
     setReservationModalOpen(false);
-    window.location.assign('/booking/service/cruise_vehicle');
+    setSavedCruiseCartItemId(savedItem.id);
+    setVehicleChoiceModalOpen(true);
+  }
+
+  function continueWithVehicle(vehicleServiceType) {
+    setVehicleChoiceModalOpen(false);
+    if (vehicleServiceType === 'none') {
+      window.location.assign('/booking/cart');
+      return;
+    }
+    const query = new URLSearchParams({ cruiseCartItemId: savedCruiseCartItemId, vehicleServiceType });
+    window.location.assign(`/booking/service/cruise_vehicle?${query.toString()}`);
   }
 
   function renderReservationStartForm(fieldPrefix) {
@@ -568,6 +606,15 @@ export default function ProductDetail({ params }) {
           <section className="product-reservation-modal-panel">
             <header><div><span>CRUISE RESERVATION</span><strong id="mobile-reservation-title">{selectedCabin?.name || '객실 선택'}</strong></div><button type="button" onClick={() => setReservationModalOpen(false)} aria-label="예약 시작 닫기">닫기 ×</button></header>
             <div className="reservation-card">{renderReservationStartForm('mobile')}</div>
+          </section>
+        </div>
+      )}
+
+      {vehicleChoiceModalOpen && (
+        <div className="cruise-vehicle-choice-modal" role="dialog" aria-modal="true" aria-labelledby="cruise-vehicle-choice-title" onClick={(event) => { if (event.target === event.currentTarget) setVehicleChoiceModalOpen(false); }}>
+          <section className="cruise-vehicle-choice-panel">
+            <header><div><span>NEXT / CRUISE VEHICLE</span><h2 id="cruise-vehicle-choice-title">크루즈 차량을 선택하세요</h2></div><button type="button" onClick={() => setVehicleChoiceModalOpen(false)} aria-label="크루즈 차량 선택 닫기">닫기 ×</button></header>
+            <div className="cruise-vehicle-choice-content"><p>크루즈 예약은 장바구니에 저장되었습니다. 필요한 이동 서비스를 선택하거나, 차량 없이 다음 단계로 이동할 수 있습니다.</p><div className="cruise-vehicle-choice-actions"><button type="button" onClick={() => continueWithVehicle('cruise_shuttle')}><span>01 / SHUTTLE</span><strong>크루즈 셔틀</strong><small>크루즈사 셔틀 요금을 선택합니다.</small><b>선택 →</b></button><button type="button" onClick={() => continueWithVehicle('private_rental')}><span>02 / PRIVATE CAR</span><strong>단독차량</strong><small>전용 차량의 경로와 차량 유형을 선택합니다.</small><b>선택 →</b></button><button type="button" onClick={() => continueWithVehicle('none')}><span>03 / NO VEHICLE</span><strong>선택안함</strong><small>차량 없이 장바구니로 이동합니다.</small><b>장바구니 →</b></button></div></div>
           </section>
         </div>
       )}

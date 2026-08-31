@@ -37,3 +37,9 @@ export function getPlatformUserDatabase(request) {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
+
+export function getPlatformServiceDatabase() {
+  const config = platformConfig();
+  const key = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
+  return config && key ? createClient(config.url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+}

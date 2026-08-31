@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase';
 
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
 const ROOM_PREFERENCES = new Set(['standard', 'triple', 'connecting', 'extra_bed', 'single']);
-const PREFERENCES = new Set(['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury']);
 const TRANSFERS = new Set(['none', 'hanoi', 'airport', 'local', 'later']);
 
 function integer(value, minimum, maximum, fallback) {
@@ -24,7 +23,7 @@ function normalizeContext(raw = {}) {
   const requestedRoomCount = integer(raw.roomCount, 1, 6, 1);
   const roomCount = scheduleType === 'DAY' ? 0 : roomPreference === 'connecting' ? Math.max(2, requestedRoomCount) : requestedRoomCount;
   const totalBudgetVnd = raw.totalBudgetVnd ? integer(raw.totalBudgetVnd, 500_000, 200_000_000, null) : null;
-  const preferences = Array.isArray(raw.preferences) ? raw.preferences.filter((value) => PREFERENCES.has(value)).slice(0, 2) : [];
+  const preferences = Array.isArray(raw.preferences) ? [...new Set(raw.preferences.filter((value) => typeof value === 'string' && /^[a-z][a-z0-9-]{0,39}$/.test(value)))].slice(0, 2) : [];
   const transfer = TRANSFERS.has(raw.transfer) ? raw.transfer : 'later';
   return { scheduleType, checkinDate, adults, children, infants, childAges, roomCount, roomPreference, totalBudgetVnd, preferences, transfer };
 }

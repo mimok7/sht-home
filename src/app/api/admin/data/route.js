@@ -15,6 +15,11 @@ const PLATFORM_PRODUCT_ACTIONS = new Set([
 const CRUISE_CACHE_FIELDS = ['name_ko', 'name_en', 'description', 'star_rating', 'hero_image', 'is_active'];
 const ITINERARY_CACHE_FIELDS = ['description', 'is_active'];
 
+function recommendationTag(value) {
+  const tag = nullableText(value)?.toLowerCase();
+  return tag && /^[a-z][a-z0-9-]{0,39}$/.test(tag) ? tag : null;
+}
+
 function bearerToken(request) {
   const header = request.headers.get('authorization') || '';
   return header.startsWith('Bearer ') ? header.slice(7).trim() : '';
@@ -114,6 +119,17 @@ async function updateItineraryImmediately(request, database, body) {
 // 플랫폼이 원본이지만, 공개 상태 변경은 다음 전체 동기화를 기다리지 않고
 // 홈페이지의 공개 목록에 즉시 반영한다. 이후 동기화도 플랫폼의 같은 값을 다시 적용한다.
 async function mirrorCruiseUpdate(database, body) {
+  if (body?.action === 'upsertCruiseTag' && body.id) {
+    const tag = recommendationTag(body.values?.tag);
+    const evidence = nullableText(body.values?.evidence);
+    if (!tag || !evidence) throw new Error('추천 태그와 근거를 확인해 주세요.');
+    const { error } = await database.from('cruise_tags_v2').upsert({ cruise_id: body.id, tag, evidence, is_active: Boolean(body.values?.is_active) }, { onConflict: 'cruise_id,tag' });
+    if (error) throw error;
+    revalidatePath('/travel-guide');
+    revalidatePath('/cruises');
+    revalidatePath('/product/[id]', 'page');
+    return;
+  }
   if (body?.action !== 'updateCruise' || !body.id) return;
   const values = pick(body.values || {}, CRUISE_CACHE_FIELDS);
   if (!Object.keys(values).length) return;
@@ -246,8 +262,8 @@ async function mutate(database, operator, body) {
   if (action === 'upsertServiceTag') {
     const { data: product, error: productError } = await database.from('catalog_products_v2').select('id').eq('id', id).eq('source', 'sht-platform').in('service_type', ['hotel', 'airport', 'tour', 'vehicle']).maybeSingle();
     if (productError || !product) throw productError || new Error('서비스 상품을 찾을 수 없습니다.');
-    const tag = nullableText(values?.tag);
-    if (!tag || !['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury'].includes(tag)) throw new Error('추천 기준을 확인해 주세요.');
+    const tag = recommendationTag(values?.tag);
+    if (!tag) throw new Error('추천 태그는 영문 소문자, 숫자와 하이픈으로 입력해 주세요.');
     const { error } = await database.from('service_tags_v2').upsert({ product_id: id, tag, evidence: nullableText(values?.evidence) || '', is_active: Boolean(values?.is_active), updated_at: new Date().toISOString() }, { onConflict: 'product_id,tag' });
     if (error) throw error;
     revalidatePath('/');

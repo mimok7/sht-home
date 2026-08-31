@@ -65,7 +65,7 @@ export default function TravelGuidePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedService, setSelectedService] = useState('cruise');
-  const [catalog, setCatalog] = useState({ products: [], prices: [], hotelImages: [] });
+  const [catalog, setCatalog] = useState({ products: [], prices: [], hotelImages: [], cruiseTags: [] });
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [catalogError, setCatalogError] = useState('');
 
@@ -97,22 +97,24 @@ export default function TravelGuidePage() {
       });
   }, [catalog, selectedService]);
   const budgetOptions = useMemo(() => cruiseBudgetOptions(serviceProducts, context), [context, serviceProducts]);
+  const preferenceOptions = useMemo(() => [...new Map(catalog.cruiseTags.map((row) => [row.tag, row.evidence])).entries()].map(([tag, evidence]) => [tag, LABELS.preference[tag] || tag.replaceAll('-', ' '), evidence]).sort(([left], [right]) => left.localeCompare(right, 'ko')), [catalog.cruiseTags]);
 
   useEffect(() => {
     let cancelled = false;
     async function loadCatalog() {
       setCatalogLoading(true);
-      const [productsResult, pricesResult, hotelImagesResult] = await Promise.all([
+      const [productsResult, pricesResult, hotelImagesResult, cruiseTagsResult] = await Promise.all([
         supabase.from('catalog_products_v2').select('id,service_type,name_ko,description,category,image_url,metadata').eq('is_active', true).order('name_ko').limit(1000),
         supabase.from('catalog_prices_v2').select('product_id,price_amount,currency,price_unit,label,min_guests,max_guests,valid_from,valid_to').eq('is_active', true).limit(2000),
         supabase.from('hotel_gallery_images_v2').select('product_id,hotel_price_code,image_name,image_url,sort_order,is_primary').order('sort_order').limit(3000),
+        supabase.from('cruise_tags_v2').select('tag,evidence').eq('is_active', true).order('tag'),
       ]);
       if (cancelled) return;
-      if (productsResult.error || pricesResult.error || hotelImagesResult.error) {
-        console.error('Failed to load public travel catalogue:', productsResult.error || pricesResult.error || hotelImagesResult.error);
+      if (productsResult.error || pricesResult.error || hotelImagesResult.error || cruiseTagsResult.error) {
+        console.error('Failed to load public travel catalogue:', productsResult.error || pricesResult.error || hotelImagesResult.error || cruiseTagsResult.error);
         setCatalogError('현재 공개 상품을 불러오지 못했습니다. 현지 데스크에 문의해 주세요.');
       } else {
-        setCatalog({ products: productsResult.data || [], prices: pricesResult.data || [], hotelImages: hotelImagesResult.data || [] });
+        setCatalog({ products: productsResult.data || [], prices: pricesResult.data || [], hotelImages: hotelImagesResult.data || [], cruiseTags: cruiseTagsResult.data || [] });
       }
       setCatalogLoading(false);
     }
@@ -156,7 +158,7 @@ export default function TravelGuidePage() {
     if (currentStep === 'ages') return <><Question title="아동의 여행일 기준 나이를 알려주세요." description="크루즈마다 아동 요금 기준이 달라 최종 확인에 꼭 필요합니다." /><div className={styles.ages}>{context.childAges.map((age, index) => <label key={index}>{index + 1}번째 아동<input type="number" min="0" max="17" value={age} onChange={(event) => { const childAges = [...context.childAges]; childAges[index] = Number(event.target.value); update({ childAges }); }} /><span>만 나이</span></label>)}</div><Continue onClick={next} /></>;
     if (currentStep === 'room') return <><Question title="어떤 객실 구성이 필요한가요?" description="전체 인원이 실제로 머물 수 있는 객실만 남깁니다." /><Counter label="객실 수" value={context.roomCount} min={1} max={6} onChange={(value) => update({ roomCount: value })} /><Options options={[['standard', '일반 객실', '특별한 구성 없음'], ['triple', '트리플 객실', '객실당 3인 이상'], ['connecting', '커넥팅 객실', '객실을 연결해서 사용'], ['extra_bed', '엑스트라베드', '추가 침대 필요'], ['single', '싱글룸', '1인 객실 필요']]} selected={context.roomPreference} onSelect={(value) => choose({ roomPreference: value, roomCount: value === 'connecting' ? Math.max(2, context.roomCount) : context.roomCount }, 'budget')} /></>;
     if (currentStep === 'budget') return <><Question title="크루즈 예산은 어느 정도인가요?" description={`선택한 성인 ${context.adults}명${context.scheduleType === 'DAY' ? '' : `과 객실 ${context.roomCount}개`} 기준으로 현재 공개된 크루즈 등록 요금에서 계산한 참고 범위입니다. 아동·유아 요금과 추가 옵션은 최종 확인이 필요합니다.`} /><Options options={budgetOptions} onSelect={(value) => choose({ totalBudgetVnd: value }, 'preferences')} /></>;
-    if (currentStep === 'preferences') return <><Question title="무엇을 가장 중요하게 보고 계세요?" description="최대 2개를 선택하면 추천 순서와 추천 이유에 반영합니다." /><div className={styles.multiOptions}>{Object.entries(LABELS.preference).map(([value, label]) => <button type="button" key={value} className={context.preferences.includes(value) ? styles.selected : ''} onClick={() => togglePreference(value)} aria-pressed={context.preferences.includes(value)}><b>{label}</b><span>{context.preferences.includes(value) ? '선택됨' : '선택'}</span></button>)}</div><Continue onClick={next} label={context.preferences.length ? '선택 완료' : '건너뛰기'} /></>;
+    if (currentStep === 'preferences') return <><Question title="무엇을 가장 중요하게 보고 계세요?" description="관리자가 추천에 활성화한 기준 중 최대 2개를 선택하면 추천 순서와 근거에 반영합니다." /><div className={styles.multiOptions}>{preferenceOptions.map(([value, label, evidence]) => <button type="button" key={value} className={context.preferences.includes(value) ? styles.selected : ''} onClick={() => togglePreference(value)} aria-pressed={context.preferences.includes(value)}><b>{label}</b><span>{context.preferences.includes(value) ? '선택됨' : evidence}</span></button>)}</div><Continue onClick={next} label={context.preferences.length ? '선택 완료' : '건너뛰기'} /></>;
     if (currentStep === 'transfer') return <><Question title="하노이 또는 공항 이동도 필요하신가요?" description="차량과 셔틀은 추천 후 현지 데스크가 최종 확인합니다." /><Options options={Object.entries(LABELS.transfer).map(([value, label]) => [value, label, value === 'later' ? '추천 후 결정' : '이동 조건으로 저장'])} onSelect={(value) => choose({ transfer: value }, 'review')} /></>;
     return <><Question title="조건을 확인해 주세요." description="추천 결과는 등록된 상품과 활성 요금을 기준으로 계산합니다." /><div className={styles.summary}><Summary label="일정" value={LABELS.scheduleType[context.scheduleType]} onEdit={() => setCurrentStep('schedule')} /><Summary label="출발일" value={context.checkinDate || '날짜 미정'} onEdit={() => setCurrentStep('date')} /><Summary label="인원" value={`성인 ${context.adults} · 아동 ${context.children} · 유아 ${context.infants}`} onEdit={() => setCurrentStep('party')} />{context.scheduleType !== 'DAY' && <Summary label="객실" value={`${context.roomCount}개 · ${LABELS.roomPreference[context.roomPreference]}`} onEdit={() => setCurrentStep('room')} />}<Summary label="예산" value={context.totalBudgetVnd ? `${context.totalBudgetVnd.toLocaleString()} VND` : '제한 없음'} onEdit={() => setCurrentStep('budget')} /><Summary label="선호" value={context.preferences.map((value) => LABELS.preference[value]).join(', ') || '선택 없음'} onEdit={() => setCurrentStep('preferences')} /><Summary label="이동" value={LABELS.transfer[context.transfer]} onEdit={() => setCurrentStep('transfer')} /></div><button type="button" className={styles.recommendButton} onClick={requestRecommendations} disabled={loading}>{loading ? '상품을 비교하고 있어요' : '맞춤 크루즈 추천 보기'} <span>→</span></button></>;
   })();

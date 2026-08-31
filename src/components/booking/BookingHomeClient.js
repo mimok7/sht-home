@@ -17,9 +17,9 @@ const SERVICES = [
 
 export default function BookingHomeClient() {
   return <div className="booking-page">
-    <section className="booking-hero"><div className="container"><span className="booking-kicker">HAPPY TRAVEL BOOKING</span><h1>행복 여행 예약</h1><p>원하는 여행 서비스를 한곳에 담아 나만의 행복여행을 준비해 보세요. 예약 요청을 완료하면 여행에 맞는 견적이 자동으로 생성됩니다.</p><div className="booking-hero-actions"><BookingCartLink className="booking-action primary" showCount={false} header={false}>여행 장바구니 →</BookingCartLink><Link href="/booking/reservations" className="booking-action primary">내 예약 확인 →</Link></div></div></section>
+    <section className="booking-hero"><div className="container"><span className="booking-kicker">HAPPY TRAVEL BOOKING</span><h1>행복 여행 예약</h1><p>원하는 여행 서비스를 한곳에 담아 나만의 행복여행을 준비해 보세요.</p><div className="booking-hero-actions"><BookingCartLink className="booking-action primary" showCount={false} header={false}>여행 장바구니 →</BookingCartLink><Link href="/booking/reservations" className="booking-action primary">내 예약 확인 →</Link></div></div></section>
     <section className="booking-section"><div className="container">
-      <div className="booking-section-head"><div><span className="booking-section-kicker">01 / CHOOSE A SERVICE</span><h2>여행에 필요한<br />모든 예약.</h2></div><p>여행 일정에 맞는 서비스를 선택해 장바구니에 담아보세요. 장바구니를 예약으로 저장할 때 견적은 자동으로 만들어집니다.</p></div>
+      <div className="booking-section-head"><div><span className="booking-section-kicker">01 / CHOOSE A SERVICE</span><h2>여행에 필요한<br />모든 예약.</h2></div></div>
       <div className="service-grid">{SERVICES.map((service, index) => <article className="service-card" key={service.key}><span className="service-index">{String(index + 1).padStart(2, '0')} / SERVICE</span><h3>{service.name}</h3><p>{service.copy}</p><div className="service-actions"><Link href={`/booking/service/${service.key}`} className="service-link">예약하기 →</Link></div></article>)}</div>
     </div></section>
   </div>;

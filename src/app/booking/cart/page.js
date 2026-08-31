@@ -82,8 +82,8 @@ export default function BookingCartPage() {
         <div className="cart-price"><small>{cartPriceFormula(item)}</small><strong>{money(item.unitPrice * item.quantity, item.currency)}</strong><button type="button" onClick={() => remove(item.id)}>삭제</button></div>
       </article>)}</div>
       <section className="cart-total"><div><span>ESTIMATED TOTAL</span><p>할증·프로모션·재고 확인 전 참고 합계입니다.</p></div><div>{vndTotal > 0 && <strong>{money(vndTotal, 'VND')}</strong>}{usdTotal > 0 && <strong>{money(usdTotal, 'USD')}</strong>}{krwTotal > 0 && <strong>{money(krwTotal, 'KRW')}</strong>}</div></section>
-      <div className="booking-warning">최종 결제 금액은 모든 서비스 선택이 완료된 후 매니저 승인되면 결제가 가능합니다. 결제 후 예약이 확정됩니다.</div>
-      <div className="booking-controls"><Link href="/booking/checkout">전체 예약 확인 및 결제 준비 →</Link><Link href="/booking" className="secondary">서비스 더 담기</Link></div>
+      <div className="booking-warning">최종 결제 금액은 결제 단계에서 최신 요금과 예약 가능 여부를 다시 확인합니다.</div>
+      <div className="booking-controls"><Link href="/booking/checkout">원페이 결제하기 →</Link><Link href="/booking" className="secondary">서비스 더 담기</Link></div>
     </>}
   </div></div>;
 }

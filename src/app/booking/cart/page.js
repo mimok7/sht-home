@@ -11,9 +11,10 @@ function editHref(item) { return `${item.sourceHref}${item.sourceHref.includes('
 function cartPriceFormula(item) {
   const total = item.unitPrice * item.quantity;
   const passengers = Number(item.adults || 0) + Number(item.children || 0) + Number(item.infants || 0);
-  const quantity = item.serviceType === 'cruise' ? Math.max(1, passengers) : Math.max(1, Number(item.quantity || 1));
+  const isCruiseShuttle = item.serviceType === 'cruise_vehicle' && item.metadata?.platform?.vehicleServiceType === 'cruise_shuttle';
+  const quantity = item.serviceType === 'cruise' ? Math.max(1, passengers) : isCruiseShuttle ? Math.max(1, Number(item.metadata?.platform?.passengerCount || item.quantity || 1)) : Math.max(1, Number(item.quantity || 1));
   const unitPrice = total / quantity;
-  return `단가 ${money(unitPrice, item.currency)} × ${quantity}${item.serviceType === 'cruise' ? '명' : '개'}`;
+  return `단가 ${money(unitPrice, item.currency)} × ${quantity}${item.serviceType === 'cruise' || isCruiseShuttle ? '명' : '개'}`;
 }
 
 export default function BookingCartPage() {

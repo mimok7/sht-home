@@ -22,7 +22,6 @@ const SERVICES = {
 const SCHEDULES = ['1박2일', '2박3일', '당일'];
 const WAY_TYPES = ['편도', '당일왕복', '다른날왕복', '시내당일렌트'];
 const TOUR_NAMES = ['닌빈 한국어 가이드 투어', '하노이 역사투어', '하노이 오후 투어', '하노이 원데이 당일투어'];
-const CRUISE_SHUTTLE_PRICE_PER_PERSON = 1000000;
 
 function vehicleWayTypeLabel(value) {
   return value === '편도' ? '편도' : '왕복';
@@ -321,7 +320,7 @@ export default function PlatformBookingForm({ type }) {
       const cruise = selectedCruiseChoice(cruiseReservations, form);
       const isCruiseShuttle = type === 'cruise_vehicle' && form.vehicleServiceType === 'cruise_shuttle';
       const passengerCount = n(form.passengerCount, 1);
-      return { total: isCruiseShuttle ? (selected.length ? passengerCount * CRUISE_SHUTTLE_PRICE_PER_PERSON : 0) : selected.reduce((sum, row, index) => sum + n(row.price) * n(form.vehicles[index]?.carCount, 1), 0), name: type === 'cruise_vehicle' ? `${cruise?.cruiseName || '크루즈'} 차량` : '렌터카', optionName: form.vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean).join(' · '), startDate: type === 'cruise_vehicle' ? cruise?.checkin || '' : '', endDate: '', adults: n(form.adults), children: n(form.children), infants: 0, quantity: isCruiseShuttle ? passengerCount : form.vehicles.reduce((sum, vehicle) => sum + n(vehicle.carCount, 1), 0) };
+      return { total: isCruiseShuttle ? (selected.length ? passengerCount * n(selected[0].price) : 0) : selected.reduce((sum, row, index) => sum + n(row.price) * n(form.vehicles[index]?.carCount, 1), 0), name: type === 'cruise_vehicle' ? `${cruise?.cruiseName || '크루즈'} 차량` : '렌터카', optionName: form.vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean).join(' · '), startDate: type === 'cruise_vehicle' ? cruise?.checkin || '' : '', endDate: '', adults: n(form.adults), children: n(form.children), infants: 0, quantity: isCruiseShuttle ? passengerCount : form.vehicles.reduce((sum, vehicle) => sum + n(vehicle.carCount, 1), 0) };
     }
     if (type === 'tour') {
       const tour = (options.tours || []).find((row) => row.tour_id === form.tourId);
@@ -445,7 +444,7 @@ export default function PlatformBookingForm({ type }) {
           {!isCruiseShuttle && <Field label="차량 유형"><Select value={vehicle.vehicleType} onChange={(value) => { setVehicle(vehicle.key, 'vehicleType', value); const row = prices.find((price) => price.way_type === vehicle.wayType && price.route === vehicle.route && price.vehicle_type === value); if (row) setVehicle(vehicle.key, 'rentcarPriceCode', row.rent_code); }} options={vehicles} disabled={!vehicle.route} /></Field>}
           {!isCruiseShuttle && <Field label="차량 수"><NumberInput value={vehicle.carCount} min={1} max={6} onChange={(value) => setVehicle(vehicle.key, 'carCount', value)} /></Field>}
           {!isCruiseShuttle && vehicle.wayType === '편도' && cruiseVehicle && <Field label="편도 방향"><Select value={vehicle.oneWayDirection} onChange={(value) => setVehicle(vehicle.key, 'oneWayDirection', value)} options={[{ value: 'pickup', label: '선착장으로 픽업' }, { value: 'dropoff', label: '선착장에서 드롭' }]} valueOf={(row) => row.value} label={(row) => row.label} /></Field>}
-          {selected && <p className="booking-inline-note booking-field full">{selected.vehicle_examples || selected.description || selected.vehicle_type} · {isCruiseShuttle ? `1인 ${money(CRUISE_SHUTTLE_PRICE_PER_PERSON)}` : money(n(selected.price))}</p>}
+          {selected && <p className="booking-inline-note booking-field full">{selected.vehicle_examples || selected.description || selected.vehicle_type} · {isCruiseShuttle ? `1인 ${money(n(selected.price))}` : money(n(selected.price))}</p>}
         </div></div>;
       })}
       {!isCruiseShuttle && <button type="button" className="booking-add-row" onClick={() => set('vehicles', [...form.vehicles, vehicleSeed()])}>차량 추가 ＋</button>}

@@ -10,6 +10,7 @@ import './product.css';
 const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags,platform_rate_card_id';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
+const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;
 const MEDIA_CATEGORY_LABELS = {
   main: { label: '대표 이미지', eyebrow: 'CRUISE' },
   exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
@@ -189,6 +190,22 @@ function cruisePassengerCount(item) {
   return Math.max(1, Number(item?.adults || 0) + Number(item?.children || 0) + Number(item?.infants || 0));
 }
 
+function vehicleTypeOrder(value) {
+  const label = String(value || '');
+  if (/승용차/.test(label)) return 10;
+  if (/suv/i.test(label)) return 20;
+  if (/카니발|이노바/i.test(label)) return 30;
+  if (/9\s*인승/.test(label)) return 40;
+  if (/11\s*인승/.test(label)) return 50;
+  if (/16\s*인승/.test(label)) return 60;
+  if (/25\s*인승/.test(label)) return 70;
+  return 100;
+}
+
+function orderedVehicleTypes(values) {
+  return [...values].sort((left, right) => vehicleTypeOrder(left) - vehicleTypeOrder(right) || left.localeCompare(right, 'ko'));
+}
+
 export default function ProductDetail({ params }) {
   const { id } = use(params);
   const [loading, setLoading] = useState(true);
@@ -214,7 +231,7 @@ export default function ProductDetail({ params }) {
   const [vehicleOptionsLoading, setVehicleOptionsLoading] = useState(false);
   const [vehicleOptionsError, setVehicleOptionsError] = useState('');
   const [vehicleSaving, setVehicleSaving] = useState(false);
-  const [vehicleForm, setVehicleForm] = useState({ mode: '', wayType: '', route: '', vehicleType: '', rentcarPriceCode: '', carCount: 1, passengerCount: 1 });
+  const [vehicleForm, setVehicleForm] = useState({ mode: '', wayType: '', route: '', vehicleType: '', rentcarPriceCode: '', carCount: 1, passengerCount: 1, hoanKiemOutsidePickup: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -468,23 +485,23 @@ export default function ProductDetail({ params }) {
     return vehiclePrices.filter((row) => {
       if (!String(row.route || '').includes('하롱베이')) return false;
       if (vehicleMode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && row.cruise === savedCruiseSelection.name;
-      return row.rental_type === '단독대여' && ['공통', savedCruiseSelection.name].includes(row.cruise);
+      return row.rental_type === '단독대여' && ['공통', savedCruiseSelection.name].includes(row.cruise) && !/스테이\s*하롱\s*셔틀\s*리무진/i.test(String(row.vehicle_type || ''));
     });
   }, [savedCruiseSelection, vehicleMode, vehiclePrices]);
 
   const vehicleWayTypes = useMemo(() => uniqueValues(eligibleVehiclePrices, 'way_type'), [eligibleVehiclePrices]);
   const vehicleRoutes = useMemo(() => uniqueValues(eligibleVehiclePrices.filter((row) => row.way_type === vehicleForm.wayType), 'route'), [eligibleVehiclePrices, vehicleForm.wayType]);
-  const vehicleTypes = useMemo(() => uniqueValues(eligibleVehiclePrices.filter((row) => row.way_type === vehicleForm.wayType && row.route === vehicleForm.route), 'vehicle_type'), [eligibleVehiclePrices, vehicleForm.route, vehicleForm.wayType]);
+  const vehicleTypes = useMemo(() => orderedVehicleTypes(uniqueValues(eligibleVehiclePrices.filter((row) => row.way_type === vehicleForm.wayType && row.route === vehicleForm.route), 'vehicle_type')), [eligibleVehiclePrices, vehicleForm.route, vehicleForm.wayType]);
   const selectedVehiclePrice = useMemo(() => eligibleVehiclePrices.find((row) => row.rent_code === vehicleForm.rentcarPriceCode) || null, [eligibleVehiclePrices, vehicleForm.rentcarPriceCode]);
 
   function vehicleDefaults(mode, prices = eligibleVehiclePrices) {
     const roundTrip = prices.find((row) => String(row.way_type || '').includes('왕복'))?.way_type || prices[0]?.way_type || '';
     const routes = uniqueValues(prices.filter((row) => row.way_type === roundTrip), 'route');
     const route = mode === 'cruise_shuttle' ? routes[0] || '' : routes.length === 1 ? routes[0] : '';
-    const vehicleTypes = uniqueValues(prices.filter((row) => row.way_type === roundTrip && row.route === route), 'vehicle_type');
+    const vehicleTypes = orderedVehicleTypes(uniqueValues(prices.filter((row) => row.way_type === roundTrip && row.route === route), 'vehicle_type'));
     const vehicleType = mode === 'cruise_shuttle' ? vehicleTypes[0] || '' : vehicleTypes.length === 1 ? vehicleTypes[0] : '';
     const selected = prices.find((row) => row.way_type === roundTrip && row.route === route && row.vehicle_type === vehicleType);
-    return { mode, wayType: roundTrip, route, vehicleType, rentcarPriceCode: selected?.rent_code || '', carCount: 1, passengerCount: cruisePassengerCount(savedCruiseSelection) };
+    return { mode, wayType: roundTrip, route, vehicleType, rentcarPriceCode: selected?.rent_code || '', carCount: 1, passengerCount: cruisePassengerCount(savedCruiseSelection), hoanKiemOutsidePickup: false };
   }
 
   function selectVehicleMode(mode) {
@@ -495,7 +512,7 @@ export default function ProductDetail({ params }) {
     const prices = vehiclePrices.filter((row) => {
       if (!String(row.route || '').includes('하롱베이')) return false;
       if (mode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && row.cruise === savedCruiseSelection?.name;
-      return row.rental_type === '단독대여' && ['공통', savedCruiseSelection?.name].includes(row.cruise);
+      return row.rental_type === '단독대여' && ['공통', savedCruiseSelection?.name].includes(row.cruise) && !/스테이\s*하롱\s*셔틀\s*리무진/i.test(String(row.vehicle_type || ''));
     });
     setVehicleMode(mode);
     setVehicleForm(vehicleDefaults(mode, prices));
@@ -530,13 +547,14 @@ export default function ProductDetail({ params }) {
     setVehicleOptionsError('');
     const carCount = Math.max(1, Number(vehicleForm.carCount || 1));
     const passengerCount = vehicleMode === 'cruise_shuttle' ? Math.max(1, Number(vehicleForm.passengerCount || 1)) : cruisePassengerCount(savedCruiseSelection);
+    const hoanKiemSurcharge = vehicleMode === 'cruise_shuttle' && vehicleForm.hoanKiemOutsidePickup ? HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE : 0;
     const vehicleItem = {
       id: `cruise_vehicle:${savedCruiseCartItemId}:${selectedVehiclePrice.rent_code}:${vehicleMode}`,
       serviceType: 'cruise_vehicle', productId: 'cruise_vehicle', optionId: selectedVehiclePrice.rent_code,
-      name: `${savedCruiseSelection.name} 차량`, optionName: `${vehicleMode === 'cruise_shuttle' ? '크루즈 셔틀' : '단독차량'} · ${selectedVehiclePrice.vehicle_type}`,
+      name: `${savedCruiseSelection.name} 차량`, optionName: `${vehicleMode === 'cruise_shuttle' ? '크루즈 셔틀' : '단독차량'} · ${selectedVehiclePrice.vehicle_type}${hoanKiemSurcharge ? ' · 호안키엠 외 승차(+500,000 VND)' : ''}`,
       startDate: savedCruiseSelection.startDate, adults: savedCruiseSelection.adults, children: savedCruiseSelection.children, infants: savedCruiseSelection.infants,
-      quantity: carCount, unitPrice: Number(selectedVehiclePrice.price || 0), currency: 'VND', priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
-      metadata: { platform: { contractVersion: 2, cruiseReservationId: null, cruiseCartItemId: savedCruiseCartItemId, passengerCount, luggageCount: 0, vehicleServiceType: vehicleMode, vehicles: [{ key: crypto.randomUUID(), wayType: vehicleForm.wayType, route: vehicleForm.route, vehicleType: vehicleForm.vehicleType, rentcarPriceCode: selectedVehiclePrice.rent_code, carCount, oneWayDirection: 'pickup' }] } },
+      quantity: carCount, unitPrice: (Number(selectedVehiclePrice.price || 0) * carCount + hoanKiemSurcharge) / carCount, currency: 'VND', priceStatus: 'reference', sourceHref: `/product/${encodeURIComponent(cruise.slug)}`,
+      metadata: { platform: { contractVersion: 2, cruiseReservationId: null, cruiseCartItemId: savedCruiseCartItemId, passengerCount, luggageCount: 0, vehicleServiceType: vehicleMode, vehicles: [{ key: crypto.randomUUID(), wayType: vehicleForm.wayType, route: vehicleForm.route, vehicleType: vehicleForm.vehicleType, rentcarPriceCode: selectedVehiclePrice.rent_code, carCount, oneWayDirection: 'pickup', hoanKiemOutsidePickup: Boolean(vehicleForm.hoanKiemOutsidePickup) }] } },
     };
     try {
       replaceBookingCartItem('', vehicleItem);
@@ -725,7 +743,7 @@ export default function ProductDetail({ params }) {
             <header><div><span>NEXT / CRUISE VEHICLE</span><h2 id="cruise-vehicle-choice-title">크루즈 차량을 선택하세요</h2></div><button type="button" onClick={() => setVehicleChoiceModalOpen(false)} aria-label="크루즈 차량 선택 닫기">닫기 ×</button></header>
             <div className="cruise-vehicle-choice-content">
               {!vehicleMode && <><p>크루즈 예약은 장바구니에 저장되었습니다. 필요한 이동 서비스를 선택하거나, 차량 없이 장바구니로 이동할 수 있습니다.</p><div className="cruise-vehicle-choice-actions"><button type="button" onClick={() => selectVehicleMode('cruise_shuttle')} disabled={vehicleOptionsLoading}><span>01 / SHUTTLE</span><strong>크루즈 셔틀</strong><small>편도·왕복과 탑승 인원만 선택합니다.</small><b>{vehicleOptionsLoading ? '불러오는 중…' : '선택 →'}</b></button><button type="button" onClick={() => selectVehicleMode('private_rental')} disabled={vehicleOptionsLoading}><span>02 / PRIVATE CAR</span><strong>단독차량</strong><small>편도·왕복, 경로와 차량을 선택합니다.</small><b>{vehicleOptionsLoading ? '불러오는 중…' : '선택 →'}</b></button><button type="button" onClick={() => selectVehicleMode('none')}><span>03 / NO VEHICLE</span><strong>선택안함</strong><small>차량 없이 장바구니로 이동합니다.</small><b>장바구니 →</b></button></div></>}
-              {vehicleMode && <div className="cruise-vehicle-config"><button type="button" className="cruise-vehicle-back" onClick={() => setVehicleMode('')}>← 차량 종류 다시 선택</button><p><strong>{vehicleMode === 'cruise_shuttle' ? '크루즈 셔틀' : '단독차량'}</strong> 조건을 선택한 뒤 장바구니에 바로 저장합니다.</p>{vehicleOptionsLoading && <p className="cruise-vehicle-status">차량 요금을 불러오는 중입니다.</p>}{vehicleOptionsError && <p className="cruise-vehicle-status error" role="alert">{vehicleOptionsError}</p>}{!vehicleOptionsLoading && !vehicleOptionsError && eligibleVehiclePrices.length === 0 && <p className="cruise-vehicle-status error">선택한 크루즈에 적용되는 차량 요금이 없습니다.</p>}{!vehicleOptionsLoading && eligibleVehiclePrices.length > 0 && <><div className="cruise-vehicle-fields"><label><span>이용 방식</span><select value={vehicleForm.wayType} onChange={(event) => updateVehicleForm('wayType', event.target.value)}>{vehicleWayTypes.map((way) => <option value={way} key={way}>{vehicleWayLabel(way)}</option>)}</select></label>{vehicleMode === 'cruise_shuttle' && <label><span>탑승 인원</span><input type="number" min="1" value={vehicleForm.passengerCount} onChange={(event) => updateVehicleForm('passengerCount', event.target.value)} /></label>}{vehicleMode === 'private_rental' && <><label><span>경로</span><select value={vehicleForm.route} onChange={(event) => updateVehicleForm('route', event.target.value)}><option value="">경로를 선택해 주세요</option>{vehicleRoutes.map((route) => <option value={route} key={route}>{route}</option>)}</select></label><label><span>차량 유형</span><select value={vehicleForm.vehicleType} onChange={(event) => updateVehicleForm('vehicleType', event.target.value)} disabled={!vehicleForm.route}><option value="">차량 유형을 선택해 주세요</option>{vehicleTypes.map((vehicleType) => <option value={vehicleType} key={vehicleType}>{vehicleType}</option>)}</select></label><label><span>차량 수</span><input type="number" min="1" max="6" value={vehicleForm.carCount} onChange={(event) => updateVehicleForm('carCount', event.target.value)} /></label></>}</div>{selectedVehiclePrice && <div className="cruise-vehicle-total"><span>선택 금액</span><strong>{formatVnd(Number(selectedVehiclePrice.price || 0) * Math.max(1, Number(vehicleForm.carCount || 1)), 'VND')}</strong></div>}<button type="button" className="cruise-vehicle-save" onClick={addVehicleToCart} disabled={vehicleSaving || !selectedVehiclePrice}>{vehicleSaving ? '장바구니 저장 중…' : '차량 선택을 장바구니에 저장 →'}</button></>}</div>}
+              {vehicleMode && <div className="cruise-vehicle-config"><button type="button" className="cruise-vehicle-back" onClick={() => setVehicleMode('')}>← 차량 종류 다시 선택</button><p><strong>{vehicleMode === 'cruise_shuttle' ? '크루즈 셔틀' : '단독차량'}</strong> 조건을 선택한 뒤 장바구니에 바로 저장합니다.</p>{vehicleOptionsLoading && <p className="cruise-vehicle-status">차량 요금을 불러오는 중입니다.</p>}{vehicleOptionsError && <p className="cruise-vehicle-status error" role="alert">{vehicleOptionsError}</p>}{!vehicleOptionsLoading && !vehicleOptionsError && eligibleVehiclePrices.length === 0 && <p className="cruise-vehicle-status error">선택한 크루즈에 적용되는 차량 요금이 없습니다.</p>}{!vehicleOptionsLoading && eligibleVehiclePrices.length > 0 && <><div className="cruise-vehicle-fields"><label><span>이용 방식</span><select value={vehicleForm.wayType} onChange={(event) => updateVehicleForm('wayType', event.target.value)}>{vehicleWayTypes.map((way) => <option value={way} key={way}>{vehicleWayLabel(way)}</option>)}</select></label>{vehicleMode === 'cruise_shuttle' && <label><span>탑승 인원</span><input type="number" min="1" value={vehicleForm.passengerCount} onChange={(event) => updateVehicleForm('passengerCount', event.target.value)} /></label>}{vehicleMode === 'private_rental' && <><label><span>경로</span><select value={vehicleForm.route} onChange={(event) => updateVehicleForm('route', event.target.value)}><option value="">경로를 선택해 주세요</option>{vehicleRoutes.map((route) => <option value={route} key={route}>{route}</option>)}</select></label><label><span>차량 유형</span><select value={vehicleForm.vehicleType} onChange={(event) => updateVehicleForm('vehicleType', event.target.value)} disabled={!vehicleForm.route}><option value="">차량 유형을 선택해 주세요</option>{vehicleTypes.map((vehicleType) => <option value={vehicleType} key={vehicleType}>{vehicleType}</option>)}</select></label><label><span>차량 수</span><input type="number" min="1" max="6" value={vehicleForm.carCount} onChange={(event) => updateVehicleForm('carCount', event.target.value)} /></label></>}</div>{vehicleMode === 'cruise_shuttle' && <label className="cruise-vehicle-addon"><input type="checkbox" checked={vehicleForm.hoanKiemOutsidePickup} onChange={(event) => updateVehicleForm('hoanKiemOutsidePickup', event.target.checked)} /><span><strong>호안키엠 외 승차</strong><small>팀당 추가비용</small></span><b>+500,000 VND</b></label>}{selectedVehiclePrice && <div className="cruise-vehicle-total"><span>선택 금액{vehicleForm.hoanKiemOutsidePickup ? ' (추가비용 포함)' : ''}</span><strong>{formatVnd(Number(selectedVehiclePrice.price || 0) * Math.max(1, Number(vehicleForm.carCount || 1)) + (vehicleMode === 'cruise_shuttle' && vehicleForm.hoanKiemOutsidePickup ? HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE : 0), 'VND')}</strong></div>}<button type="button" className="cruise-vehicle-save" onClick={addVehicleToCart} disabled={vehicleSaving || !selectedVehiclePrice}>{vehicleSaving ? '장바구니 저장 중…' : '차량 선택을 장바구니에 저장 →'}</button></>}</div>}
             </div>
           </section>
         </div>

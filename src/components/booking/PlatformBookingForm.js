@@ -128,6 +128,10 @@ function findVehiclePrice(prices, vehicle) {
   return prices.find((row) => row.way_type === vehicle.wayType && row.route === vehicle.route && row.vehicle_type === vehicle.vehicleType) || null;
 }
 
+function isRentcarPrice(row) {
+  return row?.car_category_code === '렌트카' || (row?.rental_type === '단독대여' && row?.price !== null && row?.price !== undefined);
+}
+
 function todayInSeoul() {
   const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -412,7 +416,7 @@ export default function PlatformBookingForm({ type }) {
   function vehicleFields(cruiseVehicle) {
     const sourceCruise = selectedCruiseChoice(cruiseReservations, form);
     const prices = (options.prices || []).filter((row) => {
-      if (!cruiseVehicle) return row.car_category_code === '렌트카';
+      if (!cruiseVehicle) return isRentcarPrice(row);
       if (!String(row.route || '').includes('하롱베이')) return false;
       if (form.vehicleServiceType === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && row.cruise === sourceCruise?.cruiseName;
       return row.rental_type === '단독대여' && ['공통', sourceCruise?.cruiseName].includes(row.cruise);

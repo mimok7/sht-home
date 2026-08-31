@@ -100,7 +100,7 @@ function buildCandidates(rows, context) {
       score += points;
       if (reason) reasons.push(reason);
     }
-    const referenceTotal = best.price * Math.max(context.roomCount, 1);
+    const referenceTotal = best.price * context.adults * Math.max(context.roomCount, 1);
     if (context.totalBudgetVnd) {
       if (referenceTotal <= context.totalBudgetVnd) { score += 20; reasons.push('입력한 예산 범위 안의 등록 요금이에요'); }
       else score -= Math.min(20, Math.round((referenceTotal - context.totalBudgetVnd) / context.totalBudgetVnd * 20));
@@ -117,7 +117,7 @@ function buildCandidates(rows, context) {
       registeredPrice: best.price,
       currency: best.rate.currency || 'VND',
       registeredPriceLabel: `${formatVnd(best.price)} 등록요금부터`,
-      referenceTotalLabel: context.roomCount > 1 ? `객실 ${context.roomCount}개 단순 참고 ${formatVnd(referenceTotal)}` : null,
+      referenceTotalLabel: `성인 ${context.adults}명${context.roomCount > 1 ? ` · 객실 ${context.roomCount}개` : ''} 참고 ${formatVnd(referenceTotal)}`,
       reasons: [...new Set(reasons)].slice(0, 3),
       confirmations: [...new Set(confirmations)],
       score,

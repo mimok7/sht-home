@@ -2,7 +2,7 @@ import { supabase } from '@/lib/supabase';
 
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
 const ROOM_PREFERENCES = new Set(['standard', 'triple', 'connecting', 'extra_bed', 'single']);
-const PREFERENCES = new Set(['family', 'couple', 'balcony', 'activity', 'value', 'luxury']);
+const PREFERENCES = new Set(['family', 'couple', 'balcony', 'quiet', 'activity', 'value', 'luxury']);
 const TRANSFERS = new Set(['none', 'hanoi', 'airport', 'local', 'later']);
 
 function integer(value, minimum, maximum, fallback) {
@@ -54,25 +54,27 @@ function formatVnd(value) {
   return `${new Intl.NumberFormat('ko-KR').format(value)} VND`;
 }
 
-function preferenceScore(cruise, cabin, preference) {
-  if (preference === 'family') return cabin.connecting_available || cabin.extra_bed_available || cabin.max_guests >= 3 ? [13, '가족 객실 구성이 가능해요'] : [0, null];
-  if (preference === 'couple') return cabin.has_balcony || cabin.is_vip ? [13, '커플 여행에 어울리는 객실 특성이 있어요'] : [0, null];
-  if (preference === 'balcony') return cabin.has_balcony ? [13, '전용 발코니 객실을 선택할 수 있어요'] : [0, null];
-  if (preference === 'activity') return cabin.facilities || cabin.special_amenities ? [10, '선상 시설과 특별 편의 정보가 등록되어 있어요'] : [0, null];
-  if (preference === 'luxury') return cabin.is_vip || cabin.has_butler ? [13, 'VIP 객실 또는 전담 서비스 조건에 가까워요'] : [0, null];
-  return [0, null];
+function preferenceScore(tags, evidence, preference) {
+  if (!tags.has(preference)) return [0, null];
+  const points = preference === 'activity' ? 10 : preference === 'value' ? 12 : 13;
+  return [points, evidence.get(preference) || `관리자 추천 기준 #${preference}에 맞아요`];
 }
 
 async function loadRecommendationData(context) {
-  const { data, error } = await supabase
-    .from('public_cruise_recommendation_v2')
-    .select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags')
-    .eq('schedule_type', context.scheduleType);
-  if (error) throw new Error('현재 v2 추천 상품 정보를 불러오지 못했습니다.');
-  return { rows: (data || []).filter((row) => dateMatches(row, context.checkinDate)), source: 'v2' };
+  const [recommendations, tags] = await Promise.all([
+    supabase.from('public_cruise_recommendation_v2').select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags').eq('schedule_type', context.scheduleType),
+    supabase.from('cruise_tags_v2').select('cruise_id,tag,evidence').eq('is_active', true),
+  ]);
+  if (recommendations.error || tags.error) throw new Error('현재 v2 추천 상품 정보를 불러오지 못했습니다.');
+  const evidenceByCruise = new Map();
+  for (const tag of tags.data || []) {
+    if (!evidenceByCruise.has(tag.cruise_id)) evidenceByCruise.set(tag.cruise_id, new Map());
+    evidenceByCruise.get(tag.cruise_id).set(tag.tag, tag.evidence);
+  }
+  return { rows: (recommendations.data || []).filter((row) => dateMatches(row, context.checkinDate)), evidenceByCruise, source: 'v2' };
 }
 
-function buildCandidates(rows, context) {
+function buildCandidates(rows, context, evidenceByCruise) {
   const cruises = new Map();
   for (const row of rows) {
     if (!row.cruise_id || !row.cruise_name) continue;
@@ -93,10 +95,11 @@ function buildCandidates(rows, context) {
 
     const reasons = ['선택한 일정과 인원 조건에 맞아요'];
     let score = 45;
+    const tags = new Set(best.rate.tags || []);
+    const evidence = evidenceByCruise.get(cruise.id) || new Map();
     if (best.cabin.is_recommended) { score += 8; reasons.push('현지 추천 객실이 등록되어 있어요'); }
     for (const preference of context.preferences) {
-      if (preference === 'value') continue;
-      const [points, reason] = preferenceScore(cruise, best.cabin, preference);
+      const [points, reason] = preferenceScore(tags, evidence, preference);
       score += points;
       if (reason) reasons.push(reason);
     }
@@ -105,7 +108,7 @@ function buildCandidates(rows, context) {
       if (referenceTotal <= context.totalBudgetVnd) { score += 20; reasons.push('입력한 예산 범위 안의 등록 요금이에요'); }
       else score -= Math.min(20, Math.round((referenceTotal - context.totalBudgetVnd) / context.totalBudgetVnd * 20));
     }
-    if (context.preferences.includes('value')) { score += Math.max(0, 12 - Math.floor(best.price / 1_000_000)); reasons.push('등록 요금이 비교적 낮은 후보예요'); }
+    if (context.preferences.includes('value') && tags.has('value')) { score += Math.max(0, 12 - Math.floor(best.price / 1_000_000)); reasons.push('관리자 가격 추천 기준과 등록 요금에 맞아요'); }
 
     const confirmations = ['실시간 객실 잔여 여부', '등록 요금의 적용 단위와 최종 금액'];
     if (context.children || context.infants) confirmations.push(best.rate.child_age_range ? '아동 나이에 따른 최종 요금' : '아동·유아 연령별 요금 규정');
@@ -129,8 +132,8 @@ function buildCandidates(rows, context) {
 
 export async function recommendCruisesForContext(rawContext) {
   const context = normalizeContext(rawContext);
-  const { rows, source } = await loadRecommendationData(context);
-  const recommendations = buildCandidates(rows, context);
+  const { rows, evidenceByCruise, source } = await loadRecommendationData(context);
+  const recommendations = buildCandidates(rows, context, evidenceByCruise);
   const party = `성인 ${context.adults}명${context.children ? ` · 아동 ${context.children}명` : ''}${context.infants ? ` · 유아 ${context.infants}명` : ''}`;
   const date = context.checkinDate || '날짜 미정';
   return {

@@ -10,7 +10,7 @@ const DEFAULT_CONTEXT = { scheduleType: '', checkinDate: null, adults: 2, childr
 const LABELS = {
   scheduleType: { DAY: '당일 크루즈', '1N2D': '1박 2일', '2N3D': '2박 3일' },
   roomPreference: { standard: '일반 객실', triple: '트리플', connecting: '커넥팅', extra_bed: '엑스트라베드', single: '싱글룸' },
-  preference: { family: '가족 편의', couple: '허니문·커플', balcony: '전용 발코니', activity: '시설·액티비티', value: '합리적인 가격', luxury: 'VIP 서비스' },
+  preference: { family: '가족 편의', couple: '허니문·커플', balcony: '전용 발코니', quiet: '조용한 휴식', activity: '시설·액티비티', value: '합리적인 가격', luxury: 'VIP 서비스' },
   transfer: { none: '이동 불필요', hanoi: '하노이 왕복', airport: '공항 이동', local: '하롱 현지 합류', later: '나중에 결정' },
 };
 const PRICE_UNIT_LABELS = { per_adult: '성인 1인', per_person: '1인', per_room: '객실 1실', per_vehicle: '차량 1대', unknown: '요금 기준 확인' };

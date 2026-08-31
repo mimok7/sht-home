@@ -22,6 +22,11 @@ const SERVICES = {
 const SCHEDULES = ['1박2일', '2박3일', '당일'];
 const WAY_TYPES = ['편도', '당일왕복', '다른날왕복', '시내당일렌트'];
 const TOUR_NAMES = ['닌빈 한국어 가이드 투어', '하노이 역사투어', '하노이 오후 투어', '하노이 원데이 당일투어'];
+const CRUISE_SHUTTLE_PRICE_PER_PERSON = 1000000;
+
+function vehicleWayTypeLabel(value) {
+  return value === '편도' ? '편도' : '왕복';
+}
 
 function scheduleLabel(value) {
   return ({ DAY: '당일', '1N2D': '1박2일', '2N3D': '2박3일', '1박 2일': '1박2일', '2박 3일': '2박3일' })[value] || value;
@@ -144,19 +149,20 @@ function selectedCruiseChoice(choices, form) {
   return null;
 }
 
-function applySingleShuttleDefaults(form, choices, prices) {
+function applySingleShuttleDefaults(form, choices, prices, preferredWayType = '왕복') {
   const cruise = selectedCruiseChoice(choices, form);
   const shuttlePrices = (prices || []).filter((row) => cruise?.cruiseName && String(row.vehicle_type || '').includes('셔틀') && row.cruise === cruise.cruiseName);
   if (!shuttlePrices.length) return form;
   return {
     ...form,
+    passengerCount: cruise?.passengerCount || form.passengerCount,
     vehicles: form.vehicles.map((vehicle) => {
       const ways = WAY_TYPES.filter((way) => shuttlePrices.some((row) => row.way_type === way));
-      const wayType = ways.length === 1 ? ways[0] : vehicle.wayType;
+      const wayType = ways.find((way) => vehicleWayTypeLabel(way) === preferredWayType) || ways[0] || vehicle.wayType;
       const routes = uniqueValues(shuttlePrices.filter((row) => row.way_type === wayType), 'route');
-      const route = routes.length === 1 ? routes[0] : vehicle.route;
+      const route = routes[0] || vehicle.route;
       const vehicleTypes = uniqueValues(shuttlePrices.filter((row) => row.way_type === wayType && row.route === route), 'vehicle_type');
-      const vehicleType = vehicleTypes.length === 1 ? vehicleTypes[0] : vehicle.vehicleType;
+      const vehicleType = vehicleTypes[0] || vehicle.vehicleType;
       const price = shuttlePrices.find((row) => row.way_type === wayType && row.route === route && row.vehicle_type === vehicleType);
       return { ...vehicle, wayType, route, vehicleType, rentcarPriceCode: price?.rent_code || vehicle.rentcarPriceCode };
     }),
@@ -313,7 +319,9 @@ export default function PlatformBookingForm({ type }) {
     if (type === 'rentcar' || type === 'cruise_vehicle') {
       const selected = form.vehicles.map((vehicle) => findVehiclePrice(options.prices || [], vehicle)).filter(Boolean);
       const cruise = selectedCruiseChoice(cruiseReservations, form);
-      return { total: selected.reduce((sum, row, index) => sum + n(row.price) * n(form.vehicles[index]?.carCount, 1), 0), name: type === 'cruise_vehicle' ? `${cruise?.cruiseName || '크루즈'} 차량` : '렌터카', optionName: form.vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean).join(' · '), startDate: type === 'cruise_vehicle' ? cruise?.checkin || '' : '', endDate: '', adults: n(form.adults), children: n(form.children), infants: 0, quantity: form.vehicles.reduce((sum, vehicle) => sum + n(vehicle.carCount, 1), 0) };
+      const isCruiseShuttle = type === 'cruise_vehicle' && form.vehicleServiceType === 'cruise_shuttle';
+      const passengerCount = n(form.passengerCount, 1);
+      return { total: isCruiseShuttle ? (selected.length ? passengerCount * CRUISE_SHUTTLE_PRICE_PER_PERSON : 0) : selected.reduce((sum, row, index) => sum + n(row.price) * n(form.vehicles[index]?.carCount, 1), 0), name: type === 'cruise_vehicle' ? `${cruise?.cruiseName || '크루즈'} 차량` : '렌터카', optionName: form.vehicles.map((vehicle) => vehicle.vehicleType).filter(Boolean).join(' · '), startDate: type === 'cruise_vehicle' ? cruise?.checkin || '' : '', endDate: '', adults: n(form.adults), children: n(form.children), infants: 0, quantity: isCruiseShuttle ? passengerCount : form.vehicles.reduce((sum, vehicle) => sum + n(vehicle.carCount, 1), 0) };
     }
     if (type === 'tour') {
       const tour = (options.tours || []).find((row) => row.tour_id === form.tourId);
@@ -415,6 +423,7 @@ export default function PlatformBookingForm({ type }) {
 
   function vehicleFields(cruiseVehicle) {
     const sourceCruise = selectedCruiseChoice(cruiseReservations, form);
+    const isCruiseShuttle = cruiseVehicle && form.vehicleServiceType === 'cruise_shuttle';
     const prices = (options.prices || []).filter((row) => {
       if (!cruiseVehicle) return isRentcarPrice(row);
       if (!String(row.route || '').includes('하롱베이')) return false;
@@ -426,20 +435,21 @@ export default function PlatformBookingForm({ type }) {
       {cruiseVehicle && <div className="booking-step"><span>차량 서비스 유형</span><div className="booking-choice-grid"><Choice active={form.vehicleServiceType === 'private_rental'} onClick={() => setForm((current) => ({ ...current, vehicleServiceType: 'private_rental', vehicles: [vehicleSeed()] }))}>단독 차량</Choice><Choice active={form.vehicleServiceType === 'cruise_shuttle'} onClick={() => setForm((current) => applySingleShuttleDefaults({ ...current, vehicleServiceType: 'cruise_shuttle', vehicles: [vehicleSeed()] }, cruiseReservations, options.prices))}>크루즈사 셔틀</Choice></div></div>}
       {form.vehicles.map((vehicle, index) => {
         const ways = WAY_TYPES.filter((way) => prices.some((row) => row.way_type === way));
+        const simpleWays = ['편도', '왕복'].filter((way) => ways.some((value) => vehicleWayTypeLabel(value) === way));
         const routes = uniqueValues(prices.filter((row) => row.way_type === vehicle.wayType), 'route');
         const vehicles = uniqueValues(prices.filter((row) => row.way_type === vehicle.wayType && row.route === vehicle.route), 'vehicle_type');
         const selected = findVehiclePrice(prices, vehicle);
-        return <div className="booking-repeat-card" key={vehicle.key}><div className="booking-repeat-head"><strong>차량 {index + 1}</strong>{form.vehicles.length > 1 && <button type="button" onClick={() => set('vehicles', form.vehicles.filter((row) => row.key !== vehicle.key))}>삭제</button>}</div><div className="booking-fields">
-          <Field label="이용 방식"><Select value={vehicle.wayType} onChange={(value) => setVehicle(vehicle.key, 'wayType', value)} options={ways} /></Field>
-          <Field label="경로"><Select value={vehicle.route} onChange={(value) => setVehicle(vehicle.key, 'route', value)} options={routes} disabled={!vehicle.wayType} /></Field>
-          <Field label="차량 유형"><Select value={vehicle.vehicleType} onChange={(value) => { setVehicle(vehicle.key, 'vehicleType', value); const row = prices.find((price) => price.way_type === vehicle.wayType && price.route === vehicle.route && price.vehicle_type === value); if (row) setVehicle(vehicle.key, 'rentcarPriceCode', row.rent_code); }} options={vehicles} disabled={!vehicle.route} /></Field>
-          <Field label="차량 수"><NumberInput value={vehicle.carCount} min={1} max={6} onChange={(value) => setVehicle(vehicle.key, 'carCount', value)} /></Field>
-          {vehicle.wayType === '편도' && cruiseVehicle && <Field label="편도 방향"><Select value={vehicle.oneWayDirection} onChange={(value) => setVehicle(vehicle.key, 'oneWayDirection', value)} options={[{ value: 'pickup', label: '선착장으로 픽업' }, { value: 'dropoff', label: '선착장에서 드롭' }]} valueOf={(row) => row.value} label={(row) => row.label} /></Field>}
-          {selected && <p className="booking-inline-note booking-field full">{selected.vehicle_examples || selected.description || selected.vehicle_type} · {money(n(selected.price))}</p>}
+        return <div className="booking-repeat-card" key={vehicle.key}><div className="booking-repeat-head"><strong>{isCruiseShuttle ? '크루즈사 셔틀' : `차량 ${index + 1}`}</strong>{!isCruiseShuttle && form.vehicles.length > 1 && <button type="button" onClick={() => set('vehicles', form.vehicles.filter((row) => row.key !== vehicle.key))}>삭제</button>}</div><div className="booking-fields">
+          <Field label="이용 방식"><Select value={vehicleWayTypeLabel(vehicle.wayType)} onChange={(value) => { if (isCruiseShuttle) setForm((current) => applySingleShuttleDefaults(current, cruiseReservations, options.prices, value)); else { const matchingWayType = ways.find((way) => vehicleWayTypeLabel(way) === value); if (matchingWayType) setVehicle(vehicle.key, 'wayType', matchingWayType); } }} options={simpleWays} /></Field>
+          {!isCruiseShuttle && <Field label="경로"><Select value={vehicle.route} onChange={(value) => setVehicle(vehicle.key, 'route', value)} options={routes} disabled={!vehicle.wayType} /></Field>}
+          {!isCruiseShuttle && <Field label="차량 유형"><Select value={vehicle.vehicleType} onChange={(value) => { setVehicle(vehicle.key, 'vehicleType', value); const row = prices.find((price) => price.way_type === vehicle.wayType && price.route === vehicle.route && price.vehicle_type === value); if (row) setVehicle(vehicle.key, 'rentcarPriceCode', row.rent_code); }} options={vehicles} disabled={!vehicle.route} /></Field>}
+          {!isCruiseShuttle && <Field label="차량 수"><NumberInput value={vehicle.carCount} min={1} max={6} onChange={(value) => setVehicle(vehicle.key, 'carCount', value)} /></Field>}
+          {!isCruiseShuttle && vehicle.wayType === '편도' && cruiseVehicle && <Field label="편도 방향"><Select value={vehicle.oneWayDirection} onChange={(value) => setVehicle(vehicle.key, 'oneWayDirection', value)} options={[{ value: 'pickup', label: '선착장으로 픽업' }, { value: 'dropoff', label: '선착장에서 드롭' }]} valueOf={(row) => row.value} label={(row) => row.label} /></Field>}
+          {selected && <p className="booking-inline-note booking-field full">{selected.vehicle_examples || selected.description || selected.vehicle_type} · {isCruiseShuttle ? `1인 ${money(CRUISE_SHUTTLE_PRICE_PER_PERSON)}` : money(n(selected.price))}</p>}
         </div></div>;
       })}
-      <button type="button" className="booking-add-row" onClick={() => set('vehicles', [...form.vehicles, vehicleSeed()])}>차량 추가 ＋</button>
-      <div className="booking-fields booking-field-set"><Field label="탑승 인원"><NumberInput value={form.passengerCount} min={1} onChange={(value) => set('passengerCount', value)} /></Field><Field label="수하물 수"><NumberInput value={form.luggageCount} onChange={(value) => set('luggageCount', value)} /></Field></div>
+      {!isCruiseShuttle && <button type="button" className="booking-add-row" onClick={() => set('vehicles', [...form.vehicles, vehicleSeed()])}>차량 추가 ＋</button>}
+      <div className="booking-fields booking-field-set"><Field label={isCruiseShuttle ? '인원 수' : '탑승 인원'}><NumberInput value={form.passengerCount} min={1} onChange={(value) => set('passengerCount', value)} /></Field><Field label="수하물 수"><NumberInput value={form.luggageCount} onChange={(value) => set('luggageCount', value)} /></Field></div>
     </>;
   }
 

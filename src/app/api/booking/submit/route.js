@@ -46,6 +46,12 @@ function isDateValid(row, date, from = 'valid_from', to = 'valid_to') {
   return Boolean(date) && (!row?.[from] || row[from] <= date) && (!row?.[to] || row[to] >= date);
 }
 
+function todayInSeoul() {
+  const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Seoul', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
 function scheduleLabel(value) {
   return ({ DAY: '당일', '1N2D': '1박2일', '2N3D': '2박3일', '1박 2일': '1박2일', '2박 3일': '2박3일' })[value] || value;
 }
@@ -191,15 +197,16 @@ async function saveAirport(platform, owner, quoteId, item) {
   const prices = await platform.from('airport_price').select('*').in('airport_code', codes).eq('is_active', true);
   if (prices.error) throw dbError(prices.error, '공항 이동 요금을 다시 확인하지 못했습니다.');
   const priceMap = new Map((prices.data || []).map((row) => [row.airport_code, row]));
+  const priceDate = todayInSeoul();
   let total = 0;
   for (const leg of legs) {
     const price = priceMap.get(leg.airportPriceCode);
-    if (!price || !isDateValid(price, leg.serviceDate || String(leg.datetime || '').slice(0, 10))) throw new Error('선택일에 적용 가능한 공항 이동 요금이 없습니다.');
+    if (!price || !isDateValid(price, priceDate)) throw new Error('현재 적용 가능한 공항 이동 요금이 없습니다.');
     if (price.service_type !== leg.category || price.route !== leg.route || price.vehicle_type !== leg.vehicleType) throw new Error('공항 이동 요금 조건이 변경되었습니다. 다시 선택해 주세요.');
     total += number(price.price);
   }
   const passengers = Math.max(1, integer(data.passengerCount, item.adults + item.children));
-  const parent = await insertParent(platform, owner.id, quoteId, { re_type: 'airport', total_amount: total, pax_count: passengers, re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: legs[0].serviceDate || String(legs[0].datetime || '').slice(0, 10), price_breakdown: { source: 'homepage_cart', operational_details_status: 'pending', legs: legs.map((leg) => ({ code: leg.airportPriceCode, way_type: leg.wayType, service_date: leg.serviceDate || String(leg.datetime || '').slice(0, 10), price: number(priceMap.get(leg.airportPriceCode)?.price) })), grand_total: total } });
+  const parent = await insertParent(platform, owner.id, quoteId, { re_type: 'airport', total_amount: total, pax_count: passengers, re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: null, price_breakdown: { source: 'homepage_cart', operational_details_status: 'pending', price_verified_on: priceDate, legs: legs.map((leg) => ({ code: leg.airportPriceCode, way_type: leg.wayType, service_date: null, price: number(priceMap.get(leg.airportPriceCode)?.price) })), grand_total: total } });
   const detailRows = legs.map((leg) => { const price = priceMap.get(leg.airportPriceCode); const legacy = data.contractVersion === 1; return { reservation_id: parent.re_id, airport_price_code: price.airport_code, ra_airport_location: legacy ? leg.airportLocation || null : null, accommodation_info: legacy ? leg.accommodation || null : null, ra_flight_number: legacy ? leg.flightNumber || null : null, ra_datetime: legacy ? isoKst(leg.datetime) : null, ra_passenger_count: passengers, ra_luggage_count: integer(data.luggageCount), way_type: leg.wayType, ra_car_count: 1, unit_price: number(price.price), total_price: number(price.price), request_note: legacy ? data.requestNote || null : null }; });
   const detail = await platform.from('reservation_airport').insert(detailRows);
   if (detail.error) throw dbError(detail.error, '공항 이동 상세 정보를 저장하지 못했습니다.');

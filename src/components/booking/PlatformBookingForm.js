@@ -53,7 +53,7 @@ function initialForm(type) {
   const shared = { requestNote: '', adults: 2, children: 0, infants: 0 };
   if (type === 'cruise') return { ...shared, checkin: '', schedule: '1박2일', cruiseName: '', rooms: [roomSeed()], connectingRoom: false, birthdayEvent: false, birthdayName: '', tourOptions: [] };
   if (type === 'cruise_vehicle') return { ...shared, cruiseReservationId: '', cruiseCartItemId: '', vehicleServiceType: 'private_rental', passengerCount: 2, requestNote: '', vehicles: [vehicleSeed()] };
-  if (type === 'airport') return { ...shared, serviceType: 'both', passengerCount: 2, luggageCount: 0, requestNote: '', pickup: { category: '', route: '', vehicleType: '', airportPriceCode: '', serviceDate: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' }, sending: { category: '', route: '', vehicleType: '', airportPriceCode: '', serviceDate: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' } };
+  if (type === 'airport') return { ...shared, serviceType: 'round_trip', airportRoute: '', vehicleType: '', passengerCount: 2, luggageCount: 0, requestNote: '', pickup: { category: '', route: '', vehicleType: '', airportPriceCode: '', serviceDate: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' }, sending: { category: '', route: '', vehicleType: '', airportPriceCode: '', serviceDate: '', airportLocation: '', accommodation: '', flightNumber: '', datetime: '' } };
   if (type === 'hotel') return { ...shared, checkin: '', checkout: '', hotelName: '', hotelPriceCode: '', roomCount: 1 };
   if (type === 'rentcar') return { ...shared, passengerCount: 2, luggageCount: 0, vehicles: [vehicleSeed()] };
   if (type === 'tour') return { ...shared, tourId: '', usageDate: '', guestCount: 2, paymentMethod: '', pickupLocation: '', dropoffLocation: '', lunchOption: '금잔디 식당(한식-추천)', courseOption: '호아루(추천)', nightTourOption: '선택안함', addons: [] };
@@ -81,6 +81,47 @@ function Choice({ active, onClick, children }) {
 
 function validRateRows(rows, date, from = 'valid_from', to = 'valid_to') {
   return (rows || []).filter((row) => !date || validOn(row, date, from, to));
+}
+
+function airportRouteParts(route) {
+  return String(route || '').split(/\s+-\s+/).map((part) => part.trim()).filter(Boolean);
+}
+
+function airportRoundTripKey(route) {
+  const parts = airportRouteParts(route);
+  return parts.length === 2 ? [...parts].sort((left, right) => left.localeCompare(right, 'ko')).join(' ↔ ') : String(route || '');
+}
+
+function airportRouteLabel(route) {
+  const parts = airportRouteParts(route);
+  return parts.length === 2 ? `${parts[0]} ↔ ${parts[1]}` : route;
+}
+
+function airportRouteChoices(prices, serviceType) {
+  const choices = new Map();
+  for (const price of prices) {
+    if (serviceType === 'round_trip') {
+      if (price.service_type !== '픽업') continue;
+      const value = airportRoundTripKey(price.route);
+      if (!choices.has(value)) choices.set(value, { value, label: airportRouteLabel(price.route) });
+    } else {
+      const value = JSON.stringify([price.service_type, price.route]);
+      if (!choices.has(value)) choices.set(value, { value, label: price.route });
+    }
+  }
+  return [...choices.values()];
+}
+
+function airportSelection(prices, form) {
+  if (!form.airportRoute || !form.vehicleType) return [];
+  if (form.serviceType === 'round_trip') {
+    const pickup = prices.find((row) => row.service_type === '픽업' && airportRoundTripKey(row.route) === form.airportRoute && row.vehicle_type === form.vehicleType);
+    const sending = prices.find((row) => row.service_type === '샌딩' && airportRoundTripKey(row.route) === form.airportRoute && row.vehicle_type === form.vehicleType);
+    return [pickup, sending].filter(Boolean).map((row) => ({ wayType: row.service_type === '픽업' ? 'pickup' : 'sending', category: row.service_type, route: row.route, vehicleType: row.vehicle_type, airportPriceCode: row.airport_code }));
+  }
+  const [category, route] = JSON.parse(form.airportRoute);
+  const row = prices.find((price) => price.service_type === category && price.route === route && price.vehicle_type === form.vehicleType);
+  return row ? [{ wayType: row.service_type === '픽업' ? 'pickup' : 'sending', category: row.service_type, route: row.route, vehicleType: row.vehicle_type, airportPriceCode: row.airport_code }] : [];
 }
 
 function findVehiclePrice(prices, vehicle) {
@@ -227,7 +268,6 @@ export default function PlatformBookingForm({ type }) {
   }, [form.checkin, form.schedule, type]);
 
   const set = (field, value) => { setForm((current) => ({ ...current, [field]: value })); setError(''); setMessage(''); };
-  const setLeg = (leg, field, value) => setForm((current) => ({ ...current, [leg]: { ...current[leg], [field]: value, ...(field === 'category' ? { route: '', vehicleType: '', airportPriceCode: '' } : {}), ...(field === 'route' ? { vehicleType: '', airportPriceCode: '' } : {}) } }));
   const setRoom = (key, field, value) => setForm((current) => ({ ...current, rooms: current.rooms.map((room) => room.key === key ? { ...room, [field]: value } : room) }));
   const setVehicle = (key, field, value) => setForm((current) => ({ ...current, vehicles: current.vehicles.map((vehicle) => vehicle.key === key ? { ...vehicle, [field]: value, ...(field === 'wayType' ? { route: '', vehicleType: '', rentcarPriceCode: '' } : {}), ...(field === 'route' ? { vehicleType: '', rentcarPriceCode: '' } : {}) } : vehicle) }));
   const chooseCruiseVehicleSource = (value) => {
@@ -261,9 +301,10 @@ export default function PlatformBookingForm({ type }) {
       return { hotels, rooms, selected, total: n(selected?.base_price) * n(form.roomCount, 1) * nights, name: form.hotelName || service.example, optionName: selected?.room_name || '', startDate: form.checkin, endDate: form.checkout, adults: n(form.adults), children: n(form.children), infants: n(form.infants), quantity: n(form.roomCount, 1) };
     }
     if (type === 'airport') {
-      const legs = form.serviceType === 'both' ? [form.pickup, form.sending] : form.serviceType === 'pickup' ? [form.pickup] : [form.sending];
-      const selected = legs.map((leg) => (options.prices || []).find((row) => row.airport_code === leg.airportPriceCode)).filter(Boolean);
-      return { total: selected.reduce((sum, row) => sum + n(row.price), 0), name: '공항 이동', optionName: form.serviceType === 'both' ? '픽업 + 샌딩' : form.serviceType === 'pickup' ? '공항 픽업' : '공항 샌딩', startDate: legs[0]?.serviceDate || '', endDate: legs[1]?.serviceDate || '', adults: n(form.adults), children: n(form.children), infants: 0, quantity: legs.length };
+      const prices = validRateRows(options.prices, todayInSeoul());
+      const legs = airportSelection(prices, form);
+      const selected = legs.map((leg) => prices.find((row) => row.airport_code === leg.airportPriceCode)).filter(Boolean);
+      return { prices, legs, total: selected.reduce((sum, row) => sum + n(row.price), 0), name: '공항 이동', optionName: `${form.serviceType === 'round_trip' ? '왕복' : '편도'}${form.vehicleType ? ` · ${form.vehicleType}` : ''}`, routeLabel: form.serviceType === 'round_trip' ? form.airportRoute : (form.airportRoute ? JSON.parse(form.airportRoute)[1] : ''), startDate: '', endDate: '', adults: 0, children: 0, infants: 0, quantity: legs.length || (form.serviceType === 'round_trip' ? 2 : 1) };
     }
     if (type === 'rentcar' || type === 'cruise_vehicle') {
       const selected = form.vehicles.map((vehicle) => findVehiclePrice(options.prices || [], vehicle)).filter(Boolean);
@@ -308,9 +349,9 @@ export default function PlatformBookingForm({ type }) {
       return { contractVersion: 2, hotelPriceCode: form.hotelPriceCode, checkin: form.checkin, checkout: form.checkout, roomCount: n(form.roomCount, 1), adultCount: n(form.adults), childCount: n(form.children), infantCount: n(form.infants) };
     }
     if (type === 'airport') {
-      const requested = form.serviceType === 'both' ? [['pickup', form.pickup], ['sending', form.sending]] : [[form.serviceType, form[form.serviceType]]];
-      if (requested.some(([, leg]) => !leg.airportPriceCode || !leg.serviceDate)) throw new Error('각 공항 이동의 이용일과 요금 조건을 선택해 주세요.');
-      return { contractVersion: 2, passengerCount: n(form.passengerCount, 1), luggageCount: n(form.luggageCount), legs: requested.map(([wayType, leg]) => ({ wayType, category: leg.category, route: leg.route, vehicleType: leg.vehicleType, airportPriceCode: leg.airportPriceCode, serviceDate: leg.serviceDate })) };
+      const expectedLegs = form.serviceType === 'round_trip' ? 2 : 1;
+      if (derived.legs.length !== expectedLegs) throw new Error('이동 형태, 이동 경로와 차량 유형을 선택해 주세요.');
+      return { contractVersion: 2, passengerCount: n(form.passengerCount, 1), luggageCount: n(form.luggageCount), legs: derived.legs.map((leg) => ({ ...leg, serviceDate: null })) };
     }
     if (type === 'rentcar' || type === 'cruise_vehicle') {
       if (type === 'cruise_vehicle' && !form.cruiseReservationId && !form.cruiseCartItemId) throw new Error('차량을 추가할 크루즈 예약을 선택해 주세요.');
@@ -357,23 +398,15 @@ export default function PlatformBookingForm({ type }) {
   }
 
   function summaryRows() {
+    if (type === 'airport') return [['서비스', service.label], ['이동 형태', derived.optionName || '선택 중'], ['이동 경로', derived.routeLabel || '선택 중'], ['차량 유형', form.vehicleType || '선택 중'], ['참고 금액', money(derived.total)]];
     return [['서비스', service.label], ['상품', derived.name], ['옵션', derived.optionName || '선택 중'], ['이용일', derived.startDate || '미정'], ['인원', `성인 ${derived.adults} · 아동 ${derived.children} · 유아 ${derived.infants}`], ['참고 금액', money(derived.total, type === 'cruise' && derived.selected?.[0]?.rate?.currency === 'USD' ? 'USD' : type === 'ticket' && form.priceChannel === 'krw' ? 'KRW' : 'VND')]];
   }
 
-  function airportLeg(legName, label) {
-    const leg = form[legName];
-    const prices = validRateRows(options.prices, leg.serviceDate);
-    const categories = uniqueValues(prices, 'service_type');
-    const routes = uniqueValues(prices.filter((row) => row.service_type === leg.category), 'route');
-    const vehicles = uniqueValues(prices.filter((row) => row.service_type === leg.category && row.route === leg.route), 'vehicle_type');
-    const selected = prices.find((row) => row.service_type === leg.category && row.route === leg.route && row.vehicle_type === leg.vehicleType);
-    return <div className="booking-field-set"><span className="booking-field-set-label">{label}</span><div className="booking-fields">
-      <Field label="이용일"><input type="date" value={leg.serviceDate} onChange={(event) => setLeg(legName, 'serviceDate', event.target.value)} /></Field>
-      <Field label="서비스 분류"><Select value={leg.category} onChange={(value) => setLeg(legName, 'category', value)} options={categories} /></Field>
-      <Field label="이동 경로"><Select value={leg.route} onChange={(value) => setLeg(legName, 'route', value)} options={routes} disabled={!leg.category} /></Field>
-      <Field label="차량 유형"><Select value={leg.vehicleType} onChange={(value) => { setLeg(legName, 'vehicleType', value); const row = prices.find((price) => price.service_type === leg.category && price.route === leg.route && price.vehicle_type === value); if (row) setLeg(legName, 'airportPriceCode', row.airport_code); }} options={vehicles} disabled={!leg.route} /></Field>
-      {selected && <p className="booking-inline-note booking-field full">현재 등록 요금 {money(n(selected.price))}</p>}
-    </div></div>;
+  function airportFields() {
+    const prices = validRateRows(options.prices, todayInSeoul());
+    const routes = airportRouteChoices(prices, form.serviceType);
+    const vehicleTypes = uniqueValues(prices.filter((row) => form.serviceType === 'round_trip' ? airportRoundTripKey(row.route) === form.airportRoute : JSON.stringify([row.service_type, row.route]) === form.airportRoute), 'vehicle_type');
+    return <><div className="booking-step"><span>01 / 이동 형태</span><div className="booking-choice-grid"><Choice active={form.serviceType === 'round_trip'} onClick={() => setForm((current) => ({ ...current, serviceType: 'round_trip', airportRoute: '', vehicleType: '' }))}>왕복</Choice><Choice active={form.serviceType === 'one_way'} onClick={() => setForm((current) => ({ ...current, serviceType: 'one_way', airportRoute: '', vehicleType: '' }))}>편도</Choice></div></div><div className="booking-fields booking-field-set"><Field label="이동 경로"><Select value={form.airportRoute} onChange={(value) => setForm((current) => ({ ...current, airportRoute: value, vehicleType: '' }))} options={routes} valueOf={(route) => route.value} label={(route) => route.label} /></Field><Field label="차량 유형"><Select value={form.vehicleType} onChange={(value) => set('vehicleType', value)} options={vehicleTypes} disabled={!form.airportRoute} /></Field></div></>;
   }
 
   function vehicleFields(cruiseVehicle) {
@@ -414,7 +447,7 @@ export default function PlatformBookingForm({ type }) {
       {form.schedule === '당일' && form.cruiseName && <div className="booking-field-set"><span className="booking-field-set-label">당일투어 선택 옵션</span>{(options.tourOptions || []).filter((option) => option.cruise_name === form.cruiseName && scheduleLabel(option.schedule_type) === form.schedule).map((option) => { const selected = form.tourOptions.find((entry) => entry.optionId === option.option_id); return <label className="booking-option-line" key={option.option_id}><input type="checkbox" checked={Boolean(selected)} onChange={(event) => set('tourOptions', event.target.checked ? [...form.tourOptions, { optionId: option.option_id, quantity: 1 }] : form.tourOptions.filter((entry) => entry.optionId !== option.option_id))} /><span>{option.option_name}</span><b>{money(n(option.option_price))}</b></label>; })}</div>}
     </>;
     if (type === 'hotel') return <><div className="booking-fields"><Field label="체크인"><input type="date" value={form.checkin} onChange={(event) => setForm((current) => ({ ...current, checkin: event.target.value, hotelName: '', hotelPriceCode: '' }))} /></Field><Field label="체크아웃"><input type="date" min={form.checkin} value={form.checkout} onChange={(event) => set('checkout', event.target.value)} /></Field><Field label="호텔" full><Select value={form.hotelName} onChange={(value) => setForm((current) => ({ ...current, hotelName: value, hotelPriceCode: '' }))} options={derived.hotels} valueOf={(hotel) => hotel.hotel_name} label={(hotel) => `${hotel.hotel_name}${hotel.location ? ` · ${hotel.location}` : ''}`} /></Field><Field label="객실" full><Select value={form.hotelPriceCode} onChange={(value) => set('hotelPriceCode', value)} options={derived.rooms} valueOf={(room) => room.hotel_price_code} label={(room) => `${room.room_name} · ${room.include_breakfast ? '조식 포함' : '조식 별도'} · ${money(n(room.base_price))}`} /></Field><Field label="객실 수"><NumberInput value={form.roomCount} min={1} max={10} onChange={(value) => set('roomCount', value)} /></Field><Field label="성인"><NumberInput value={form.adults} min={1} onChange={(value) => set('adults', value)} /></Field><Field label="아동"><NumberInput value={form.children} onChange={(value) => set('children', value)} /></Field><Field label="유아"><NumberInput value={form.infants} onChange={(value) => set('infants', value)} /></Field></div></>;
-    if (type === 'airport') return <><div className="booking-step"><span>01 / 이동 형태</span><div className="booking-choice-grid"><Choice active={form.serviceType === 'both'} onClick={() => set('serviceType', 'both')}>픽업 + 샌딩</Choice><Choice active={form.serviceType === 'pickup'} onClick={() => set('serviceType', 'pickup')}>공항 픽업</Choice><Choice active={form.serviceType === 'sending'} onClick={() => set('serviceType', 'sending')}>공항 샌딩</Choice></div></div>{(form.serviceType === 'pickup' || form.serviceType === 'both') && airportLeg('pickup', '02 / 픽업 정보')}{(form.serviceType === 'sending' || form.serviceType === 'both') && airportLeg('sending', form.serviceType === 'both' ? '03 / 샌딩 정보' : '02 / 샌딩 정보')}<div className="booking-fields booking-field-set"><Field label="탑승 인원"><NumberInput value={form.passengerCount} min={1} onChange={(value) => set('passengerCount', value)} /></Field><Field label="수하물 수"><NumberInput value={form.luggageCount} onChange={(value) => set('luggageCount', value)} /></Field><Field label="성인"><NumberInput value={form.adults} min={1} onChange={(value) => set('adults', value)} /></Field><Field label="아동"><NumberInput value={form.children} onChange={(value) => set('children', value)} /></Field></div></>;
+    if (type === 'airport') return airportFields();
     if (type === 'rentcar') return vehicleFields(false);
     if (type === 'cruise_vehicle') return vehicleFields(true);
     if (type === 'tour') {
@@ -429,5 +462,5 @@ export default function PlatformBookingForm({ type }) {
   }
 
   if (!service) return <div className="booking-page"><div className="booking-shell"><div className="booking-empty"><h1>서비스를 찾을 수 없습니다.</h1><Link href="/booking">예약 홈으로 →</Link></div></div></div>;
-  return <div className="booking-page"><div className="booking-shell"><Link href="/booking" className="booking-back">← 전체 서비스</Link><div className="booking-title-row"><div><span className="booking-section-kicker">HAPPY TRAVEL SERVICE</span><h1>{service.label}</h1></div><BookingCartLink className="beta-badge" header={false}>장바구니</BookingCartLink></div>{loading ? <div className="booking-empty"><h2>여행 서비스를 불러오는 중입니다.</h2></div> : <form className="service-flow" onSubmit={addToCart}><section className="booking-panel"><div className="booking-panel-head"><span>01 / PRICE SELECTION</span><h2>금액 조건 선택</h2><p>결제 전에는 금액에 영향을 주는 항목만 선택합니다. 장소·시각·항공편 등 운영정보는 결제 완료 후 입력합니다.</p></div><div className="booking-panel-body">{fields()}</div></section><aside className="service-selection-summary"><div><span>02 / SELECTION SUMMARY</span><h2>선택 내용</h2></div><dl>{summaryRows().map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label.includes('금액') ? 'booking-summary-price' : ''}>{value}</dd></div>)}</dl></aside>{error && <p className="booking-error" role="alert">{error}</p>}{message && <p className="booking-warning" role="status">{message}</p>}<div className="booking-controls"><button type="submit" disabled={saving}>{saving ? '홈페이지 DB 저장 중…' : editingCartItemId ? '장바구니 수정 저장 →' : '장바구니에 저장 →'}</button><BookingCartLink className="secondary" showCount={false} header={false}>장바구니 보기 →</BookingCartLink></div></form>}</div></div>;
+  return <div className="booking-page"><div className="booking-shell"><Link href="/booking" className="booking-back">← 전체 서비스</Link><div className="booking-title-row"><div><span className="booking-section-kicker">HAPPY TRAVEL SERVICE</span><h1>{service.label}</h1></div><BookingCartLink className="beta-badge" header={false}>장바구니</BookingCartLink></div>{loading ? <div className="booking-empty"><h2>여행 서비스를 불러오는 중입니다.</h2></div> : <form className="service-flow" onSubmit={addToCart}><section className="booking-panel"><div className="booking-panel-head"><span>01 / PRICE SELECTION</span></div><div className="booking-panel-body">{fields()}</div></section><aside className="service-selection-summary"><div><span>02 / SELECTION SUMMARY</span><h2>선택 내용</h2></div><dl>{summaryRows().map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label.includes('금액') ? 'booking-summary-price' : ''}>{value}</dd></div>)}</dl></aside>{error && <p className="booking-error" role="alert">{error}</p>}{message && <p className="booking-warning" role="status">{message}</p>}<div className="booking-controls"><button type="submit" disabled={saving}>{saving ? '홈페이지 DB 저장 중…' : editingCartItemId ? '장바구니 수정 저장 →' : '장바구니에 저장 →'}</button><BookingCartLink className="secondary" showCount={false} header={false}>장바구니 보기 →</BookingCartLink></div></form>}</div></div>;
 }

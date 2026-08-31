@@ -287,7 +287,7 @@ function SeatPricingBreakdown({ record }) {
   return <details className="reservation-collapsible reservation-seat-breakdown"><summary><span>좌석군별 요금 내역</span><b>{buckets.length}개 좌석군</b></summary><div className="reservation-seat-lines">{buckets.map((item, index) => <div key={`${item.bucket}-${index}`}><span>{item.bucket === 'ALL' ? '단독(ALL)' : `${item.bucket}석`} ({Array.isArray(item.seats) ? item.seats.join(', ') : ''})</span><strong>{formatAmount(item.unit_price)} × {Number(item.quantity || 0).toLocaleString('ko-KR')} = {formatAmount(item.total_price)}</strong></div>)}<div className="reservation-seat-total"><span>합계</span><strong>{formatAmount(total)}</strong></div></div></details>;
 }
 
-function RecordDetail({ record, confirmationLink }) {
+function RecordDetail({ record, confirmationLink, operationsLink }) {
   const entries = detailEntries(record);
   const linkedCarEntries = detailEntries({ re_type: 'cruise_car', details: record.linkedCars || [] });
   const payment = paymentFor(record);
@@ -302,7 +302,7 @@ function RecordDetail({ record, confirmationLink }) {
     <ReservationAmounts record={record} />
     <div className="reservation-payment-note"><span>결제 기록</span><strong>{payment ? `${paymentMethodLabel(payment.payment_method)} · ${formatDate(payment.created_at, true)}` : '매니저 결제 안내 전'}</strong></div>
     {isPresent(record.manager_note) && <p className="reservation-manager-note"><b>안내 메모</b>{record.manager_note}</p>}
-    {confirmationLink && <div className="reservation-detail-actions"><Link className="booking-action primary" href={confirmationLink}>예약 확인서 보기 →</Link></div>}
+    {(confirmationLink || operationsLink) && <div className="reservation-detail-actions">{operationsLink && ['completed', 'paid'].includes(payment?.payment_status || record.payment_status) && <Link className="booking-action primary" href={operationsLink}>운영정보 입력 →</Link>}{confirmationLink && <Link className="booking-action secondary" href={confirmationLink}>예약 확인서 보기 →</Link>}</div>}
   </section>;
 }
 
@@ -315,7 +315,7 @@ function LoadingOrError({ state }) {
 export function ReservationDetailView({ reservationId }) {
   const state = useReservationBundle(reservationId, false);
   const record = state.bundle?.records.find((item) => item.re_id === state.bundle.focusId);
-  return <div className="booking-page"><div className="booking-shell"><Link href="/booking/reservations" className="booking-back">← 내 예약</Link><div className="booking-title-row"><div><span className="booking-section-kicker">RESERVATION DETAIL</span><h1>예약 상세</h1></div><span className="beta-badge">PLATFORM SHARED DATA</span></div><LoadingOrError state={state} />{record && <RecordDetail record={record} confirmationLink={`/booking/reservations/${record.re_id}/confirmation`} />}</div></div>;
+  return <div className="booking-page"><div className="booking-shell"><Link href="/booking/reservations" className="booking-back">← 내 예약</Link><div className="booking-title-row"><div><span className="booking-section-kicker">RESERVATION DETAIL</span><h1>예약 상세</h1></div><span className="beta-badge">PLATFORM SHARED DATA</span></div><LoadingOrError state={state} />{record && <RecordDetail record={record} confirmationLink={`/booking/reservations/${record.re_id}/confirmation`} operationsLink={`/booking/reservations/${record.re_id}/operations`} />}</div></div>;
 }
 
 export function ReservationConfirmationView({ reservationId }) {

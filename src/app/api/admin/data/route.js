@@ -85,6 +85,25 @@ async function forwardPlatformMutation(request, database, body) {
   return result;
 }
 
+// 홈페이지 상품 설명은 홈페이지 DB가 즉시 읽는 값이다. 로컬 작업 중
+// 플랫폼 관리자 서버가 실행되지 않아도 저장·새로고침이 실패하지 않도록
+// 이 값을 먼저 확정하고 플랫폼 원본 반영은 후속으로 시도한다.
+async function updateCatalogProductImmediately(request, database, body) {
+  const source = await platformMutationSource(database, body.action, body.id, body.values || {});
+  const token = bearerToken(request);
+  await mirrorCatalogProductUpdate(database, body);
+
+  after(async () => {
+    try {
+      await sendPlatformMutation(token, source, body);
+    } catch (error) {
+      console.error('[homepage-admin] delayed catalog product sync failed', error?.message || error);
+    }
+  });
+
+  return { ok: true, syncPending: true };
+}
+
 async function updateCruiseImmediately(request, database, body) {
   const source = await platformMutationSource(database, body.action, body.id, body.values || {});
   const token = bearerToken(request);
@@ -361,6 +380,9 @@ export async function PATCH(request) {
     }
     if (body?.action === 'updateItinerary') {
       return Response.json(await updateItineraryImmediately(request, database, body));
+    }
+    if (body?.action === 'updateCatalogProduct') {
+      return Response.json(await updateCatalogProductImmediately(request, database, body));
     }
     if (PLATFORM_PRODUCT_ACTIONS.has(body?.action)) {
       return Response.json(await forwardPlatformMutation(request, database, body));

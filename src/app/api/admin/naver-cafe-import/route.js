@@ -137,11 +137,47 @@ async function launchArticleBrowser() {
   return puppeteer.launch({ headless: true });
 }
 
-async function readArticle(sourceUrl) {
+function normalizeNaverCredentials(value) {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object') badRequest('네이버 로그인 정보를 다시 입력해 주세요.');
+  const id = typeof value.id === 'string' ? value.id.trim() : '';
+  const password = typeof value.password === 'string' ? value.password : '';
+  if (!id || !password) badRequest('네이버 아이디와 비밀번호를 모두 입력해 주세요.');
+  if (id.length > 100 || password.length > 256) badRequest('네이버 로그인 정보의 길이를 확인해 주세요.');
+  return { id, password };
+}
+
+async function signInToNaver(page, credentials) {
+  await page.goto('https://nid.naver.com/nidlogin.login?mode=form', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  try {
+    await page.waitForSelector('#id, input[name="id"]', { timeout: 15000 });
+    const idSelector = await page.$('#id') ? '#id' : 'input[name="id"]';
+    const passwordSelector = await page.$('#pw') ? '#pw' : 'input[name="pw"]';
+    await page.type(idSelector, credentials.id);
+    await page.type(passwordSelector, credentials.password);
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => null),
+      page.click('#log\\.login, button[type="submit"]'),
+    ]);
+  } catch {
+    badRequest('네이버 로그인 화면을 열지 못했습니다. 잠시 후 다시 시도해 주세요.');
+  }
+
+  const loginFormVisible = await page.$('#id, input[name="id"]');
+  if (!loginFormVisible) return;
+  const message = await page.evaluate(() => document.body?.innerText || '');
+  if (/2단계|추가 인증|보안 인증|본인 인증|새로운 환경/.test(message)) {
+    badRequest('네이버 추가 인증 또는 보안 확인이 필요합니다. 아이디·비밀번호만으로는 서버에서 로그인할 수 없습니다. 공개 글을 사용하거나 추가 인증이 없는 카페 회원 계정을 사용해 주세요.');
+  }
+  badRequest('네이버 로그인에 실패했습니다. 아이디·비밀번호와 해당 카페의 가입·등급 권한을 확인해 주세요.');
+}
+
+async function readArticle(sourceUrl, credentials = null) {
   const browser = await launchArticleBrowser();
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000 });
+    if (credentials) await signInToNaver(page, credentials);
     // 네이버 카페는 분석·광고 연결을 계속 유지해 networkidle2가 쉽게 끝나지
     // 않는다. 본문 iframe이 준비되는 시점만 기다려 미리보기가 불필요하게
     // 30초까지 지연되지 않도록 한다.
@@ -371,7 +407,8 @@ export async function POST(request) {
     const body = await request.json();
     const source = normalizeArticleUrl(body.url);
     if (body.action === 'preview') {
-      const article = await readArticle(source.url);
+      const credentials = normalizeNaverCredentials(body.naverCredentials);
+      const article = await readArticle(source.url, credentials);
       const { data: cruises, error: cruisesError } = await database.from('cruises_v2').select('id,name_ko,name_en').order('name_ko');
       if (cruisesError) throw cruisesError;
       const { data: hotels, error: hotelsError } = await database.from('catalog_products_v2').select('id,service_type,source_key,name_ko').eq('source', 'sht-platform').eq('service_type', 'hotel').order('name_ko');

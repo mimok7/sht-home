@@ -81,6 +81,7 @@ async function forwardPlatformMutation(request, database, body) {
   const source = await platformMutationSource(database, body.action, body.id, body.values || {});
   const result = await sendPlatformMutation(bearerToken(request), source, body);
   await mirrorCruiseUpdate(database, body);
+  await mirrorCatalogProductUpdate(database, body);
   return result;
 }
 
@@ -143,6 +144,29 @@ async function mirrorCruiseUpdate(database, body) {
   revalidatePath('/cruises');
   revalidatePath('/temp-home');
   revalidatePath('/product/[id]', 'page');
+}
+
+// 호텔 등 일반 서비스의 상품 설명도 플랫폼 동기화 경고와 관계없이 즉시 공개 카탈로그에 반영한다.
+// 플랫폼은 같은 값을 오버라이드로 보관하므로, 다음 전체 동기화에서도 이 값이 다시 적용된다.
+async function mirrorCatalogProductUpdate(database, body) {
+  if (body?.action !== 'updateCatalogProduct' || !body.id) return;
+  const values = body.values || {};
+  const updates = { updated_at: new Date().toISOString() };
+  if (Object.hasOwn(values, 'name_ko')) updates.name_ko = nullableText(values.name_ko);
+  if (Object.hasOwn(values, 'description')) updates.description = nullableText(values.description);
+  if (Object.hasOwn(values, 'category')) updates.category = nullableText(values.category);
+  if (Object.hasOwn(values, 'image_url')) updates.image_url = nullableText(values.image_url);
+  if (Object.hasOwn(values, 'is_active')) updates.is_active = Boolean(values.is_active);
+  if (Object.keys(updates).length === 1) return;
+
+  const { error } = await database.from('catalog_products_v2').update(updates).eq('id', body.id).eq('source', 'sht-platform');
+  if (error) throw error;
+
+  revalidatePath('/');
+  revalidatePath('/hotels');
+  revalidatePath('/hotels/[id]', 'page');
+  revalidatePath('/travel-guide');
+  revalidatePath('/temp-home');
 }
 
 // 일정 저장은 플랫폼의 전체 카탈로그 동기화를 기다리지 않고 공개 화면에 즉시 반영한다.

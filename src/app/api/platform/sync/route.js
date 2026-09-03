@@ -77,7 +77,14 @@ async function applyCatalogOverrides(database, catalogs) {
   let products = 0;
   let prices = 0;
   for (const row of catalogs.homepage_catalog_product_overrides || []) {
-    const { error } = await database.from('catalog_products_v2').update({ manual_override: row.values || {}, updated_at: new Date().toISOString() })
+    const values = row.values || {};
+    const productUpdates = { manual_override: values, updated_at: new Date().toISOString() };
+    if (Object.hasOwn(values, 'name_ko')) productUpdates.name_ko = typeof values.name_ko === 'string' && values.name_ko.trim() ? values.name_ko.trim() : null;
+    if (Object.hasOwn(values, 'description')) productUpdates.description = typeof values.description === 'string' && values.description.trim() ? values.description.trim() : null;
+    if (Object.hasOwn(values, 'category')) productUpdates.category = typeof values.category === 'string' && values.category.trim() ? values.category.trim() : null;
+    if (Object.hasOwn(values, 'image_url')) productUpdates.image_url = typeof values.image_url === 'string' && values.image_url.trim() ? values.image_url.trim() : null;
+    if (Object.hasOwn(values, 'is_active')) productUpdates.is_active = Boolean(values.is_active);
+    const { error } = await database.from('catalog_products_v2').update(productUpdates)
       .eq('source', 'sht-platform').eq('service_type', row.service_type).eq('source_key', row.source_key);
     if (error) throw error;
     products += 1;

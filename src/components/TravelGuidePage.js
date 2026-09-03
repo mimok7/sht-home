@@ -98,7 +98,7 @@ export default function TravelGuidePage() {
         const activePrices = (pricesByProduct.get(product.id) || []).filter((price) => price.price_amount !== null && Number.isFinite(Number(price.price_amount)));
         const lowestPrice = activePrices.sort((left, right) => Number(left.price_amount) - Number(right.price_amount))[0] || null;
         const hotelImages = (hotelImagesByProduct.get(product.id) || []).sort((left, right) => Number(right.is_primary) - Number(left.is_primary) || left.sort_order - right.sort_order);
-        return { ...product, prices: activePrices, lowestPrice, hotelImages, tags: tagsByProduct.get(product.id) || [] };
+        return { ...product, name_ko: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, prices: activePrices, lowestPrice, hotelImages, tags: tagsByProduct.get(product.id) || [] };
       });
   }, [catalog, selectedService]);
   const budgetOptions = useMemo(() => cruiseBudgetOptions(serviceProducts, context), [context, serviceProducts]);
@@ -109,7 +109,7 @@ export default function TravelGuidePage() {
     async function loadCatalog() {
       setCatalogLoading(true);
       const [productsResult, pricesResult, hotelImagesResult, cruiseTagsResult, serviceTagsResult] = await Promise.all([
-        supabase.from('catalog_products_v2').select('id,service_type,name_ko,description,category,image_url,metadata').eq('is_active', true).order('name_ko').limit(1000),
+        supabase.from('catalog_products_v2').select('id,service_type,name_ko,description,category,image_url,metadata,manual_override').eq('is_active', true).order('name_ko').limit(1000),
         supabase.from('catalog_prices_v2').select('product_id,price_amount,currency,price_unit,label,min_guests,max_guests,valid_from,valid_to').eq('is_active', true).limit(2000),
         supabase.from('hotel_gallery_images_v2').select('product_id,hotel_price_code,image_name,image_url,sort_order,is_primary').order('sort_order').limit(3000),
         supabase.from('cruise_tags_v2').select('tag,evidence').eq('is_active', true).order('tag'),

@@ -84,8 +84,8 @@ async function getHotels() {
     ].filter((image, index, all) => all.findIndex((current) => current.url === image.url) === index);
     return {
       id: hotel.id,
-      name: hotel.name_ko,
-      description: hotel.description,
+      name: manualOverride.name_ko || hotel.name_ko,
+      description: manualOverride.description ?? hotel.description,
       location: metadata.location || '지역 확인 중',
       rating: positiveNumber(metadata.star_rating),
       minPrice: price?.amount || null,

@@ -112,7 +112,7 @@ export default function HotelDetail({ params }) {
         editingItem = cart.items.find((item) => item.id === editCartItemId && item.serviceType === 'hotel' && String(item.productId) === String(product.id)) || null;
       }
       const editingRoom = editingItem && nextRooms.find((room) => room.id === editingItem.optionId);
-      setHotel({ id: product.id, name: product.name_ko, description: product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryImages[0]?.url || '' });
+      setHotel({ id: product.id, name: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryImages[0]?.url || '' });
       setHotelImages(galleryImages); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
       setStayDate(editingItem?.startDate || ''); setGuests(Math.max(1, Number(editingItem?.adults || 2))); setRoomCount(Math.max(1, Number(editingItem?.quantity || 1))); setEditingCartItemId(editingItem?.id || ''); setLoading(false);
     }

@@ -151,16 +151,44 @@ async function mirrorCruiseUpdate(database, body) {
 async function mirrorCatalogProductUpdate(database, body) {
   if (body?.action !== 'updateCatalogProduct' || !body.id) return;
   const values = body.values || {};
+  const editableFields = ['name_ko', 'description', 'category', 'image_url', 'is_active'];
+  const changedFields = editableFields.filter((field) => Object.hasOwn(values, field));
+  if (!changedFields.length) return;
+
+  // 전체 동기화는 원본 상품 값을 다시 쓰기 때문에, 직접 컬럼만 갱신하면
+  // 이후 새로고침에서 원본 설명으로 되돌아갈 수 있다. 홈페이지 DB에도
+  // 같은 오버라이드를 함께 저장해 이후 로딩과 동기화 모두 수정값을 우선한다.
+  const { data: current, error: currentError } = await database
+    .from('catalog_products_v2')
+    .select('manual_override')
+    .eq('id', body.id)
+    .eq('source', 'sht-platform')
+    .maybeSingle();
+  if (currentError) throw currentError;
+  if (!current) throw new Error('수정할 홈페이지 상품을 찾을 수 없습니다.');
+
+  const manualOverride = { ...(current.manual_override || {}) };
+  for (const field of changedFields) {
+    manualOverride[field] = field === 'is_active' ? Boolean(values[field]) : field === 'name_ko' ? nullableText(values[field]) : typeof values[field] === 'string' ? values[field].trim() : '';
+  }
   const updates = { updated_at: new Date().toISOString() };
   if (Object.hasOwn(values, 'name_ko')) updates.name_ko = nullableText(values.name_ko);
   if (Object.hasOwn(values, 'description')) updates.description = nullableText(values.description);
   if (Object.hasOwn(values, 'category')) updates.category = nullableText(values.category);
   if (Object.hasOwn(values, 'image_url')) updates.image_url = nullableText(values.image_url);
   if (Object.hasOwn(values, 'is_active')) updates.is_active = Boolean(values.is_active);
-  if (Object.keys(updates).length === 1) return;
+  updates.manual_override = manualOverride;
 
-  const { error } = await database.from('catalog_products_v2').update(updates).eq('id', body.id).eq('source', 'sht-platform');
+  const { data: updated, error } = await database.from('catalog_products_v2')
+    .update(updates)
+    .eq('id', body.id)
+    .eq('source', 'sht-platform')
+    .select('id,manual_override,description')
+    .maybeSingle();
   if (error) throw error;
+  if (!updated || changedFields.some((field) => updated.manual_override?.[field] !== manualOverride[field])) {
+    throw new Error('홈페이지 상품 수정값을 데이터베이스에 확인하지 못했습니다.');
+  }
 
   revalidatePath('/');
   revalidatePath('/hotels');

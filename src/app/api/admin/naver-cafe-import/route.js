@@ -159,7 +159,10 @@ async function signInToNaver(page, credentials) {
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 20000 }).catch(() => null),
       page.click('#log\\.login, button[type="submit"]'),
     ]);
-  } catch {
+  } catch (error) {
+    // 네이버의 로그인 화면 구성이나 외부 연결 문제는 다음 요청에서 원인을
+    // 확인할 수 있게 남기되, 아이디·비밀번호는 절대 로그에 포함하지 않는다.
+    console.warn('[naver-cafe-import] naver login page unavailable', error?.message || error);
     badRequest('네이버 로그인 화면을 열지 못했습니다. 잠시 후 다시 시도해 주세요.');
   }
 
@@ -598,6 +601,6 @@ export async function POST(request) {
   } catch (error) {
     console.error('[naver-cafe-import]', error?.message || error);
     const message = error?.message || '네이버 카페 게시물을 가져오지 못했습니다.';
-    return Response.json({ error: message }, { status: /입력|지원|권한|선택|찾을 수|읽지 못|공개/.test(message) ? 400 : 500 });
+    return Response.json({ error: message }, { status: /입력|지원|권한|선택|찾을 수|읽지 못|공개|로그인|인증|열람|본문/.test(message) ? 400 : 500 });
   }
 }

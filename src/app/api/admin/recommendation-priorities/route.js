@@ -22,10 +22,9 @@ function errorResponse(error, fallback, status = 500) {
   return Response.json({ error: status === 500 ? fallback : error.message }, { status });
 }
 
-async function requireAdminDatabase(request, write = false) {
+async function requireOperatorDatabase(request) {
   const operator = await getHomepageOperator(request);
   if (!operator) return { response: Response.json({ error: '운영자 로그인이 필요합니다.' }, { status: 401 }) };
-  if (write && operator.role !== 'admin') return { response: Response.json({ error: '추천순위는 관리자만 변경할 수 있습니다.' }, { status: 403 }) };
   const database = getHomepageDatabase();
   if (!database) return { response: Response.json({ error: '홈페이지 관리자 서비스 키가 설정되지 않았습니다.' }, { status: 503 }) };
   return { operator, database };
@@ -54,7 +53,7 @@ async function validateEligibleCruises(database, criterion, schedule, cruiseIds)
 }
 
 export async function GET(request) {
-  const access = await requireAdminDatabase(request);
+  const access = await requireOperatorDatabase(request);
   if (access.response) return access.response;
 
   const url = new URL(request.url);
@@ -82,7 +81,7 @@ export async function GET(request) {
       ok: true,
       scope: scopeResult.data || { criterion_tag: criterion, schedule_type: schedule, revision: 0, updated_by: null, updated_at: null },
       priorities: prioritiesResult.data || [],
-      canEdit: access.operator.role === 'admin',
+      canEdit: true,
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return errorResponse(error, '추천순위를 불러오지 못했습니다.');
@@ -90,7 +89,7 @@ export async function GET(request) {
 }
 
 export async function PATCH(request) {
-  const access = await requireAdminDatabase(request, true);
+  const access = await requireOperatorDatabase(request);
   if (access.response) return access.response;
 
   let body;

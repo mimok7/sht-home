@@ -82,7 +82,7 @@ export default function RecommendationPriorityPanel({ adminRequest, cruises, iti
   const cruiseById = useMemo(() => new Map(cruises.map((cruise) => [cruise.id, cruise])), [cruises]);
   const eligibleIds = useMemo(() => eligibleCruises.map((cruise) => cruise.id), [eligibleCruises]);
   const isDirty = !sameOrder(order, savedOrder);
-  const canEdit = operatorRole === 'admin';
+  const canEdit = operatorRole === 'admin' || operatorRole === 'manager';
 
   const loadPriorities = useCallback(async () => {
     const sequence = loadSequence.current + 1;
@@ -175,7 +175,7 @@ export default function RecommendationPriorityPanel({ adminRequest, cruises, iti
 
     {error && <p className="priority-feedback error" role="alert">{error}</p>}
     {notice && <p className="priority-feedback success" role="status">{notice}</p>}
-    {!canEdit && <p className="priority-feedback read-only">관리자 권한에서만 순위를 변경할 수 있습니다. 현재 계정은 조회만 가능합니다.</p>}
+    {!canEdit && <p className="priority-feedback read-only">운영자 권한을 확인한 뒤 순위를 변경할 수 있습니다.</p>}
 
     {loading ? <p className="priority-empty">추천순위를 불러오는 중…</p> : order.length ? <ol className="priority-list">
       {order.map((cruiseId, index) => {

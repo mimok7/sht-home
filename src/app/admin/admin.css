@@ -38,6 +38,9 @@
 .priority-manager-heading>div>span{color:var(--acid);font-size:10px;font-weight:800;letter-spacing:.16em}
 .admin-workspace[data-active="recommendation-priorities"] .admin-panel[data-panel="recommendation-priorities"]{display:block}
 .admin-panel[data-panel="recommendation-priorities"] .priority-manager{margin-top:0;padding-top:0;border-top:0}
+.admin-workspace[data-active="hotel-recommendation-priorities"] .admin-panel[data-panel="hotel-recommendation-priorities"]{display:block}
+.admin-panel[data-panel="hotel-recommendation-priorities"] .priority-manager{margin-top:0;padding-top:0;border-top:0}
+.hotel-priority-manager .priority-scope{grid-template-columns:minmax(170px,.55fr) minmax(240px,1fr)}
 .priority-manager-heading h2{margin:7px 0 6px;font-size:28px;font-weight:800;letter-spacing:-.05em}
 .priority-manager-heading p{max-width:720px;color:var(--muted);font-size:13px;line-height:1.7;word-break:keep-all}
 .priority-manager-heading dl{display:flex;margin:0;background:var(--navy);color:#fff}

@@ -33,11 +33,18 @@ function RotatingHotelImage({ hotel, index }) {
 export default function HotelCollection({ hotels }) {
   const [area, setArea] = useState('all');
   const [rating, setRating] = useState('all');
-  const [sort, setSort] = useState('price-asc');
+  const [sort, setSort] = useState('recommended');
   const filteredHotels = useMemo(() => hotels
     .filter((hotel) => area === 'all' || hotelArea(hotel.location) === area)
     .filter((hotel) => rating === 'all' || Number(hotel.rating) === Number(rating))
     .sort((left, right) => {
+      if (sort === 'recommended') {
+        const leftRanked = Number.isFinite(left.priorityPosition);
+        const rightRanked = Number.isFinite(right.priorityPosition);
+        if (leftRanked !== rightRanked) return leftRanked ? -1 : 1;
+        if (leftRanked && left.priorityPosition !== right.priorityPosition) return left.priorityPosition - right.priorityPosition;
+        return left.name.localeCompare(right.name, 'ko');
+      }
       if (sort === 'name') return left.name.localeCompare(right.name, 'ko');
       const leftPrice = left.minPrice ?? Number.MAX_SAFE_INTEGER;
       const rightPrice = right.minPrice ?? Number.MAX_SAFE_INTEGER;
@@ -51,7 +58,7 @@ export default function HotelCollection({ hotels }) {
           <label><span className="sr-only">지역 필터</span><select value={area} onChange={(event) => setArea(event.target.value)}><option value="all">지역 전체</option><option value="halong">하롱베이</option><option value="hanoi">하노이</option></select></label>
           <label><span className="sr-only">등급 필터</span><select value={rating} onChange={(event) => setRating(event.target.value)}><option value="all">등급 전체</option><option value="5">5성급</option></select></label>
         </div>
-        <label className="hotel-sort"><span className="sr-only">정렬 순서</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="price-asc">등록요금 낮은 순</option><option value="price-desc">등록요금 높은 순</option><option value="name">이름순</option></select></label>
+        <label className="hotel-sort"><span className="sr-only">정렬 순서</span><select value={sort} onChange={(event) => setSort(event.target.value)}><option value="recommended">추천순</option><option value="price-asc">등록요금 낮은 순</option><option value="price-desc">등록요금 높은 순</option><option value="name">이름순</option></select></label>
       </section>
 
       {filteredHotels.length === 0 ? (

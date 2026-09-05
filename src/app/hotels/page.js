@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getHomepageDatabase } from '@/lib/homepage-admin';
 import HotelCollection from './HotelCollection';
 import './hotels.css';
 
@@ -24,8 +25,25 @@ function proxiedImageUrl(imageUrl) {
   return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
 }
 
+async function getHotelRecommendationPriorities() {
+  const database = getHomepageDatabase();
+  if (!database) return new Map();
+  try {
+    const { data, error } = await database
+      .from('hotel_recommendation_priorities_v2')
+      .select('product_id,position')
+      .eq('criterion_tag', 'default')
+      .order('position');
+    if (error) throw error;
+    return new Map((data || []).map((row) => [row.product_id, Number(row.position)]));
+  } catch (error) {
+    console.warn('[hotels] recommendation priority lookup skipped', error?.message || error);
+    return new Map();
+  }
+}
+
 async function getHotels() {
-  const [productsResult, pricesResult, imagesResult] = await Promise.all([
+  const [productsResult, pricesResult, imagesResult, priorities] = await Promise.all([
     supabase
       .from('catalog_products_v2')
       .select('id,name_ko,description,category,image_url,metadata,manual_override')
@@ -45,6 +63,7 @@ async function getHotels() {
       .is('hotel_price_code', null)
       .order('is_primary', { ascending: false })
       .order('sort_order'),
+    getHotelRecommendationPriorities(),
   ]);
 
   if (productsResult.error) {
@@ -92,7 +111,14 @@ async function getHotels() {
       currency: price?.currency || 'VND',
       imageUrl,
       mainImages,
+      priorityPosition: priorities.get(hotel.id) ?? null,
     };
+  }).sort((left, right) => {
+    const leftRanked = Number.isFinite(left.priorityPosition);
+    const rightRanked = Number.isFinite(right.priorityPosition);
+    if (leftRanked !== rightRanked) return leftRanked ? -1 : 1;
+    if (leftRanked && left.priorityPosition !== right.priorityPosition) return left.priorityPosition - right.priorityPosition;
+    return left.name.localeCompare(right.name, 'ko');
   });
 }
 

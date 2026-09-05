@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getHomepageDatabase } from '@/lib/homepage-admin';
 
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
 const ROOM_PREFERENCES = new Set(['standard', 'triple', 'connecting', 'extra_bed', 'single']);
@@ -60,9 +61,10 @@ function preferenceScore(tags, evidence, preference) {
 }
 
 async function loadRecommendationData(context) {
-  const [recommendations, tags] = await Promise.all([
+  const [recommendations, tags, priority] = await Promise.all([
     supabase.from('public_cruise_recommendation_v2').select('cruise_id,slug,cruise_name,cruise_name_en,description,category,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags').eq('schedule_type', context.scheduleType),
     supabase.from('cruise_tags_v2').select('cruise_id,tag,evidence').eq('is_active', true),
+    loadRecommendationPriorities(context),
   ]);
   if (recommendations.error || tags.error) throw new Error('현재 v2 추천 상품 정보를 불러오지 못했습니다.');
   const evidenceByCruise = new Map();
@@ -70,10 +72,40 @@ async function loadRecommendationData(context) {
     if (!evidenceByCruise.has(tag.cruise_id)) evidenceByCruise.set(tag.cruise_id, new Map());
     evidenceByCruise.get(tag.cruise_id).set(tag.tag, tag.evidence);
   }
-  return { rows: (recommendations.data || []).filter((row) => dateMatches(row, context.checkinDate)), evidenceByCruise, source: 'v2' };
+  return { rows: (recommendations.data || []).filter((row) => dateMatches(row, context.checkinDate)), evidenceByCruise, priority, source: 'v2' };
 }
 
-function buildCandidates(rows, context, evidenceByCruise) {
+async function loadRecommendationPriorities(context) {
+  const database = getHomepageDatabase();
+  if (!database) return { criterion: null, positions: new Map() };
+  const primaryCriterion = context.preferences[0] || 'default';
+  const criteria = [...new Set([primaryCriterion, 'default'])];
+  const schedules = [...new Set([context.scheduleType, 'ALL'])];
+
+  try {
+    const { data, error } = await database
+      .from('cruise_recommendation_priorities_v2')
+      .select('criterion_tag,schedule_type,cruise_id,position')
+      .in('criterion_tag', criteria)
+      .in('schedule_type', schedules);
+    if (error) throw error;
+
+    const scopeOrder = [
+      [primaryCriterion, context.scheduleType],
+      [primaryCriterion, 'ALL'],
+      ...((primaryCriterion === 'default') ? [] : [['default', context.scheduleType], ['default', 'ALL']]),
+    ];
+    for (const [criterion, schedule] of scopeOrder) {
+      const scopeRows = (data || []).filter((row) => row.criterion_tag === criterion && row.schedule_type === schedule);
+      if (scopeRows.length) return { criterion, positions: new Map(scopeRows.map((row) => [row.cruise_id, Number(row.position)])) };
+    }
+  } catch (error) {
+    console.warn('[travel-guide] recommendation priority lookup skipped', error?.message || error);
+  }
+  return { criterion: null, positions: new Map() };
+}
+
+function buildCandidates(rows, context, evidenceByCruise, priority) {
   const cruises = new Map();
   for (const row of rows) {
     if (!row.cruise_id || !row.cruise_name) continue;
@@ -96,6 +128,9 @@ function buildCandidates(rows, context, evidenceByCruise) {
     let score = 45;
     const tags = new Set(best.rate.tags || []);
     const evidence = evidenceByCruise.get(cruise.id) || new Map();
+    const priorityPosition = priority.criterion === 'default' || evidence.has(priority.criterion)
+      ? priority.positions.get(cruise.id) ?? null
+      : null;
     if (best.cabin.is_recommended) { score += 8; reasons.push('현지 추천 객실이 등록되어 있어요'); }
     for (const preference of context.preferences) {
       const [points, reason] = preferenceScore(tags, evidence, preference);
@@ -123,16 +158,26 @@ function buildCandidates(rows, context, evidenceByCruise) {
       reasons: [...new Set(reasons)].slice(0, 3),
       confirmations: [...new Set(confirmations)],
       score,
+      priorityPosition,
       href: `/product/${encodeURIComponent(best.cabin.slug)}`,
     });
   }
-  return candidates.sort((a, b) => b.score - a.score || a.registeredPrice - b.registeredPrice).slice(0, 3);
+  return candidates
+    .sort((a, b) => {
+      const aRanked = Number.isFinite(a.priorityPosition);
+      const bRanked = Number.isFinite(b.priorityPosition);
+      if (aRanked !== bRanked) return aRanked ? -1 : 1;
+      if (aRanked && a.priorityPosition !== b.priorityPosition) return a.priorityPosition - b.priorityPosition;
+      return b.score - a.score || a.registeredPrice - b.registeredPrice || a.name.localeCompare(b.name, 'ko');
+    })
+    .slice(0, 3)
+    .map(({ priorityPosition: _priorityPosition, ...candidate }) => candidate);
 }
 
 export async function recommendCruisesForContext(rawContext) {
   const context = normalizeContext(rawContext);
-  const { rows, evidenceByCruise, source } = await loadRecommendationData(context);
-  const recommendations = buildCandidates(rows, context, evidenceByCruise);
+  const { rows, evidenceByCruise, priority, source } = await loadRecommendationData(context);
+  const recommendations = buildCandidates(rows, context, evidenceByCruise, priority);
   const party = `성인 ${context.adults}명${context.children ? ` · 아동 ${context.children}명` : ''}${context.infants ? ` · 유아 ${context.infants}명` : ''}`;
   const date = context.checkinDate || '날짜 미정';
   return {

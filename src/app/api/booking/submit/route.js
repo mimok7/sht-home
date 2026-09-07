@@ -62,7 +62,7 @@ function scheduleCode(value) {
 function platformData(item) {
   const data = item?.metadata?.platform;
   if (!data || ![1, 2].includes(data.contractVersion)) {
-    throw new Error(`${item.serviceLabel} 항목은 플랫폼 저장 정보가 부족합니다. 장바구니에서 삭제한 뒤 다시 선택해 주세요.`);
+    throw new Error(`${item.serviceLabel} 항목 정보를 확인하지 못했습니다. 장바구니에서 삭제한 뒤 다시 선택해 주세요.`);
   }
   return data;
 }
@@ -86,7 +86,7 @@ async function insertParent(platform, ownerId, quoteId, values) {
     re_created_at: new Date().toISOString(),
     ...values,
   }).select('re_id,re_quote_id').single();
-  if (result.error) throw dbError(result.error, '플랫폼 예약 기본 정보를 저장하지 못했습니다.');
+  if (result.error) throw dbError(result.error, '예약 기본 정보를 저장하지 못했습니다.');
   return result.data;
 }
 
@@ -493,7 +493,7 @@ export async function POST(request) {
   const owner = await getPlatformCartOwner(request);
   const homepage = getHomepageBookingCartDatabase();
   const platform = getPlatformUserDatabase(request);
-  if (!owner || !platform) return fail('플랫폼 로그인이 필요합니다.', 401);
+  if (!owner || !platform) return fail('로그인이 필요합니다.', 401);
   if (!homepage) return fail('홈페이지 장바구니 저장소가 설정되지 않았습니다.', 503);
 
   const cartResult = await homepage.from('homepage_booking_carts').select('id,items,status,updated_at').eq('platform_user_id', owner.id).maybeSingle();
@@ -517,7 +517,7 @@ export async function POST(request) {
     }
     const clearedAt = new Date().toISOString();
     const cleared = await homepage.from('homepage_booking_carts').update({ items: [], item_count: 0, status: 'active', updated_at: clearedAt }).eq('id', cartResult.data.id).eq('updated_at', cartResult.data.updated_at).select('id').maybeSingle();
-    if (cleared.error || !cleared.data) throw dbError(cleared.error, '플랫폼 예약은 저장했지만 홈페이지 장바구니를 비우지 못했습니다.') || new Error('장바구니가 다른 화면에서 변경되었습니다. 다시 확인해 주세요.');
+    if (cleared.error || !cleared.data) throw dbError(cleared.error, '예약은 저장했지만 장바구니를 비우지 못했습니다.') || new Error('장바구니가 다른 화면에서 변경되었습니다. 다시 확인해 주세요.');
     return Response.json({ quoteId: quote?.id || null, reservationIds: createdIds, itemCount: createdIds.length, clearedAt });
   } catch (error) {
     await rollback(platform, createdIds);

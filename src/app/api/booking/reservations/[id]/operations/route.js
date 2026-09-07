@@ -156,7 +156,7 @@ function normalizeValue(field, value) {
 async function loadContext(request, id) {
   const owner = await getPlatformCartOwner(request);
   const platform = getPlatformUserDatabase(request);
-  if (!owner || !platform) return { error: fail('플랫폼 로그인이 필요합니다.', 401) };
+  if (!owner || !platform) return { error: fail('로그인이 필요합니다.', 401) };
   const reservationResult = await platform.from('reservation').select('re_id,re_type,re_status,re_user_id,reservation_date,payment_status,price_breakdown').eq('re_id', id).eq('re_user_id', owner.id).maybeSingle();
   if (reservationResult.error) return { error: fail('예약을 확인하지 못했습니다.', 500) };
   if (!reservationResult.data) return { error: fail('예약을 찾을 수 없습니다.', 404) };
@@ -214,7 +214,7 @@ export async function POST(request, { params }) {
       const value = normalizeValue(field, rawValue);
       if (value === null) continue;
       const reference = fieldReference(update.table, update.rowId, key);
-      if (!canSetField(field, row[key], reference, reservation)) return fail(`${field.label}은 이미 등록되어 기존 플랫폼 변경요청으로 수정해야 합니다.`, 409);
+      if (!canSetField(field, row[key], reference, reservation)) return fail(`${field.label}은 이미 등록되어 예약 담당자에게 수정 요청이 필요합니다.`, 409);
       payload[key] = value;
       completedFields.add(reference);
     }

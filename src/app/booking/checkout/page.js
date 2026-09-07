@@ -24,7 +24,7 @@ export default function BookingCheckoutPage() {
       const items = cart.items.length || cart.synced ? cart.items : localItems;
       const { data: reservations, error } = await platformSupabase.from('reservation').select('re_id,re_type,re_status,total_amount,payment_status,re_quote_id').eq('re_user_id', auth.user.id).order('re_created_at', { ascending: false });
       if (cancelled) return;
-      if (error) { setState({ loading: false, user: auth.user, items, payments: [], error: '플랫폼 예약 상태를 확인하지 못했습니다.', complete: null }); return; }
+      if (error) { setState({ loading: false, user: auth.user, items, payments: [], error: '예약 상태를 확인하지 못했습니다.', complete: null }); return; }
       const ids = (reservations || []).map((row) => row.re_id);
       const paymentResult = ids.length ? await platformSupabase.from('reservation_payment').select('id,reservation_id,amount,payment_status,payment_method,created_at').in('reservation_id', ids) : { data: [], error: null };
       if (!cancelled) setState({ loading: false, user: auth.user, items, payments: paymentResult.data || [], error: paymentResult.error ? '결제 상태를 확인하지 못했습니다.' : '', complete: null });

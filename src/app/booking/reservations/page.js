@@ -40,7 +40,7 @@ export default function ReservationListPage() {
         .order('re_created_at', { ascending: false });
       if (cancelled) return;
       if (error) {
-        setState({ loading: false, error: '예약 내역을 불러오지 못했습니다. 기존 예약 플랫폼에서 확인해 주세요.', reservations: [] });
+        setState({ loading: false, error: '예약 내역을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', reservations: [] });
         return;
       }
       const ids = (reservations || []).map((item) => item.re_id);
@@ -68,13 +68,13 @@ export default function ReservationListPage() {
 
   return <div className="booking-page"><div className="booking-shell">
     <Link href="/booking" className="booking-back">← 예약 홈</Link>
-    <div className="booking-title-row"><div><span className="booking-section-kicker">MY JOURNEY</span><h1>내 예약</h1></div><span className="beta-badge">PLATFORM SHARED DATA</span></div>
+    <div className="booking-title-row"><div><span className="booking-section-kicker">MY JOURNEY</span><h1>내 예약</h1></div><span className="beta-badge">RESERVATION SERVICE</span></div>
     <nav className="reservation-tabs" aria-label="예약 메뉴">
       <Link className="reservation-tab active" href="/booking/reservations" aria-current="page">예약 내역</Link>
       <Link className="reservation-tab" href="/booking/reservations/documents">여권 · 승선코드</Link>
     </nav>
-    {state.loading && <div className="booking-empty"><h2>예약을 확인하고 있습니다.</h2><p>플랫폼 원장에서 고객님의 예약을 안전하게 조회합니다.</p></div>}
-    {state.error && <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">기존 플랫폼에서 확인 ↗</a></div>}
+    {state.loading && <div className="booking-empty"><h2>예약을 확인하고 있습니다.</h2><p>고객님의 예약 정보를 안전하게 불러오는 중입니다.</p></div>}
+    {state.error && <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">예약 내역 다시 확인 ↗</a></div>}
     {!state.loading && !state.error && state.reservations.length === 0 && <div className="booking-empty"><h2>아직 예약이 없습니다.</h2><p>원하는 여행 상품을 고르면 이곳에서 진행 상태를 확인할 수 있습니다.</p><Link className="booking-action primary" href="/booking">예약 시작하기 →</Link></div>}
     {!state.loading && !state.error && state.reservations.length > 0 && <div className="reservation-list">
       {state.reservations.map((reservation) => {
@@ -88,6 +88,6 @@ export default function ReservationListPage() {
         </article>;
       })}
     </div>}
-    <div className="booking-warning">결제 링크는 현재와 같이 매니저가 기존 플랫폼에서 발급합니다. 결제 완료 상태는 플랫폼 원장에 반영된 뒤 이 화면에 표시됩니다.</div>
+    <div className="booking-warning">결제 안내는 예약 담당자가 전송합니다. 결제 완료 후 상태가 이 화면에 표시됩니다.</div>
   </div></div>;
 }

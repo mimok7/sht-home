@@ -410,7 +410,7 @@ export default function ProductDetail({ params }) {
       return;
     }
     if (!selectedRate.platform_rate_card_id) {
-      setCartMessage('이 객실의 플랫폼 원본 요금이 아직 연결되지 않아 장바구니에 담을 수 없습니다. 카카오톡 상담으로 문의해 주세요.');
+      setCartMessage('이 객실은 현재 장바구니에 담을 수 없습니다. 카카오톡 상담으로 문의해 주세요.');
       return;
     }
     const adultPrice = positiveNumber(selectedRate.price_adult) || 0;
@@ -597,7 +597,7 @@ export default function ProductDetail({ params }) {
           <div className="form-group"><label htmlFor={fieldId('infants')}>유아</label><select id={fieldId('infants')} value={infants} onChange={(event) => setInfants(Number(event.target.value))}>{[0, 1, 2, 3].map((number) => <option key={number}>{number}</option>)}</select></div>
         </div>
         <div className="form-group"><label htmlFor={fieldId('date')}>이용일</label><input type="date" id={fieldId('date')} name="checkin" value={date} onChange={(event) => setDate(event.target.value)} required /></div>
-        {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 예약 플랫폼에서 별도 확인합니다.</p>}
+        {date && !selectedRate && <p className="date-warning">선택일에 적용되는 등록 요금이 없습니다. 예약 담당자에게 문의해 주세요.</p>}
         <div className="total-price-box"><strong className="total-amount">{formatVnd(selectedRate?.price_adult, selectedRate?.currency)}</strong></div>
         <button type="button" className="btn-primary w-100" onClick={handleAddToCart}>{editingCartItemId ? '선택 수정 저장　→' : '장바구니에 담기　＋'}</button>
         {cartMessage && <p className="handoff-note" role="status">{cartMessage} <a href="/booking/cart">장바구니 보기 →</a></p>}

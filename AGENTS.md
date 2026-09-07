@@ -10,6 +10,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 - `stayhalong.com` is the temporary homepage operating screen until final acceptance. Make ongoing homepage changes only to its `StayHalongLanding` experience.
 - The two domains are selected in `src/app/page.js` by request host and must remain visibly distinct, including their header menu behavior and call-to-action labels and destinations.
 - Keep `/home` removed unless the user explicitly requests restoring that route.
+- Customer-facing homepage copy must never disclose implementation details such as “platform”, “platform DB”, “shared data”, database names, data connections, or internal systems. Use plain customer language (for example, “예약 정보”, “여행 서류”, or “결제 상태”) instead. Apply this rule to labels, badges, empty states, errors, notices, and customer-facing API error messages; internal code comments and manager-only screens are excluded.
 
 ## Reservation and payment migration
 

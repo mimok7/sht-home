@@ -89,7 +89,7 @@ export default function ReservationOperationsPage({ params }) {
     {!state.loading && state.data && !state.data.paid && <div className="booking-empty"><h2>결제 완료 후 입력할 수 있습니다.</h2><p>매니저가 발급한 결제 링크로 결제가 완료되면 픽업·샌딩 장소와 시각 등 운영정보를 입력할 수 있습니다.</p><Link className="booking-action secondary" href={`/booking/reservations/${id}`}>예약 상세로 돌아가기 →</Link></div>}
     {!state.loading && state.data?.paid && state.data.groups.length === 0 && <div className="booking-empty"><h2>추가로 입력할 운영정보가 없습니다.</h2><p>이 예약은 선택한 가격 조건만으로 운영할 수 있습니다.</p></div>}
     {!state.loading && state.data?.paid && state.data.groups.length > 0 && <form className="operations-form" onSubmit={save}>
-      <div className="booking-warning">빈 항목만 최초 입력할 수 있습니다. 저장된 정보의 수정은 기존 플랫폼 변경요청을 이용해 주세요.</div>
+      <div className="booking-warning">빈 항목만 최초 입력할 수 있습니다. 저장된 정보의 수정은 예약 담당자에게 문의해 주세요.</div>
       {state.data.groups.map((group) => <section className="booking-panel" key={`${group.table}:${group.rowId}`}>
         <div className="booking-panel-head"><span>OPERATION DETAILS</span><h2>{group.title}</h2></div>
         <div className="booking-panel-body booking-fields">{group.fields.map((field) => {

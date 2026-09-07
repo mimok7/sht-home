@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 async function requestContext(request) {
   const owner = await getPlatformCartOwner(request);
-  if (!owner) return { error: Response.json({ error: '플랫폼 로그인이 필요합니다.' }, { status: 401 }) };
+  if (!owner) return { error: Response.json({ error: '로그인이 필요합니다.' }, { status: 401 }) };
 
   const database = getHomepageBookingCartDatabase();
   if (!database) return { error: Response.json({ error: '홈페이지 장바구니 저장소가 설정되지 않았습니다.' }, { status: 503 }) };

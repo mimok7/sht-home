@@ -253,7 +253,7 @@ export default function PlatformBookingForm({ type }) {
           }
         }
       } catch (loadError) {
-        if (!cancelled) setError(loadError.message || '플랫폼 예약 항목을 불러오지 못했습니다.');
+        if (!cancelled) setError(loadError.message || '예약 항목을 불러오지 못했습니다.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -402,7 +402,7 @@ export default function PlatformBookingForm({ type }) {
       const synced = await syncBookingCart();
       if (!synced.synced) throw new Error('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       setEditingCartItemId(saved.id);
-      setMessage(editingCartItemId ? '홈페이지 DB 장바구니의 선택 내용을 수정했습니다.' : '홈페이지 DB 장바구니에 저장했습니다. 최종 저장 전까지 플랫폼 예약은 생성되지 않습니다.');
+      setMessage(editingCartItemId ? '장바구니의 선택 내용을 수정했습니다.' : '장바구니에 저장했습니다. 최종 예약 전까지 결제는 진행되지 않습니다.');
     } catch (saveError) {
       setError(saveError.message || '장바구니에 저장하지 못했습니다.');
     } finally { setSaving(false); }

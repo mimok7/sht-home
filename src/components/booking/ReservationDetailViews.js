@@ -231,7 +231,7 @@ function useReservationBundle(reservationId, confirmation) {
       if (cancelled) return;
       if (bundle.needsLogin) { window.location.replace(`/login?next=${encodeURIComponent(`/booking/reservations/${reservationId}${confirmation ? '/confirmation' : ''}`)}`); return; }
       setState({ loading: false, error: '', bundle });
-    }).catch(() => { if (!cancelled) setState({ loading: false, error: '예약 정보를 불러오지 못했습니다. 기존 예약 플랫폼에서 확인해 주세요.', bundle: null }); });
+    }).catch(() => { if (!cancelled) setState({ loading: false, error: '예약 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.', bundle: null }); });
     return () => { cancelled = true; };
   }, [reservationId, confirmation]);
   return state;
@@ -307,15 +307,15 @@ function RecordDetail({ record, confirmationLink, operationsLink }) {
 }
 
 function LoadingOrError({ state }) {
-  if (state.loading) return <div className="booking-empty"><h2>예약 정보를 확인하고 있습니다.</h2><p>플랫폼 원장에서 고객님의 예약을 안전하게 조회합니다.</p></div>;
-  if (state.error) return <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">기존 플랫폼에서 확인 ↗</a></div>;
+  if (state.loading) return <div className="booking-empty"><h2>예약 정보를 확인하고 있습니다.</h2><p>고객님의 예약 정보를 안전하게 불러오는 중입니다.</p></div>;
+  if (state.error) return <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">예약 내역 다시 확인 ↗</a></div>;
   return null;
 }
 
 export function ReservationDetailView({ reservationId }) {
   const state = useReservationBundle(reservationId, false);
   const record = state.bundle?.records.find((item) => item.re_id === state.bundle.focusId);
-  return <div className="booking-page"><div className="booking-shell"><Link href="/booking/reservations" className="booking-back">← 내 예약</Link><div className="booking-title-row"><div><span className="booking-section-kicker">RESERVATION DETAIL</span><h1>예약 상세</h1></div><span className="beta-badge">PLATFORM SHARED DATA</span></div><LoadingOrError state={state} />{record && <RecordDetail record={record} confirmationLink={`/booking/reservations/${record.re_id}/confirmation`} operationsLink={`/booking/reservations/${record.re_id}/operations`} />}</div></div>;
+  return <div className="booking-page"><div className="booking-shell"><Link href="/booking/reservations" className="booking-back">← 내 예약</Link><div className="booking-title-row"><div><span className="booking-section-kicker">RESERVATION DETAIL</span><h1>예약 상세</h1></div><span className="beta-badge">RESERVATION SERVICE</span></div><LoadingOrError state={state} />{record && <RecordDetail record={record} confirmationLink={`/booking/reservations/${record.re_id}/confirmation`} operationsLink={`/booking/reservations/${record.re_id}/operations`} />}</div></div>;
 }
 
 export function ReservationConfirmationView({ reservationId }) {
@@ -323,5 +323,5 @@ export function ReservationConfirmationView({ reservationId }) {
   const records = state.bundle?.records || [];
   const total = records.reduce((sum, record) => sum + (toAmount(record.total_amount) || 0), 0);
   const paid = records.reduce((sum, record) => sum + paidAmount(record), 0);
-  return <div className="booking-page"><div className="booking-shell"><Link href={`/booking/reservations/${reservationId}`} className="booking-back">← 예약 상세</Link><LoadingOrError state={state} />{state.bundle && <article className="reservation-confirmation"><header className="confirmation-header"><div><span>STAY HALONG</span><h1>예약 확인서</h1><p>RESERVATION CONFIRMATION</p></div><dl><div><dt>확인서 번호</dt><dd>{String(state.bundle.confirmation?.reservation_id || state.bundle.records[0]?.re_quote_id || reservationId).slice(-8).toUpperCase()}</dd></div><div><dt>발행일</dt><dd>{formatDate(state.bundle.confirmation?.generated_at || new Date().toISOString())}</dd></div></dl></header><p className="confirmation-note">이 문서는 플랫폼 예약 원장을 조회해 표시합니다. 최종 확정 여부와 결제 안내는 아래 상태를 확인해 주세요.</p><section className="confirmation-summary"><h2>예약자 및 기본 정보</h2><dl><div><dt>예약자</dt><dd>{state.bundle.profile.english_name || state.bundle.profile.name || '확인 중'}</dd></div><div><dt>이메일</dt><dd>{state.bundle.profile.email || '확인 중'}</dd></div><div><dt>연락처</dt><dd>{state.bundle.profile.phone_number || '확인 중'}</dd></div><div><dt>서비스</dt><dd>{records.map((record) => TYPE_LABEL[record.re_type] || record.re_type).join(' · ')}</dd></div></dl></section><section className="confirmation-services"><h2>예약 서비스</h2>{records.map((record) => <RecordDetail key={record.re_id} record={record} />)}</section><section className="confirmation-total"><span>총 예약 금액</span><strong>{formatAmount(total)}</strong><span>결제 완료 금액</span><strong>{formatAmount(paid)}</strong><span>결제 잔액</span><strong>{formatAmount(Math.max(total - paid, 0))}</strong></section><div className="booking-warning">결제 링크는 매니저가 기존 플랫폼에서 발급합니다. 이 확인서의 결제 상태는 플랫폼 원장에 반영된 정보입니다.</div></article>}</div></div>;
+  return <div className="booking-page"><div className="booking-shell"><Link href={`/booking/reservations/${reservationId}`} className="booking-back">← 예약 상세</Link><LoadingOrError state={state} />{state.bundle && <article className="reservation-confirmation"><header className="confirmation-header"><div><span>STAY HALONG</span><h1>예약 확인서</h1><p>RESERVATION CONFIRMATION</p></div><dl><div><dt>확인서 번호</dt><dd>{String(state.bundle.confirmation?.reservation_id || state.bundle.records[0]?.re_quote_id || reservationId).slice(-8).toUpperCase()}</dd></div><div><dt>발행일</dt><dd>{formatDate(state.bundle.confirmation?.generated_at || new Date().toISOString())}</dd></div></dl></header><p className="confirmation-note">예약 내용과 현재 상태를 확인할 수 있습니다. 최종 확정 여부와 결제 안내는 아래 상태를 확인해 주세요.</p><section className="confirmation-summary"><h2>예약자 및 기본 정보</h2><dl><div><dt>예약자</dt><dd>{state.bundle.profile.english_name || state.bundle.profile.name || '확인 중'}</dd></div><div><dt>이메일</dt><dd>{state.bundle.profile.email || '확인 중'}</dd></div><div><dt>연락처</dt><dd>{state.bundle.profile.phone_number || '확인 중'}</dd></div><div><dt>서비스</dt><dd>{records.map((record) => TYPE_LABEL[record.re_type] || record.re_type).join(' · ')}</dd></div></dl></section><section className="confirmation-services"><h2>예약 서비스</h2>{records.map((record) => <RecordDetail key={record.re_id} record={record} />)}</section><section className="confirmation-total"><span>총 예약 금액</span><strong>{formatAmount(total)}</strong><span>결제 완료 금액</span><strong>{formatAmount(paid)}</strong><span>결제 잔액</span><strong>{formatAmount(Math.max(total - paid, 0))}</strong></section><div className="booking-warning">결제 안내는 예약 담당자가 전송합니다. 결제 완료 후 상태가 이 화면에 표시됩니다.</div></article>}</div></div>;
 }

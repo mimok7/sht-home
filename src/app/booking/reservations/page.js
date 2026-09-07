@@ -69,6 +69,10 @@ export default function ReservationListPage() {
   return <div className="booking-page"><div className="booking-shell">
     <Link href="/booking" className="booking-back">← 예약 홈</Link>
     <div className="booking-title-row"><div><span className="booking-section-kicker">MY JOURNEY</span><h1>내 예약</h1></div><span className="beta-badge">PLATFORM SHARED DATA</span></div>
+    <nav className="reservation-tabs" aria-label="예약 메뉴">
+      <Link className="reservation-tab active" href="/booking/reservations" aria-current="page">예약 내역</Link>
+      <Link className="reservation-tab" href="/booking/reservations/documents">여권 · 승선코드</Link>
+    </nav>
     {state.loading && <div className="booking-empty"><h2>예약을 확인하고 있습니다.</h2><p>플랫폼 원장에서 고객님의 예약을 안전하게 조회합니다.</p></div>}
     {state.error && <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">기존 플랫폼에서 확인 ↗</a></div>}
     {!state.loading && !state.error && state.reservations.length === 0 && <div className="booking-empty"><h2>아직 예약이 없습니다.</h2><p>원하는 여행 상품을 고르면 이곳에서 진행 상태를 확인할 수 있습니다.</p><Link className="booking-action primary" href="/booking">예약 시작하기 →</Link></div>}

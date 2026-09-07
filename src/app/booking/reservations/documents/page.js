@@ -46,6 +46,7 @@ async function resizeImage(file) {
 }
 
 async function loadDocuments(userId) {
+  if (!userId) throw new Error('로그인 정보를 확인하지 못했습니다. 다시 로그인해 주세요.');
   const { data: reservations, error: reservationError } = await platformSupabase
     .from('reservation')
     .select('re_id,re_quote_id,reservation_date')
@@ -57,7 +58,7 @@ async function loadDocuments(userId) {
   if (!reservationIds.length) return { cruises: [], passports: [] };
 
   const [cruiseResult, documentResult] = await Promise.all([
-    platformSupabase.from('reservation_cruise').select('reservation_id,checkin,checkout,room_price_code,boarding_code').in('reservation_id', reservationIds),
+    platformSupabase.from('reservation_cruise').select('reservation_id,checkin,room_price_code,boarding_code').in('reservation_id', reservationIds),
     platformSupabase.from('cruise_document').select('id,reservation_id,document_type,image_data,created_at,checkout_date').eq('user_id', userId).in('reservation_id', reservationIds).order('created_at', { ascending: false }),
   ]);
   if (cruiseResult.error) throw cruiseResult.error;
@@ -84,11 +85,23 @@ async function loadDocuments(userId) {
 export default function ReservationDocumentsPage() {
   const fileInput = useRef(null);
   const cameraInput = useRef(null);
+  const userIdRef = useRef('');
   const [state, setState] = useState({ loading: true, saving: false, error: '', notice: '', userId: '', cruises: [], passports: [] });
 
-  async function refresh(userId = state.userId) {
-    const result = await loadDocuments(userId);
-    setState((previous) => ({ ...previous, loading: false, error: '', cruises: result.cruises, passports: result.passports }));
+  async function refresh() {
+    try {
+      let userId = userIdRef.current;
+      if (!userId) {
+        const { data: auth, error } = await platformSupabase.auth.getUser();
+        if (error || !auth.user) throw new Error('로그인 정보를 확인하지 못했습니다. 다시 로그인해 주세요.');
+        userId = auth.user.id;
+        userIdRef.current = userId;
+      }
+      const result = await loadDocuments(userId);
+      setState((previous) => ({ ...previous, loading: false, error: '', userId, cruises: result.cruises, passports: result.passports }));
+    } catch (error) {
+      setState((previous) => ({ ...previous, loading: false, error: error.message || '여권·승선코드 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' }));
+    }
   }
 
   useEffect(() => {
@@ -100,12 +113,8 @@ export default function ReservationDocumentsPage() {
         window.location.replace(`/login?next=${encodeURIComponent('/booking/reservations/documents')}`);
         return;
       }
-      try {
-        const result = await loadDocuments(auth.user.id);
-        if (!cancelled) setState({ loading: false, saving: false, error: '', notice: '', userId: auth.user.id, cruises: result.cruises, passports: result.passports });
-      } catch (loadError) {
-        if (!cancelled) setState((previous) => ({ ...previous, loading: false, error: '여권·승선코드 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' }));
-      }
+      userIdRef.current = auth.user.id;
+      if (!cancelled) await refresh();
     }
     void load();
     return () => { cancelled = true; };
@@ -124,14 +133,14 @@ export default function ReservationDocumentsPage() {
         reservation_id: targetCruise.reservation_id,
         document_type: 'passport',
         image_data: image,
-        checkout_date: targetCruise.checkout || checkoutDate(targetCruise.checkin, String(targetCruise.rate?.schedule_type || '').match(/\d+/)?.[0]),
+        checkout_date: checkoutDate(targetCruise.checkin, String(targetCruise.rate?.schedule_type || '').match(/\d+/)?.[0]),
       }));
       const { error } = await platformSupabase.from('cruise_document').insert(rows);
       if (error) {
         if (String(error.message || '').includes('idx_cruise_document_passport_user')) throw new Error('플랫폼 DB의 기존 여권 1장 제한이 남아 있습니다. 여러 명 여권 저장을 위해 해당 제약 해제가 필요합니다.');
         throw error;
       }
-      await refresh(state.userId);
+      await refresh();
       setState((previous) => ({ ...previous, notice: `${files.length}장의 여권을 플랫폼 DB에 저장했습니다.` }));
     } catch (uploadError) {
       setState((previous) => ({ ...previous, saving: false, error: uploadError.message || '여권 업로드에 실패했습니다.' }));

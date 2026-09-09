@@ -20,6 +20,7 @@ const MEDIA_CATEGORY_LABELS = {
   exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
   interior: { label: '인테리어', eyebrow: 'INTERIOR' },
   menu: { label: '메뉴', eyebrow: 'MENU' },
+  other: { label: '추가 이미지', eyebrow: 'GALLERY' },
 };
 
 function positiveNumber(value) {
@@ -85,6 +86,28 @@ function buildCabins(rows) {
   return [...cabins.values()].sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
 }
 
+function buildCatalogCabins(rows) {
+  return (rows || []).map((row) => ({
+    id: row.id,
+    name: row.name_ko || row.legacy_room_name || '객실',
+    nameEn: row.name_en,
+    imageUrl: row.image_url,
+    roomArea: row.room_area_text,
+    bedType: row.bed_type,
+    maxAdults: row.max_adults,
+    maxGuests: row.max_guests,
+    hasBalcony: row.has_balcony,
+    isVip: row.is_vip,
+    hasButler: row.has_butler,
+    isRecommended: row.is_recommended,
+    connectingAvailable: row.connecting_available,
+    extraBedAvailable: row.extra_bed_available,
+    facilities: row.facilities,
+    specialAmenities: row.special_amenities,
+    rates: [],
+  })).sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
+}
+
 function sortMediaImages(left, right) {
   return Number(right.isPrimary) - Number(left.isPrimary)
     || Number(left.sortOrder) - Number(right.sortOrder)
@@ -108,9 +131,11 @@ function buildMediaGroups(importRows, cabinImageRows, cabins) {
 
   for (const row of importRows || []) {
     if (row.cabin_id) continue;
-    const filename = row.image_name || row.storage_path?.split('/').pop() || '';
-    const category = String(filename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase();
-    if (!category || !MEDIA_CATEGORY_LABELS[category]) continue;
+    const pathFilename = row.storage_path?.split('/').pop() || '';
+    const filename = pathFilename || row.image_name || '';
+    const category = String(pathFilename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
+      || String(row.image_name || '').match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
+      || 'other';
     const label = MEDIA_CATEGORY_LABELS[category];
     addImage(
       { id: category, ...label },
@@ -120,7 +145,7 @@ function buildMediaGroups(importRows, cabinImageRows, cabins) {
         alt: `${label.label} ${filename}`,
         name: filename,
         sortOrder: row.sort_order,
-        isPrimary: false,
+        isPrimary: row.is_primary,
       }
     );
   }
@@ -261,27 +286,77 @@ export default function ProductDetail({ params }) {
       }
 
       if (cancelled) return;
-      if (result.error) {
-        setLoadError('v2 상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        setLoading(false);
-        return;
-      }
-      if (!result.data?.length) {
-        setLoadError('현재 공개된 v2 상품을 찾을 수 없습니다.');
-        setLoading(false);
-        return;
-      }
+      const rows = result.error ? [] : result.data || [];
+      let first;
+      let schedules;
+      let nextCabins;
 
-      const rows = result.data;
-      const first = rows[0];
-      const schedules = [...new Set(rows.map((row) => row.schedule_type))]
-        .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
-      const nextCabins = buildCabins(rows);
+      if (rows.length) {
+        first = rows[0];
+        schedules = [...new Set(rows.map((row) => row.schedule_type).filter(Boolean))]
+          .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
+        nextCabins = buildCabins(rows);
+      } else {
+        let catalogResult = await supabase
+          .from('cruises_v2')
+          .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
+          .eq('slug', decodedId)
+          .eq('is_active', true)
+          .maybeSingle();
+        if (!catalogResult.error && !catalogResult.data) {
+          catalogResult = await supabase
+            .from('cruises_v2')
+            .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
+            .eq('name_ko', decodedId)
+            .eq('is_active', true)
+            .maybeSingle();
+        }
+        if (cancelled) return;
+        if (catalogResult.error || !catalogResult.data) {
+          setLoadError(result.error
+            ? '상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
+            : '현재 공개된 상품을 찾을 수 없습니다.');
+          setLoading(false);
+          return;
+        }
+        const catalog = catalogResult.data;
+        const [itineraryResult, cabinResult] = await Promise.all([
+          supabase
+            .from('cruise_itineraries_v2')
+            .select('schedule_type')
+            .eq('cruise_id', catalog.id)
+            .eq('is_active', true),
+          supabase
+            .from('cabins_v2')
+            .select('id,legacy_room_name,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities')
+            .eq('cruise_id', catalog.id)
+            .eq('is_active', true),
+        ]);
+        if (cancelled) return;
+        if (itineraryResult.error || cabinResult.error) {
+          setLoadError('상품의 일정과 객실 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+          setLoading(false);
+          return;
+        }
+        first = {
+          cruise_id: catalog.id,
+          slug: catalog.slug,
+          cruise_name: catalog.name_ko || catalog.legacy_name,
+          cruise_name_en: catalog.name_en,
+          description: catalog.description,
+          star_rating: catalog.star_rating,
+          hero_image: catalog.hero_image,
+          tags: [],
+        };
+        schedules = [...new Set((itineraryResult.data || []).map((row) => row.schedule_type).filter(Boolean))]
+          .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
+        nextCabins = buildCatalogCabins(cabinResult.data || []);
+      }
       const cabinIds = nextCabins.map((cabin) => cabin.id);
       const [importsResult, cabinImagesResult] = await Promise.all([
         supabase
           .from('cruise_cafe_import_images_v2')
-          .select('id,cabin_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+          .select('id,cabin_id,image_name,storage_bucket,storage_path,sort_order,is_primary,created_at')
           .eq('cruise_id', first.cruise_id)
           .order('created_at')
           .order('sort_order'),
@@ -335,7 +410,10 @@ export default function ProductDetail({ params }) {
   }, [id]);
 
   const availableCabins = useMemo(
-    () => cabins.filter((cabin) => cabin.rates.some((rate) => rate.schedule_type === selectedSchedule)),
+    () => {
+      const matching = cabins.filter((cabin) => cabin.rates.some((rate) => rate.schedule_type === selectedSchedule));
+      return matching.length ? matching : cabins;
+    },
     [cabins, selectedSchedule]
   );
   const selectedCabin = availableCabins.find((cabin) => cabin.id === selectedCabinId) || availableCabins[0] || null;
@@ -580,6 +658,14 @@ export default function ProductDetail({ params }) {
 
   function renderReservationStartForm(fieldPrefix) {
     const fieldId = (name) => `${fieldPrefix}-${name}`;
+    if (!cruise.schedules.length) {
+      return <>
+        <span className="reservation-step">01 / CONSULTATION</span>
+        <h3>예약 상담</h3>
+        <p className="reservation-intro">이 상품은 현재 일정과 요금을 준비하고 있습니다. 상담으로 원하시는 날짜와 객실을 확인해 주세요.</p>
+        <a className="kakao-link" href="http://pf.kakao.com/_zvsxaG/chat" target="_blank" rel="noreferrer">카카오톡으로 바로 상담 ↗</a>
+      </>;
+    }
     return <>
       <span className="reservation-step">01 / SELECT &amp; CONTINUE</span>
       <h3>예약 시작</h3>
@@ -633,8 +719,9 @@ export default function ProductDetail({ params }) {
     );
   }
 
-  const heroImage = usableImageUrl(cruise.heroImage) || '/images/cruises/headimage.png';
-  const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ');
+  const galleryHero = mediaGroups.find((group) => group.id === 'main')?.images?.[0]?.url;
+  const heroImage = usableImageUrl(cruise.heroImage) || galleryHero || '/images/cruises/headimage.png';
+  const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ') || '일정 상담';
 
   return (
     <div className="product-page">
@@ -664,14 +751,14 @@ export default function ProductDetail({ params }) {
             </div>
           </header>
 
-          {archiveGroups.some((group) => group.id !== 'main') && (
+          {archiveGroups.some((group) => group.images.length) && (
             <section className="product-section product-photo-archive">
               <CruiseMediaGallery
                 cruiseName={cruise.name}
                 duration={duration}
                 heroImage={heroImage}
                 groups={archiveGroups}
-                showMain={false}
+                showMain
               />
             </section>
           )}
@@ -679,15 +766,18 @@ export default function ProductDetail({ params }) {
           <section className="product-section">
             <div className="section-heading-row">
               <h2>객실 및 등록 요금</h2>
-              <label className="schedule-picker">
+              {cruise.schedules.length > 0 && <label className="schedule-picker">
                 <span>일정</span>
                 <select value={selectedSchedule} onChange={handleScheduleChange}>
                   {cruise.schedules.map((type) => <option key={type} value={type}>{SCHEDULE_LABELS[type]}</option>)}
                 </select>
-              </label>
+              </label>}
             </div>
-            <p className="price-notice">v2 이관 요금은 현재 가격 단위가 확정되지 않았습니다. 아래 금액은 비교용 등록값이며 최종 견적이 아닙니다.</p>
+            <p className="price-notice">{cruise.schedules.length
+              ? '등록 요금은 비교용 참고값이며 이용일에 따라 달라질 수 있습니다. 최종 금액은 예약 단계에서 다시 확인합니다.'
+              : '현재 일정과 요금을 준비하고 있습니다. 원하는 날짜와 객실은 상담으로 확인해 주세요.'}</p>
             <div className="cabins-list">
+              {availableCabins.length === 0 && <p className="price-notice">등록된 객실 정보가 없습니다. 상담으로 이용 가능한 객실을 확인해 주세요.</p>}
               {availableCabins.map((cabin, index) => {
                 const rate = chooseRate(cabin, selectedSchedule, date);
                 const cabinMedia = cabinMediaById.get(cabin.id);

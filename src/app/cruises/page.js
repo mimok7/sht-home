@@ -93,8 +93,9 @@ async function getCruiseMainImages(cruiseIds) {
 
   const imagesByCruise = new Map();
   for (const row of data || []) {
-    const filename = row.image_name || row.storage_path?.split('/').pop() || '';
-    if (!/^main-/i.test(filename)) continue;
+    const pathFilename = row.storage_path?.split('/').pop() || '';
+    const filename = pathFilename || row.image_name || '';
+    if (!/^main-/i.test(pathFilename) && !/^main-/i.test(row.image_name || '')) continue;
     const url = platformStorageUrl(row.storage_bucket, row.storage_path);
     if (!imagesByCruise.has(row.cruise_id)) imagesByCruise.set(row.cruise_id, []);
     const images = imagesByCruise.get(row.cruise_id);

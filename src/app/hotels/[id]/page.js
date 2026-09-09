@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import { supabase } from '@/lib/supabase';
+import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
 import '../hotel-cart.css';
@@ -19,13 +20,14 @@ function formatPrice(value, currency = 'VND') {
 }
 
 function proxiedImageUrl(imageUrl) {
-  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  const resolvedUrl = resolvePublicMediaUrl(imageUrl);
+  if (!resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) return resolvedUrl;
   try {
-    if (!new URL(imageUrl).hostname.endsWith('.supabase.co')) return imageUrl;
+    if (!new URL(resolvedUrl).hostname.endsWith('.supabase.co')) return resolvedUrl;
   } catch {
-    return imageUrl;
+    return resolvedUrl;
   }
-  return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
+  return `/api/public-image?url=${encodeURIComponent(resolvedUrl)}`;
 }
 
 function dateMatches(rate, date) {

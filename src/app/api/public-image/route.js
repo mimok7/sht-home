@@ -20,7 +20,10 @@ export async function GET(request) {
   if (!isPublicSupabaseImage(remoteUrl)) return new Response('허용되지 않은 이미지 주소입니다.', { status: 400 });
 
   try {
-    const remote = await fetch(remoteUrl, { next: { revalidate: 3600 } });
+    // Gallery originals can exceed Next.js' 2 MB data-cache item limit. Fetch
+    // them without the framework cache and let the response/CDN cache below
+    // handle delivery instead.
+    const remote = await fetch(remoteUrl, { cache: 'no-store' });
     if (!remote.ok || !remote.body) return new Response('이미지를 불러오지 못했습니다.', { status: remote.status || 502 });
     const contentType = remote.headers.get('content-type') || '';
     if (!contentType.startsWith('image/')) return new Response('이미지 형식이 아닙니다.', { status: 415 });

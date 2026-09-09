@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
 
@@ -6,14 +7,10 @@ function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
-function isUnavailableLegacyHomepageImage(value) {
-  return /tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(text(value));
-}
-
 function usableImageUrl(image) {
   const storedUrl = text(image?.image_url);
   const sourceUrl = text(image?.source_image_url);
-  return isUnavailableLegacyHomepageImage(storedUrl) && sourceUrl ? sourceUrl : storedUrl;
+  return resolvePublicMediaUrl(storedUrl, image?.storage_bucket, image?.storage_path) || sourceUrl;
 }
 
 function displayText(value) {
@@ -128,7 +125,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
       category: null,
       star_rating: sourceRating === null ? null : Math.max(0, Math.min(6, sourceRating)),
       hero_image: [text(content.hero_image), text(source.cruise_image), text(existing?.hero_image)]
-        .find((imageUrl) => imageUrl && !isUnavailableLegacyHomepageImage(imageUrl)) || null,
+        .map((imageUrl) => resolvePublicMediaUrl(imageUrl)).find(Boolean) || null,
       is_active: content.is_active === undefined ? true : Boolean(content.is_active),
       updated_at: now,
     };
@@ -231,7 +228,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
         legacy_room_name: roomName,
         name_ko: displayName,
         name_en: text(override.name_en) || text(source.room_name_en) || text(source.room_type_en) || text(source.name_en),
-        image_url: text(override.image_url) || text(source.room_image),
+        image_url: resolvePublicMediaUrl(text(override.image_url) || text(source.room_image)),
         room_area_text: text(override.room_area_text) || text(source.room_area),
         bed_type: text(override.bed_type) || text(source.bed_type),
         max_adults: number(override.max_adults) ?? maxAdults,

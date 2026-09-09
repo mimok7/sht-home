@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
@@ -10,8 +11,7 @@ const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일
 export const dynamic = 'force-dynamic';
 
 function normalizeImagePath(imageUrl) {
-  if (/tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl || '')) return '';
-  return imageUrl
+  return resolvePublicMediaUrl(imageUrl)
     ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
 }
@@ -95,7 +95,7 @@ async function getCruiseMainImages(cruiseIds) {
   for (const row of data || []) {
     const filename = row.image_name || row.storage_path?.split('/').pop() || '';
     if (!/^main-/i.test(filename)) continue;
-    const url = supabase.storage.from(row.storage_bucket).getPublicUrl(row.storage_path).data.publicUrl;
+    const url = platformStorageUrl(row.storage_bucket, row.storage_path);
     if (!imagesByCruise.has(row.cruise_id)) imagesByCruise.set(row.cruise_id, []);
     const images = imagesByCruise.get(row.cruise_id);
     if (!images.some((image) => image.url === url)) images.push({ id: row.id, url, alt: `${filename} 대표 이미지` });

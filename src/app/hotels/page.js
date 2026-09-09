@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { getHomepageDatabase } from '@/lib/homepage-admin';
+import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import HotelCollection from './HotelCollection';
 import './hotels.css';
 
@@ -11,19 +12,18 @@ function positiveNumber(value) {
 }
 
 function publicStorageUrl(bucket, path) {
-  if (!bucket || !path) return '';
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+  return resolvePublicMediaUrl('', bucket, path);
 }
 
 function proxiedImageUrl(imageUrl) {
-  if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
-  if (/tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl)) return '';
+  const resolvedUrl = resolvePublicMediaUrl(imageUrl);
+  if (!resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) return resolvedUrl;
   try {
-    if (!new URL(imageUrl).hostname.endsWith('.supabase.co')) return imageUrl;
+    if (!new URL(resolvedUrl).hostname.endsWith('.supabase.co')) return resolvedUrl;
   } catch {
-    return imageUrl;
+    return resolvedUrl;
   }
-  return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
+  return `/api/public-image?url=${encodeURIComponent(resolvedUrl)}`;
 }
 
 async function getHotelSourceImages() {

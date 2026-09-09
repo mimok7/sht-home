@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/lib/supabase';
+import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking-options';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
@@ -27,7 +28,7 @@ function positiveNumber(value) {
 }
 
 function usableImageUrl(imageUrl) {
-  return /tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl || '') ? '' : imageUrl;
+  return resolvePublicMediaUrl(imageUrl);
 }
 
 function formatVnd(value, currency = 'VND') {
@@ -91,8 +92,7 @@ function sortMediaImages(left, right) {
 }
 
 function publicStorageUrl(bucket, path) {
-  if (!bucket || !path) return '';
-  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+  return platformStorageUrl(bucket, path);
 }
 
 function buildMediaGroups(importRows, cabinImageRows, cabins) {

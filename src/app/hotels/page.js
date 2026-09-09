@@ -135,11 +135,12 @@ async function getHotels() {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
-    const sourceImages = sourceImagesByHotelCode.get(hotel.source_key) || [];
-    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || images.get(hotel.id)?.[0]?.url || sourceImages[0]?.url || '';
+    const galleryImages = images.get(hotel.id) || [];
+    const sourceImages = galleryImages.length ? [] : sourceImagesByHotelCode.get(hotel.source_key) || [];
+    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || galleryImages[0]?.url || sourceImages[0]?.url || '';
     const mainImages = [
       ...(imageUrl ? [{ id: `${hotel.id}-hero`, url: imageUrl, alt: `${hotel.name_ko} 대표 이미지` }] : []),
-      ...(images.get(hotel.id) || []),
+      ...galleryImages,
       ...sourceImages,
     ].filter((image, index, all) => all.findIndex((current) => current.url === image.url) === index);
     return {

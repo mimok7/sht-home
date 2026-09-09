@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { restorePendingBookingCartItemAfterLogin, safeBookingReturnPath } from '@/lib/booking-cart';
 import { platformSupabase } from '@/lib/platform-supabase';
-import { supabase } from '@/lib/supabase';
 import './auth.css';
 
 export default function Login() {
@@ -24,22 +23,13 @@ export default function Login() {
     event.preventDefault();
     setSubmitting(true);
     setError('');
-    let { data: authData, error: signInError } = await platformSupabase.auth.signInWithPassword({ email, password });
-    let authClient = platformSupabase;
-    if (signInError) {
-      const homepageSignIn = await supabase.auth.signInWithPassword({ email, password });
-      authData = homepageSignIn.data;
-      signInError = homepageSignIn.error;
-      authClient = supabase;
-    }
+    const { data: authData, error: signInError } = await platformSupabase.auth.signInWithPassword({ email, password });
     setSubmitting(false);
     if (signInError) {
       setError('이메일 또는 비밀번호를 확인해 주세요.');
       return;
     }
-    const { data: profile } = authClient === platformSupabase
-      ? await platformSupabase.from('users').select('role').eq('id', authData.user.id).maybeSingle()
-      : { data: null };
+    const { data: profile } = await platformSupabase.from('users').select('role').eq('id', authData.user.id).maybeSingle();
     const role = profile?.role || authData.user.app_metadata?.role || '';
     const isOperator = role === 'admin' || role === 'manager';
     const next = getSafeNextPath();

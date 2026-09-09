@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { platformSupabase } from '@/lib/platform-supabase';
-import { supabase } from '@/lib/supabase';
 import BookingCartLink from '@/components/BookingCartLink';
 import './Header.css';
 
@@ -43,22 +42,17 @@ export default function Header({ showRootNavigation = false }) {
         setIsOperator(role === 'admin' || role === 'manager');
       }
     }
-    let homepageListener;
     async function loadSessions() {
-      const { data: homepage } = await supabase.auth.getSession();
-      if (homepage.session) return loadIdentity(homepage.session);
       const { data: platform } = await platformSupabase.auth.getSession();
       return loadIdentity(platform.session);
     }
     void loadSessions();
-    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, session) => { if (session) void loadIdentity(session); });
-    const { data: homepageAuthListener } = supabase.auth.onAuthStateChange((_event, session) => { if (session) void loadIdentity(session); else void loadSessions(); });
-    homepageListener = homepageAuthListener;
-    return () => { mounted = false; listener.subscription.unsubscribe(); homepageListener?.subscription.unsubscribe(); };
+    const { data: listener } = platformSupabase.auth.onAuthStateChange((_event, session) => { void loadIdentity(session); });
+    return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
 
   async function handleSignOut() {
-    await Promise.all([platformSupabase.auth.signOut(), supabase.auth.signOut()]);
+    await platformSupabase.auth.signOut();
     setUser(null);
     setProfileName('');
     setIsOperator(false);

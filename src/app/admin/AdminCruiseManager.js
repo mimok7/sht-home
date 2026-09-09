@@ -287,16 +287,14 @@ export default function AdminCruiseManager({ importOnly = false }) {
   useEffect(() => {
     let mounted = true;
     async function resolveSession() {
-      const [{ data: homepage }, { data: platform }] = await Promise.all([supabase.auth.getSession(), platformSupabase.auth.getSession()]);
+      const { data: platform } = await platformSupabase.auth.getSession();
       if (!mounted) return;
-      const activeClient = platform.session ? platformSupabase : homepage.session ? supabase : null;
-      setAuthClient(activeClient);
-      setSession(platform.session || homepage.session || null);
+      setAuthClient(platform.session ? platformSupabase : null);
+      setSession(platform.session || null);
     }
     void resolveSession();
-    const { data: homepageListener } = supabase.auth.onAuthStateChange(() => { void resolveSession(); });
     const { data: platformListener } = platformSupabase.auth.onAuthStateChange(() => { void resolveSession(); });
-    return () => { mounted = false; homepageListener.subscription.unsubscribe(); platformListener.subscription.unsubscribe(); };
+    return () => { mounted = false; platformListener.subscription.unsubscribe(); };
   }, []);
   useEffect(() => { if (session) void Promise.resolve().then(load); }, [session, load]);
 

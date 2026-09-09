@@ -5,6 +5,9 @@ import { createClient } from '@supabase/supabase-js';
 // Supabase projects intentionally have different databases.
 const platformUrl = process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
 const platformAnonKey = process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_ANON_KEY;
+const REFRESH_RETRY_DELAY_MS = 60_000;
+let refreshInFlight = null;
+let refreshRetryAfter = 0;
 
 if (!platformUrl || !platformAnonKey) {
   console.warn(
@@ -24,3 +27,24 @@ export const platformSupabase = createClient(
     },
   }
 );
+
+// Keep one refresh in flight across Header, cart, and admin components. Without
+// this guard, a Fast Refresh can turn a single expired session into several
+// simultaneous refresh-token requests and trigger Supabase's 429 rate limit.
+export async function refreshPlatformSession() {
+  if (Date.now() < refreshRetryAfter) return null;
+  if (!refreshInFlight) {
+    refreshInFlight = platformSupabase.auth.refreshSession()
+      .then(({ data, error }) => {
+        const session = error ? null : data.session || null;
+        refreshRetryAfter = session ? 0 : Date.now() + REFRESH_RETRY_DELAY_MS;
+        return session;
+      })
+      .catch(() => {
+        refreshRetryAfter = Date.now() + REFRESH_RETRY_DELAY_MS;
+        return null;
+      })
+      .finally(() => { refreshInFlight = null; });
+  }
+  return refreshInFlight;
+}

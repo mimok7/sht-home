@@ -1,5 +1,5 @@
 import { normalizeBookingCartItem, normalizeBookingCartItems } from './booking-cart-contract';
-import { platformSupabase } from './platform-supabase';
+import { platformSupabase, refreshPlatformSession } from './platform-supabase';
 
 export const BOOKING_CART_KEY = 'stayhalong-booking-cart-v1';
 export const BOOKING_CART_EVENT = 'stayhalong:booking-cart-change';
@@ -140,18 +140,23 @@ export async function getPlatformCartSession() {
     // Do not send a stale browser token to the protected cart API. Refresh it
     // shortly before expiry, then verify it with the platform Auth service.
     if (session.expires_at && session.expires_at * 1000 <= Date.now() + 30_000) {
-      const refreshResult = await withPlatformAuthTimeout(platformSupabase.auth.refreshSession());
-      if (!refreshResult) return null;
-
-      const { data: refreshed, error: refreshError } = refreshResult;
-      if (refreshError || !refreshed.session?.access_token) return null;
-      session = refreshed.session;
+      const refreshedSession = await withPlatformAuthTimeout(refreshPlatformSession());
+      if (!refreshedSession?.access_token) return null;
+      session = refreshedSession;
     }
 
-    const userResult = await withPlatformAuthTimeout(platformSupabase.auth.getUser(session.access_token));
-    if (!userResult) return null;
-    const { data: userData, error: userError } = userResult;
-    if (userError || !userData.user) return null;
+    let userResult = await withPlatformAuthTimeout(platformSupabase.auth.getUser(session.access_token));
+    if (!userResult?.data?.user || userResult.error) {
+      const refreshedSession = await withPlatformAuthTimeout(refreshPlatformSession());
+      if (refreshedSession?.access_token) {
+        session = refreshedSession;
+        userResult = await withPlatformAuthTimeout(platformSupabase.auth.getUser(session.access_token));
+      }
+    }
+    if (!userResult?.data?.user || userResult.error) {
+      await platformSupabase.auth.signOut();
+      return null;
+    }
     return session;
   } catch {
     return null;
@@ -169,8 +174,7 @@ async function bookingCartRequest(path, options, session) {
 
   // A tab can resume after its access token expires before Supabase's
   // background refresh runs. Refresh once and retry the protected request.
-  const refreshed = await withPlatformAuthTimeout(platformSupabase.auth.refreshSession());
-  const refreshedSession = refreshed?.data?.session;
+  const refreshedSession = await withPlatformAuthTimeout(refreshPlatformSession());
   if (!refreshedSession?.access_token) return response;
   response = await request(refreshedSession.access_token);
   return response;

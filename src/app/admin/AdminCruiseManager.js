@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { platformSupabase } from '@/lib/platform-supabase';
+import { platformSupabase, refreshPlatformSession } from '@/lib/platform-supabase';
 import { supabase } from '@/lib/supabase';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
 import ChangeRequestPanel from './ChangeRequestPanel';
@@ -258,8 +258,9 @@ export default function AdminCruiseManager({ importOnly = false }) {
     });
     let response = await send(token);
     if (response.status === 401 && authClient === platformSupabase) {
-      const { data: refreshed, error: refreshError } = await platformSupabase.auth.refreshSession();
-      if (!refreshError && refreshed.session?.access_token) response = await send(refreshed.session.access_token);
+      const refreshedSession = await refreshPlatformSession();
+      if (refreshedSession?.access_token) response = await send(refreshedSession.access_token);
+      else await platformSupabase.auth.signOut();
     }
     if (raw) {
       if (!response.ok) {

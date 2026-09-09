@@ -7,7 +7,9 @@ import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
-const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,cabin_image,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags,platform_rate_card_id';
+// Keep this list aligned with the public recommendation view. Cabin imagery is
+// loaded separately from the public gallery tables below.
+const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;

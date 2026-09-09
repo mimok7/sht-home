@@ -44,6 +44,52 @@ async function removeDeletedSourceRows(database, catalogs) {
   return deleted;
 }
 
+async function removeStaleSourceRows(database, syncStartedAt) {
+  const { data, error } = await database
+    .from('platform_source_records')
+    .select('source_table,source_id')
+    .eq('source', 'sht-platform')
+    .lt('synced_at', syncStartedAt)
+    .range(0, 10000);
+  if (error) throw error;
+
+  let deleted = 0;
+  const idsByTable = new Map();
+  for (const row of data || []) {
+    if (!SOURCE_TABLES.has(row.source_table)) continue;
+    if (!idsByTable.has(row.source_table)) idsByTable.set(row.source_table, []);
+    idsByTable.get(row.source_table).push(row.source_id);
+  }
+  for (const [sourceTable, sourceIds] of idsByTable) {
+    for (const batch of chunks(sourceIds)) {
+      for (const derivedTable of ['catalog_prices_v2', 'catalog_product_details_v2', 'catalog_reference_data_v2']) {
+        const { error: derivedError } = await database.from(derivedTable).delete().eq('source', 'sht-platform').eq('source_table', sourceTable).in('source_id', batch);
+        if (derivedError) throw derivedError;
+      }
+      const { error: sourceError } = await database.from('platform_source_records').delete().eq('source', 'sht-platform').eq('source_table', sourceTable).in('source_id', batch);
+      if (sourceError) throw sourceError;
+      deleted += batch.length;
+    }
+  }
+  return deleted;
+}
+
+async function loadStagedCatalogs(database) {
+  const { data, error } = await database
+    .from('platform_source_records')
+    .select('source_table,source_id,payload')
+    .eq('source', 'sht-platform')
+    .range(0, 10000);
+  if (error) throw error;
+
+  const catalogs = Object.fromEntries([...SOURCE_TABLES].map((table) => [table, []]));
+  for (const row of data || []) {
+    if (!SOURCE_TABLES.has(row.source_table)) continue;
+    catalogs[row.source_table].push({ ...(row.payload || {}), __source_id: row.source_id });
+  }
+  return catalogs;
+}
+
 function activeProductKeys(catalogs) {
   const keys = new Set();
   const add = (service, value) => {
@@ -135,10 +181,15 @@ export async function POST(request) {
     return Response.json({ error: '지원하지 않는 동기화 본문입니다.' }, { status: 400 });
   }
 
+  const isPartial = body.partial === true;
+  const isFinalization = body.finalize === true;
+  const syncStartedAt = typeof body.syncStartedAt === 'string' && !Number.isNaN(Date.parse(body.syncStartedAt))
+    ? body.syncStartedAt
+    : new Date().toISOString();
   const receivedTables = Object.keys(body.catalogs);
   const unsupportedTable = receivedTables.find((table) => !SOURCE_TABLES.has(table));
   const missingTables = [...SOURCE_TABLES].filter((table) => !receivedTables.includes(table));
-  if (unsupportedTable || missingTables.length) {
+  if (unsupportedTable || (!isPartial && missingTables.length)) {
     return Response.json({ error: unsupportedTable ? `허용되지 않은 원본 테이블입니다: ${unsupportedTable}` : `전체 스냅샷에 누락된 테이블이 있습니다: ${missingTables.join(', ')}` }, { status: 400 });
   }
 
@@ -160,7 +211,7 @@ export async function POST(request) {
         source_id: String(sourceId),
         source_updated_at: row.updated_at || null,
         payload: row,
-        synced_at: new Date().toISOString(),
+        synced_at: syncStartedAt,
       });
     }
   }
@@ -173,9 +224,20 @@ export async function POST(request) {
     return Response.json({ error: '원본 데이터 저장에 실패했습니다.' }, { status: 500 });
   }
 
+  if (isPartial && !isFinalization) {
+    return Response.json({ ok: true, partial: true, received: records.length, catalogCounts: counts });
+  }
+
+  const catalogs = isFinalization ? await loadStagedCatalogs(database) : body.catalogs;
+  const finalCounts = isFinalization
+    ? Object.fromEntries(Object.entries(catalogs).map(([table, rows]) => [table, rows.length]))
+    : counts;
+
   let deletedSourceRecords = 0;
   try {
-    deletedSourceRecords = await removeDeletedSourceRows(database, body.catalogs);
+    deletedSourceRecords = isFinalization
+      ? await removeStaleSourceRows(database, syncStartedAt)
+      : await removeDeletedSourceRows(database, catalogs);
   } catch (error) {
     console.error('[platform-sync] stale source cleanup failed', error?.message || error);
     return Response.json({ error: '삭제된 원본 데이터 정리에 실패했습니다.' }, { status: 500 });
@@ -193,11 +255,11 @@ export async function POST(request) {
   let hotelImagesV2;
   let overrides;
   try {
-    deletedProducts = await removeOrphanProducts(database, body.catalogs);
-    overrides = await applyCatalogOverrides(database, body.catalogs);
+    deletedProducts = await removeOrphanProducts(database, catalogs);
+    overrides = await applyCatalogOverrides(database, catalogs);
     [cruiseV2, hotelImagesV2] = await Promise.all([
-      syncPlatformCruiseV2(database, body.catalogs),
-      syncPlatformHotelImagesV2(database, body.catalogs),
+      syncPlatformCruiseV2(database, catalogs),
+      syncPlatformHotelImagesV2(database, catalogs),
     ]);
   } catch (error) {
     console.error('[platform-sync] cache reconciliation failed', error?.message || error);
@@ -207,12 +269,12 @@ export async function POST(request) {
   const { error: runError } = await database.from('platform_sync_runs').insert({
     source: 'sht-platform',
     trigger: body.trigger === 'scheduled' ? 'scheduled' : 'manual',
-    catalog_counts: counts,
+    catalog_counts: finalCounts,
   });
   if (runError) {
     console.error('[platform-sync] run log insert failed', runError.message);
     return Response.json({ error: '동기화 이력 저장에 실패했습니다.' }, { status: 500 });
   }
 
-  return Response.json({ ok: true, received: records.length, deletedSourceRecords, deletedProducts, catalogCounts: counts, transformed, overrides, cruiseV2, hotelImagesV2 });
+  return Response.json({ ok: true, received: records.length, deletedSourceRecords, deletedProducts, catalogCounts: finalCounts, transformed, overrides, cruiseV2, hotelImagesV2 });
 }

@@ -1,4 +1,4 @@
-// 고객앱 예약 조건을 홈페이지 디자인으로 입력해 홈페이지 DB 장바구니에 저장한다.
+// 고객앱 예약 조건을 홈페이지 디자인으로 입력해 장바구니 초안에 저장한다.
 'use client';
 
 import Link from 'next/link';
@@ -400,7 +400,7 @@ export default function PlatformBookingForm({ type }) {
       }
       const saved = replaceBookingCartItem(editingCartItemId, nextItem);
       const synced = await syncBookingCart();
-      if (!synced.synced) throw new Error('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      if (!synced.synced) throw new Error('선택 내용은 임시 보관했지만 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       setEditingCartItemId(saved.id);
       setMessage(editingCartItemId ? '장바구니의 선택 내용을 수정했습니다.' : '장바구니에 저장했습니다. 최종 예약 전까지 결제는 진행되지 않습니다.');
     } catch (saveError) {
@@ -475,5 +475,5 @@ export default function PlatformBookingForm({ type }) {
   }
 
   if (!service) return <div className="booking-page"><div className="booking-shell"><div className="booking-empty"><h1>서비스를 찾을 수 없습니다.</h1><Link href="/booking">예약 홈으로 →</Link></div></div></div>;
-  return <div className="booking-page"><div className="booking-shell"><Link href="/booking" className="booking-back">← 전체 서비스</Link><div className="booking-title-row"><div><span className="booking-section-kicker">HAPPY TRAVEL SERVICE</span><h1>{service.label}</h1></div><BookingCartLink className="beta-badge" header={false}>장바구니</BookingCartLink></div>{loading ? <div className="booking-empty"><h2>여행 서비스를 불러오는 중입니다.</h2></div> : <form className="service-flow" onSubmit={addToCart}><section className="booking-panel"><div className="booking-panel-head"><span>01 / PRICE SELECTION</span></div><div className="booking-panel-body">{fields()}</div></section><aside className="service-selection-summary"><div><span>02 / SELECTION SUMMARY</span><h2>선택 내용</h2></div><dl>{summaryRows().map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label.includes('금액') ? 'booking-summary-price' : ''}>{value}</dd></div>)}</dl></aside>{error && <p className="booking-error" role="alert">{error}</p>}{message && <p className="booking-warning" role="status">{message}</p>}<div className="booking-controls"><button type="submit" disabled={saving}>{saving ? '홈페이지 DB 저장 중…' : editingCartItemId ? '장바구니 수정 저장 →' : '장바구니에 저장 →'}</button><BookingCartLink className="secondary" showCount={false} header={false}>장바구니 보기 →</BookingCartLink></div></form>}</div></div>;
+  return <div className="booking-page"><div className="booking-shell"><Link href="/booking" className="booking-back">← 전체 서비스</Link><div className="booking-title-row"><div><span className="booking-section-kicker">HAPPY TRAVEL SERVICE</span><h1>{service.label}</h1></div><BookingCartLink className="beta-badge" header={false}>장바구니</BookingCartLink></div>{loading ? <div className="booking-empty"><h2>여행 서비스를 불러오는 중입니다.</h2></div> : <form className="service-flow" onSubmit={addToCart}><section className="booking-panel"><div className="booking-panel-head"><span>01 / PRICE SELECTION</span></div><div className="booking-panel-body">{fields()}</div></section><aside className="service-selection-summary"><div><span>02 / SELECTION SUMMARY</span><h2>선택 내용</h2></div><dl>{summaryRows().map(([label, value]) => <div key={label}><dt>{label}</dt><dd className={label.includes('금액') ? 'booking-summary-price' : ''}>{value}</dd></div>)}</dl></aside>{error && <p className="booking-error" role="alert">{error}</p>}{message && <p className="booking-warning" role="status">{message}</p>}<div className="booking-controls"><button type="submit" disabled={saving}>{saving ? '선택 저장 중…' : editingCartItemId ? '장바구니 수정 저장 →' : '장바구니에 저장 →'}</button><BookingCartLink className="secondary" showCount={false} header={false}>장바구니 보기 →</BookingCartLink></div></form>}</div></div>;
 }

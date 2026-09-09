@@ -1,6 +1,6 @@
 // 홈페이지 장바구니를 고객앱과 동일한 플랫폼 예약 구조로 저장한다.
 import { normalizeBookingCartItems } from '@/lib/booking-cart-contract';
-import { getHomepageBookingCartDatabase, getPlatformBearerToken, getPlatformCartOwner, getPlatformUserDatabase } from '@/lib/homepage-booking-cart-server';
+import { getBookingCartDatabase, getPlatformBearerToken, getPlatformCartOwner, getPlatformUserDatabase } from '@/lib/homepage-booking-cart-server';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -491,13 +491,13 @@ async function claimCruisePromotions(request, reservation, item) {
 
 export async function POST(request) {
   const owner = await getPlatformCartOwner(request);
-  const homepage = getHomepageBookingCartDatabase();
+  const homepage = getBookingCartDatabase();
   const platform = getPlatformUserDatabase(request);
   if (!owner || !platform) return fail('로그인이 필요합니다.', 401);
-  if (!homepage) return fail('홈페이지 장바구니 저장소가 설정되지 않았습니다.', 503);
+  if (!homepage) return fail('장바구니 저장소가 설정되지 않았습니다.', 503);
 
   const cartResult = await homepage.from('homepage_booking_carts').select('id,items,status,updated_at').eq('platform_user_id', owner.id).maybeSingle();
-  if (cartResult.error) return fail('홈페이지 장바구니를 불러오지 못했습니다.', 500);
+  if (cartResult.error) return fail('장바구니를 불러오지 못했습니다.', 500);
   const items = normalizeBookingCartItems(cartResult.data?.items);
   if (!items.length) return fail('저장할 장바구니 항목이 없습니다.');
 

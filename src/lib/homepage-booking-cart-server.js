@@ -11,10 +11,8 @@ function platformConfig() {
   return url && key ? { url, key } : null;
 }
 
-export function getHomepageBookingCartDatabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
-  return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+export function getBookingCartDatabase() {
+  return getPlatformServiceDatabase();
 }
 
 export async function getPlatformCartOwner(request) {

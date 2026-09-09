@@ -452,11 +452,11 @@ export default function ProductDetail({ params }) {
     try {
       synced = await syncBookingCart();
     } catch {
-      setCartMessage('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setCartMessage('선택 내용은 임시 보관했지만 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
     if (!synced.synced) {
-      setCartMessage('선택 내용은 임시 보관했지만 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setCartMessage('선택 내용은 임시 보관했지만 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       return;
     }
     setEditingCartItemId(savedItem.id);
@@ -567,7 +567,7 @@ export default function ProductDetail({ params }) {
       setVehicleChoiceModalOpen(false);
       window.location.assign('/booking/cart');
     } catch {
-      setVehicleOptionsError('차량 선택을 홈페이지 DB 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
+      setVehicleOptionsError('차량 선택을 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       setVehicleSaving(false);
     }
   }

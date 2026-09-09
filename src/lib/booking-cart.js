@@ -158,6 +158,24 @@ export async function getPlatformCartSession() {
   }
 }
 
+async function bookingCartRequest(path, options, session) {
+  const request = (token) => fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` },
+  });
+
+  let response = await request(session.access_token);
+  if (response.status !== 401) return response;
+
+  // A tab can resume after its access token expires before Supabase's
+  // background refresh runs. Refresh once and retry the protected request.
+  const refreshed = await withPlatformAuthTimeout(platformSupabase.auth.refreshSession());
+  const refreshedSession = refreshed?.data?.session;
+  if (!refreshedSession?.access_token) return response;
+  response = await request(refreshedSession.access_token);
+  return response;
+}
+
 async function persistBookingCart(items) {
   if (typeof window === 'undefined') return { synced: false };
   const session = await getPlatformCartSession();
@@ -167,11 +185,11 @@ async function persistBookingCart(items) {
   if (owner && owner !== session.user.id) return { synced: false, ownerChanged: true };
   window.localStorage.setItem(BOOKING_CART_OWNER_KEY, session.user.id);
 
-  const response = await fetch('/api/booking/cart', {
+  const response = await bookingCartRequest('/api/booking/cart', {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: normalizeBookingCartItems(items) }),
-  });
+  }, session);
   if (!response.ok) throw new Error('장바구니를 홈페이지 DB에 저장하지 못했습니다.');
   const data = await response.json();
   return { synced: true, items: normalizeBookingCartItems(data.items) };
@@ -193,7 +211,7 @@ export async function hydrateBookingCart() {
   if (!session) return { items: localItems, synced: false };
 
   const storedOwner = window.localStorage.getItem(BOOKING_CART_OWNER_KEY);
-  const response = await fetch('/api/booking/cart', { headers: { Authorization: `Bearer ${session.access_token}` } });
+  const response = await bookingCartRequest('/api/booking/cart', {}, session);
   if (!response.ok) return { items: localItems, synced: false, error: '저장된 장바구니를 불러오지 못했습니다.' };
 
   const remote = await response.json();

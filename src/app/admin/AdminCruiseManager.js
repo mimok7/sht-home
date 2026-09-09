@@ -251,11 +251,16 @@ export default function AdminCruiseManager({ importOnly = false }) {
     const { data: authData } = await authClient.auth.getSession();
     const token = authData.session?.access_token;
     if (!token) throw new Error('운영자 로그인이 필요합니다.');
-    const response = await fetch(path, {
+    const send = (accessToken) => fetch(path, {
       ...fetchOptions,
-      headers: { Authorization: `Bearer ${token}`, ...(fetchOptions.body && !(fetchOptions.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(fetchOptions.headers || {}) },
+      headers: { Authorization: `Bearer ${accessToken}`, ...(fetchOptions.body && !(fetchOptions.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(fetchOptions.headers || {}) },
       cache: 'no-store',
     });
+    let response = await send(token);
+    if (response.status === 401 && authClient === platformSupabase) {
+      const { data: refreshed, error: refreshError } = await platformSupabase.auth.refreshSession();
+      if (!refreshError && refreshed.session?.access_token) response = await send(refreshed.session.access_token);
+    }
     if (raw) {
       if (!response.ok) {
         const result = await response.json().catch(() => ({}));

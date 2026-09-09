@@ -84,7 +84,7 @@ async function getHotels() {
   const [productsResult, pricesResult, imagesResult, priorities, sourceImagesByHotelCode] = await Promise.all([
     supabase
       .from('catalog_products_v2')
-      .select('id,name_ko,description,category,image_url,metadata,manual_override')
+      .select('id,source_key,name_ko,description,category,image_url,metadata,manual_override')
       .eq('source', 'sht-platform')
       .eq('service_type', 'hotel')
       .eq('is_active', true)

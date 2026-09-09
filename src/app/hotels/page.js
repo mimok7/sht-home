@@ -17,12 +17,50 @@ function publicStorageUrl(bucket, path) {
 
 function proxiedImageUrl(imageUrl) {
   if (!imageUrl || !/^https?:\/\//i.test(imageUrl)) return imageUrl;
+  if (/tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl)) return '';
   try {
     if (!new URL(imageUrl).hostname.endsWith('.supabase.co')) return imageUrl;
   } catch {
     return imageUrl;
   }
   return `/api/public-image?url=${encodeURIComponent(imageUrl)}`;
+}
+
+async function getHotelSourceImages() {
+  const database = getHomepageDatabase();
+  if (!database) return new Map();
+  try {
+    const { data, error } = await database
+      .from('platform_source_records')
+      .select('payload')
+      .eq('source', 'sht-platform')
+      .eq('source_table', 'homepage_hotel_images')
+      .limit(3000);
+    if (error) throw error;
+
+    const imagesByHotelCode = new Map();
+    for (const row of data || []) {
+      const image = row.payload || {};
+      const hotelCode = String(image.hotel_code || '').trim();
+      const imageUrl = proxiedImageUrl(image.source_image_url || image.image_url);
+      if (!hotelCode || !imageUrl) continue;
+      if (!imagesByHotelCode.has(hotelCode)) imagesByHotelCode.set(hotelCode, []);
+      imagesByHotelCode.get(hotelCode).push({
+        id: String(image.id || imageUrl),
+        url: imageUrl,
+        alt: image.image_name || '호텔 이미지',
+        sortOrder: Number(image.sort_order) || 0,
+        isPrimary: Boolean(image.is_primary),
+      });
+    }
+    for (const images of imagesByHotelCode.values()) {
+      images.sort((left, right) => Number(right.isPrimary) - Number(left.isPrimary) || left.sortOrder - right.sortOrder);
+    }
+    return imagesByHotelCode;
+  } catch (error) {
+    console.warn('[hotels] source image fallback lookup skipped', error?.message || error);
+    return new Map();
+  }
 }
 
 async function getHotelRecommendationPriorities() {
@@ -43,7 +81,7 @@ async function getHotelRecommendationPriorities() {
 }
 
 async function getHotels() {
-  const [productsResult, pricesResult, imagesResult, priorities] = await Promise.all([
+  const [productsResult, pricesResult, imagesResult, priorities, sourceImagesByHotelCode] = await Promise.all([
     supabase
       .from('catalog_products_v2')
       .select('id,name_ko,description,category,image_url,metadata,manual_override')
@@ -64,6 +102,7 @@ async function getHotels() {
       .order('is_primary', { ascending: false })
       .order('sort_order'),
     getHotelRecommendationPriorities(),
+    getHotelSourceImages(),
   ]);
 
   if (productsResult.error) {
@@ -96,10 +135,12 @@ async function getHotels() {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
-    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || images.get(hotel.id)?.[0]?.url || '';
+    const sourceImages = sourceImagesByHotelCode.get(hotel.source_key) || [];
+    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || images.get(hotel.id)?.[0]?.url || sourceImages[0]?.url || '';
     const mainImages = [
       ...(imageUrl ? [{ id: `${hotel.id}-hero`, url: imageUrl, alt: `${hotel.name_ko} 대표 이미지` }] : []),
       ...(images.get(hotel.id) || []),
+      ...sourceImages,
     ].filter((image, index, all) => all.findIndex((current) => current.url === image.url) === index);
     return {
       id: hotel.id,

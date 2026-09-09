@@ -26,6 +26,10 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
+function usableImageUrl(imageUrl) {
+  return /tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl || '') ? '' : imageUrl;
+}
+
 function formatVnd(value, currency = 'VND') {
   const price = positiveNumber(value);
   return price ? `${price.toLocaleString('ko-KR')} ${currency}` : '상담 확인';
@@ -629,7 +633,7 @@ export default function ProductDetail({ params }) {
     );
   }
 
-  const heroImage = cruise.heroImage || '/images/cruises/headimage.png';
+  const heroImage = usableImageUrl(cruise.heroImage) || '/images/cruises/headimage.png';
   const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ');
 
   return (
@@ -696,7 +700,7 @@ export default function ProductDetail({ params }) {
                       {cabinMedia ? (
                         <CruiseMediaGallery
                           cruiseName={cruise.name}
-                          heroImage={cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`}
+                heroImage={usableImageUrl(cabin.imageUrl) || `/cabin_${(index % 5) + 1}.png`}
                           groups={[cabinMedia]}
                           mainGroupId={cabinMedia.id}
                           mainClassName="cabin-image cabin-gallery-trigger"

@@ -10,6 +10,7 @@ const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일
 export const dynamic = 'force-dynamic';
 
 function normalizeImagePath(imageUrl) {
+  if (/tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(imageUrl || '')) return '';
   return imageUrl
     ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');

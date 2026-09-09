@@ -6,6 +6,16 @@ function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
 
+function isUnavailableLegacyHomepageImage(value) {
+  return /tthwqfhdojncqtwfssqe\.supabase\.co\/storage\/v1\/object\/public\/homepage-images/i.test(text(value));
+}
+
+function usableImageUrl(image) {
+  const storedUrl = text(image?.image_url);
+  const sourceUrl = text(image?.source_image_url);
+  return isUnavailableLegacyHomepageImage(storedUrl) && sourceUrl ? sourceUrl : storedUrl;
+}
+
 function displayText(value) {
   if (typeof value === 'string') return text(value);
   if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean).join(', ') || null;
@@ -117,7 +127,8 @@ export async function syncPlatformCruiseV2(database, catalogs) {
       description: text(content.description) || text(source.description),
       category: null,
       star_rating: sourceRating === null ? null : Math.max(0, Math.min(6, sourceRating)),
-      hero_image: text(content.hero_image) || text(source.cruise_image) || existing?.hero_image || null,
+      hero_image: [text(content.hero_image), text(source.cruise_image), text(existing?.hero_image)]
+        .find((imageUrl) => imageUrl && !isUnavailableLegacyHomepageImage(imageUrl)) || null,
       is_active: content.is_active === undefined ? true : Boolean(content.is_active),
       updated_at: now,
     };
@@ -412,10 +423,11 @@ export async function syncPlatformHotelImagesV2(database, catalogs) {
   const productByHotelCode = new Map((products || []).map((product) => [String(product.source_key), product]));
   const rows = images.map((image) => {
     const product = productByHotelCode.get(text(image.hotel_code));
-    if (!product || !text(image.id) || !text(image.image_url) || !text(image.storage_bucket) || !text(image.storage_path)) return null;
+    const imageUrl = usableImageUrl(image);
+    if (!product || !text(image.id) || !imageUrl) return null;
     return {
       id: image.id, product_id: product.id, hotel_price_code: text(image.hotel_price_code), collection: text(image.collection) || 'hotel_import',
-      source_url: text(image.source_url), source_image_url: text(image.source_image_url), image_name: text(image.image_name), image_url: text(image.image_url),
+      source_url: text(image.source_url), source_image_url: text(image.source_image_url), image_name: text(image.image_name), image_url: imageUrl,
       storage_bucket: text(image.storage_bucket), storage_path: text(image.storage_path), sort_order: number(image.sort_order) || 0,
       is_primary: Boolean(image.is_primary), updated_at: new Date().toISOString(),
     };

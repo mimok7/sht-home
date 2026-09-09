@@ -20,8 +20,8 @@ function getHomepageAuthConfig() {
 }
 
 export function getHomepageDatabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
+  const url = process.env.PLATFORM_SUPABASE_URL || process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
+  const key = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
   return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 }
 

@@ -16,21 +16,32 @@ function isAuthorized(request) {
 }
 
 function getDatabase() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
+  const url = process.env.PLATFORM_SUPABASE_URL || process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
+  const key = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
   return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 }
 
 async function getStatus(database) {
-  const { data, error } = await database.rpc('platform_catalog_v2_status');
+  const [sourceRecords, products, prices, runs] = await Promise.all([
+    database.from('platform_source_records').select('*', { count: 'exact', head: true }).eq('source', 'sht-platform'),
+    database.from('catalog_products_v2').select('*', { count: 'exact', head: true }).eq('source', 'sht-platform'),
+    database.from('catalog_prices_v2').select('*', { count: 'exact', head: true }).eq('source', 'sht-platform'),
+    database.from('platform_sync_runs').select('received_at').eq('source', 'sht-platform').order('received_at', { ascending: false }).limit(1),
+  ]);
+  const error = sourceRecords.error || products.error || prices.error || runs.error;
   if (error) throw error;
-  return data;
+  return {
+    sourceRecords: sourceRecords.count || 0,
+    products: products.count || 0,
+    prices: prices.count || 0,
+    latestRunAt: runs.data?.[0]?.received_at || null,
+  };
 }
 
 export async function GET(request) {
   if (!isAuthorized(request)) return Response.json({ error: '인증되지 않은 변환 상태 요청입니다.' }, { status: 401 });
   const database = getDatabase();
-  if (!database) return Response.json({ error: '홈페이지 동기화 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
+  if (!database) return Response.json({ error: '카탈로그 동기화 서비스가 설정되지 않았습니다.' }, { status: 503 });
   try {
     return Response.json({ ok: true, status: await getStatus(database) });
   } catch (error) {
@@ -42,7 +53,7 @@ export async function GET(request) {
 export async function POST(request) {
   if (!isAuthorized(request)) return Response.json({ error: '인증되지 않은 변환 요청입니다.' }, { status: 401 });
   const database = getDatabase();
-  if (!database) return Response.json({ error: '홈페이지 동기화 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
+  if (!database) return Response.json({ error: '카탈로그 동기화 서비스가 설정되지 않았습니다.' }, { status: 503 });
   try {
     const { data: transformed, error } = await database.rpc('refresh_platform_catalog_full_v2');
     if (error) throw error;

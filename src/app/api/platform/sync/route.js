@@ -107,9 +107,9 @@ function matchesSharedSecret(request) {
   return expectedBuffer.length === receivedBuffer.length && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 }
 
-function getHomepageServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
+function getCatalogServiceClient() {
+  const url = process.env.PLATFORM_SUPABASE_URL || process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
+  const key = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
@@ -119,9 +119,9 @@ export async function POST(request) {
     return Response.json({ error: '인증되지 않은 동기화 요청입니다.' }, { status: 401 });
   }
 
-  const database = getHomepageServiceClient();
+  const database = getCatalogServiceClient();
   if (!database) {
-    return Response.json({ error: '홈페이지 동기화 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
+    return Response.json({ error: '카탈로그 동기화 서비스가 설정되지 않았습니다.' }, { status: 503 });
   }
 
   let body;

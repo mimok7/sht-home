@@ -198,11 +198,10 @@ export async function POST(request) {
       const catalogCounts = Object.fromEntries(Object.entries(catalogs).map(([table, rows]) => [table, rows.length]));
       const { data: transformed, error: transformError } = await database.rpc('refresh_platform_catalog_full_v2');
       if (transformError) throw transformError;
-      const deletedProducts = await removeOrphanProducts(database, catalogs);
       const overrides = await applyCatalogOverrides(database, catalogs);
       const [cruiseV2, hotelImagesV2] = await Promise.all([
-        syncPlatformCruiseV2(database, catalogs),
-        syncPlatformHotelImagesV2(database, catalogs),
+        syncPlatformCruiseV2(database, catalogs, { prune: false }),
+        syncPlatformHotelImagesV2(database, catalogs, { prune: false }),
       ]);
       const { error: runError } = await database.from('platform_sync_runs').insert({
         source: 'sht-platform',
@@ -210,7 +209,7 @@ export async function POST(request) {
         catalog_counts: catalogCounts,
       });
       if (runError) throw runError;
-      return Response.json({ ok: true, reconciled: true, catalogCounts, transformed, deletedProducts, overrides, cruiseV2, hotelImagesV2 });
+      return Response.json({ ok: true, reconciled: true, catalogCounts, transformed, overrides, cruiseV2, hotelImagesV2 });
     } catch (error) {
       console.error('[platform-sync] staged reconciliation failed', error?.message || error);
       return Response.json({ error: '저장된 원본 데이터의 공개 상품 재구성에 실패했습니다.' }, { status: 500 });

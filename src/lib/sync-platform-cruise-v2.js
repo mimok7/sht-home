@@ -73,7 +73,7 @@ async function throwOnError(result, label) {
   return result.data || [];
 }
 
-export async function syncPlatformCruiseV2(database, catalogs) {
+export async function syncPlatformCruiseV2(database, catalogs, { prune = true } = {}) {
   const cruiseInfo = Array.isArray(catalogs.cruise_info) ? catalogs.cruise_info : [];
   const rateCards = Array.isArray(catalogs.cruise_rate_card) ? catalogs.cruise_rate_card : [];
   const contentByCruise = new Map((catalogs.homepage_cruise_content || []).map((row) => [text(row.cruise_name), row]));
@@ -136,7 +136,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
 
   const activeCruiseNames = [...cruiseGroups.keys()];
   const staleCruiseIds = existingCruises.filter((row) => row.legacy_name && !cruiseGroups.has(row.legacy_name)).map((row) => row.id);
-  if (staleCruiseIds.length) {
+  if (prune && staleCruiseIds.length) {
     await throwOnError(await database.from('cruises_v2').update({ is_active: false, updated_at: now }).in('id', staleCruiseIds), '삭제 크루즈 비활성화 실패');
   }
 
@@ -192,7 +192,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     const cachedItineraries = await throwOnError(await database.from('cruise_itineraries_v2').select('id,cruise_id,schedule_type').in('cruise_id', cruiseIds), '크루즈 일정 캐시 조회 실패');
     const activeItineraryKeys = new Set(itineraryRows.map((row) => `${row.cruise_id}|${row.schedule_type}`));
     const staleItineraryIds = cachedItineraries.filter((row) => !activeItineraryKeys.has(`${row.cruise_id}|${row.schedule_type}`)).map((row) => row.id);
-    if (staleItineraryIds.length) await throwOnError(await database.from('cruise_itineraries_v2').delete().in('id', staleItineraryIds), '크루즈 일정 캐시 정리 실패');
+    if (prune && staleItineraryIds.length) await throwOnError(await database.from('cruise_itineraries_v2').delete().in('id', staleItineraryIds), '크루즈 일정 캐시 정리 실패');
   }
 
   const cabinRows = [];
@@ -255,7 +255,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     : [];
   const activeCabinKeys = new Set(cabinRows.map((row) => `${row.cruise_id}|${row.legacy_room_name}`));
   const staleCabinIds = cabins.filter((row) => row.legacy_room_name && !activeCabinKeys.has(`${row.cruise_id}|${row.legacy_room_name}`)).map((row) => row.id);
-  if (staleCabinIds.length) {
+  if (prune && staleCabinIds.length) {
     await throwOnError(await database.from('cabins_v2').update({ is_active: false, updated_at: now }).in('id', staleCabinIds), '삭제 객실 비활성화 실패');
   }
   if (cabins.length) {
@@ -270,7 +270,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     : [];
   const activeItineraryKeys = new Set(itineraryRows.map((row) => `${row.cruise_id}|${row.schedule_type}`));
   const staleItineraryIds = itineraries.filter((row) => !activeItineraryKeys.has(`${row.cruise_id}|${row.schedule_type}`)).map((row) => row.id);
-  if (staleItineraryIds.length) {
+  if (prune && staleItineraryIds.length) {
     await throwOnError(await database.from('cruise_itineraries_v2').update({ is_active: false, updated_at: now }).in('id', staleItineraryIds), '삭제 일정 비활성화 실패');
   }
   const itineraryByKey = new Map(itineraries.map((row) => [`${row.cruise_id}|${row.schedule_type}`, row]));
@@ -339,11 +339,12 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     return existing.cabin_id !== next.cabin_id || existing.itinerary_id !== next.itinerary_id
       || currentRange !== next.valid_during || existing.price_basis !== next.price_basis;
   }).map((row) => String(row.source_rate_id));
-  if (replacedRateIds.length) {
+  if (prune && replacedRateIds.length) {
     await throwOnError(await database.from('rate_plans_v2').delete().in('source_rate_id', replacedRateIds), '삭제 요금 정리 실패');
   }
-  if (rateRows.length) {
-    await throwOnError(await database.from('rate_plans_v2').upsert(rateRows, { onConflict: 'source_rate_id' }), '크루즈 요금 저장 실패');
+  const writableRateRows = prune ? rateRows : rateRows.filter((row) => !replacedRateIds.includes(String(row.source_rate_id)));
+  if (writableRateRows.length) {
+    await throwOnError(await database.from('rate_plans_v2').upsert(writableRateRows, { onConflict: 'source_rate_id' }), '크루즈 요금 저장 실패');
   }
 
   const tagRows = (catalogs.homepage_cruise_tags || []).map((row) => {
@@ -353,7 +354,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
   if (tagRows.length) {
     await throwOnError(await database.from('cruise_tags_v2').upsert(tagRows, { onConflict: 'cruise_id,tag' }), '추천 태그 저장 실패');
   }
-  if (cruiseIds.length) {
+  if (prune && cruiseIds.length) {
     const cachedTags = await throwOnError(await database.from('cruise_tags_v2').select('cruise_id,tag').in('cruise_id', cruiseIds), '추천 태그 캐시 조회 실패');
     const activeTagKeys = new Set(tagRows.map((row) => `${row.cruise_id}|${row.tag}`));
     for (const row of cachedTags.filter((item) => !activeTagKeys.has(`${item.cruise_id}|${item.tag}`))) {
@@ -411,17 +412,17 @@ export async function syncPlatformCruiseV2(database, catalogs) {
   if (cafeImageRows.length) await throwOnError(await database.from('cruise_cafe_import_images_v2').upsert(cafeImageRows, { onConflict: 'id' }), '가져온 이미지 캐시 저장 실패');
   const staleCabinImageIds = (cachedCabinImages.data || []).filter((row) => !incomingCabinImageIds.has(row.id)).map((row) => row.id);
   const staleCafeImageIds = (cachedCafeImages.data || []).filter((row) => !incomingCafeImageIds.has(row.id)).map((row) => row.id);
-  for (let index = 0; index < staleCabinImageIds.length; index += 200) {
+  for (let index = 0; prune && index < staleCabinImageIds.length; index += 200) {
     await throwOnError(await database.from('cabin_images_v2').delete().in('id', staleCabinImageIds.slice(index, index + 200)), '객실 이미지 캐시 정리 실패');
   }
-  for (let index = 0; index < staleCafeImageIds.length; index += 200) {
+  for (let index = 0; prune && index < staleCafeImageIds.length; index += 200) {
     await throwOnError(await database.from('cruise_cafe_import_images_v2').delete().in('id', staleCafeImageIds.slice(index, index + 200)), '가져온 이미지 캐시 정리 실패');
   }
 
   return { cruises: cruiseRows.length, cabins: cabinRows.length, itineraries: itineraryRows.length, rates: rateRows.length, tags: tagRows.length, images: cabinImageRows.length + cafeImageRows.length, unmatchedImages, unmatchedRates };
 }
 
-export async function syncPlatformHotelImagesV2(database, catalogs) {
+export async function syncPlatformHotelImagesV2(database, catalogs, { prune = true } = {}) {
   const images = Array.isArray(catalogs.homepage_hotel_images) ? catalogs.homepage_hotel_images : [];
   const hotelCodes = [...new Set(images.map((row) => text(row.hotel_code)).filter(Boolean))];
   const { data: products, error: productsError } = hotelCodes.length
@@ -444,7 +445,7 @@ export async function syncPlatformHotelImagesV2(database, catalogs) {
   if (rows.length) await throwOnError(await database.from('hotel_gallery_images_v2').upsert(rows, { onConflict: 'id' }), '호텔 이미지 캐시 저장 실패');
   const incomingIds = new Set(rows.map((row) => row.id));
   const staleIds = cached.filter((row) => !incomingIds.has(row.id)).map((row) => row.id);
-  for (let index = 0; index < staleIds.length; index += 200) {
+  for (let index = 0; prune && index < staleIds.length; index += 200) {
     await throwOnError(await database.from('hotel_gallery_images_v2').delete().in('id', staleIds.slice(index, index + 200)), '호텔 이미지 캐시 정리 실패');
   }
   return { images: rows.length, unmatchedImages: images.length - rows.length };

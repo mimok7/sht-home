@@ -8,6 +8,14 @@ function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function normalizedCruiseName(value) {
+  return text(value)
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/크루즈|cruise/g, '')
+    .replace(/[^a-z0-9가-힣]/g, '');
+}
+
 function publicMediaList(...values) {
   const urls = values.flatMap((value) => Array.isArray(value) ? value : [value])
     .map((value) => resolvePublicMediaUrl(value))
@@ -35,14 +43,39 @@ async function loadRows(database, sourceTable, keyField, key) {
   return rows.map((row) => ({ ...(row.payload || {}), __source_id: row.source_id }));
 }
 
-function publicImage(image) {
+async function findCruiseSourceAlias(database, key) {
+  const normalizedKey = normalizedCruiseName(key);
+  if (!normalizedKey) return '';
+  const { data, error } = await database
+    .from('cruises_v2')
+    .select('name_ko,legacy_name,hero_image,is_active')
+    .eq('is_active', true);
+  if (error) throw error;
+  const candidates = (data || [])
+    .filter((row) => [row.name_ko, row.legacy_name].some((name) => normalizedCruiseName(name) === normalizedKey))
+    .filter((row) => text(row.name_ko) && text(row.name_ko) !== key)
+    .sort((left, right) => Number(Boolean(right.hero_image)) - Number(Boolean(left.hero_image)));
+  return text(candidates[0]?.name_ko);
+}
+
+function translatedRoomNames(rates) {
+  const names = new Map();
+  for (const rate of rates || []) {
+    const name = text(rate.room_type) || text(rate.room_name);
+    const nameEn = text(rate.room_type_en) || text(rate.room_name_en);
+    if (name && nameEn && !names.has(name)) names.set(name, nameEn);
+  }
+  return names;
+}
+
+function publicImage(image, roomNames = new Map()) {
   const url = resolvePublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
     || resolvePublicMediaUrl(image.source_image_url);
   if (!url) return null;
   return {
     id: text(image.id) || text(image.__source_id) || url,
     roomName: text(image.room_name),
-    roomNameEn: text(image.room_name_en),
+    roomNameEn: text(image.room_name_en) || roomNames.get(text(image.room_name)) || '',
     hotelPriceCode: text(image.hotel_price_code),
     collection: text(image.collection),
     imageName: text(image.image_name),
@@ -77,14 +110,14 @@ function publicCruiseRate(rate) {
   };
 }
 
-function publicCruiseCabin(cabin) {
+function publicCruiseCabin(cabin, roomNames = new Map()) {
   const name = text(cabin.room_name);
   if (!name) return null;
   const images = publicMediaList(cabin.room_image, cabin.room_images);
   return {
     id: text(cabin.id) || text(cabin.__source_id) || name,
     name,
-    nameEn: text(cabin.room_name_en),
+    nameEn: text(cabin.room_name_en) || roomNames.get(name) || '',
     imageUrl: images[0] || '',
     images,
     roomArea: text(cabin.room_area),
@@ -119,16 +152,32 @@ export async function GET(request) {
 
   try {
     if (service === 'cruise') {
-      const [images, rates, cabins] = await Promise.all([
+      let [images, rates, cabins] = await Promise.all([
         loadRows(database, 'homepage_cruise_images', 'cruise_name', key),
         loadRows(database, 'cruise_rate_card', 'cruise_name', key),
         loadRows(database, 'cruise_info', 'cruise_name', key),
       ]);
+      let roomNameRates = rates;
+      if (!images.length || !cabins.length) {
+        const alias = await findCruiseSourceAlias(database, key);
+        if (alias) {
+          const [aliasImages, aliasRates, aliasCabins] = await Promise.all([
+            loadRows(database, 'homepage_cruise_images', 'cruise_name', alias),
+            loadRows(database, 'cruise_rate_card', 'cruise_name', alias),
+            loadRows(database, 'cruise_info', 'cruise_name', alias),
+          ]);
+          if (!images.length) images = aliasImages;
+          if (!cabins.length) cabins = aliasCabins;
+          if (!rates.length) rates = aliasRates;
+          if (aliasRates.length) roomNameRates = aliasRates;
+        }
+      }
+      const roomNames = translatedRoomNames(roomNameRates);
       return Response.json({
         service,
-        images: images.map(publicImage).filter(Boolean),
+        images: images.map((image) => publicImage(image, roomNames)).filter(Boolean),
         rates: rates.map(publicCruiseRate).filter(Boolean),
-        cabins: cabins.map(publicCruiseCabin).filter(Boolean),
+        cabins: cabins.map((cabin) => publicCruiseCabin(cabin, roomNames)).filter(Boolean),
       }, {
         headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
       });

@@ -17,6 +17,14 @@ function normalizeImagePath(imageUrl) {
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
 }
 
+function normalizedCruiseName(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/크루즈|cruise/g, '')
+    .replace(/[^a-z0-9가-힣]/g, '');
+}
+
 function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
   const cruises = new Map();
 
@@ -118,10 +126,18 @@ async function getCruiseMainImages(cruises) {
 
   const database = getHomepageDatabase();
   if (!database) return imagesByCruise;
-  const idByName = new Map(cruises.flatMap((cruise) => [
-    [cruise.name, cruise.id],
-    [cruise.legacyName, cruise.id],
-  ]).filter(([name]) => name));
+  const idsByName = new Map();
+  const idsByNormalizedName = new Map();
+  for (const cruise of cruises) {
+    for (const name of [cruise.name, cruise.legacyName].filter(Boolean)) {
+      if (!idsByName.has(name)) idsByName.set(name, new Set());
+      idsByName.get(name).add(cruise.id);
+      const normalizedName = normalizedCruiseName(name);
+      if (!normalizedName) continue;
+      if (!idsByNormalizedName.has(normalizedName)) idsByNormalizedName.set(normalizedName, new Set());
+      idsByNormalizedName.get(normalizedName).add(cruise.id);
+    }
+  }
   const sourceRows = [];
   for (let from = 0; ; from += 1000) {
     const { data: page, error: sourceError } = await database
@@ -142,14 +158,20 @@ async function getCruiseMainImages(cruises) {
   const fallbackImages = new Map();
   for (const row of sourceRows) {
     const image = row.payload || {};
-    const cruiseId = idByName.get(image.cruise_name);
-    if (!cruiseId || image.room_name) continue;
+    if (image.room_name) continue;
+    const cruiseIds = new Set([
+      ...(idsByName.get(image.cruise_name) || []),
+      ...(idsByNormalizedName.get(normalizedCruiseName(image.cruise_name)) || []),
+    ]);
+    if (!cruiseIds.size) continue;
     const url = resolvePublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
       || resolvePublicMediaUrl(image.source_image_url);
     if (!url) continue;
     const nextImage = { id: String(image.id || row.source_id), url, alt: `${image.image_name || image.cruise_name} 대표 이미지` };
-    if (isMainImage(image)) addImage(imagesByCruise, cruiseId, nextImage);
-    if (!fallbackImages.has(cruiseId)) fallbackImages.set(cruiseId, nextImage);
+    for (const cruiseId of cruiseIds) {
+      if (isMainImage(image)) addImage(imagesByCruise, cruiseId, nextImage);
+      if (!fallbackImages.has(cruiseId)) fallbackImages.set(cruiseId, nextImage);
+    }
   }
   for (const [cruiseId, image] of fallbackImages) {
     if (!imagesByCruise.has(cruiseId) || imagesByCruise.get(cruiseId).length === 0) addImage(imagesByCruise, cruiseId, image);

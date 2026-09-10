@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getHomepageDatabase } from '@/lib/homepage-admin';
 import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import CruiseCollection from './CruiseCollection';
 import './cruises.css';
@@ -23,6 +24,7 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
     cruises.set(row.id, {
       id: row.id,
       slug: row.slug,
+      legacyName: row.legacy_name,
       name: row.name_ko,
       nameEn: row.name_en,
       description: row.description,
@@ -41,6 +43,7 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
       cruises.set(row.cruise_id, {
         id: row.cruise_id,
         slug: row.slug,
+        legacyName: row.cruise_name,
         name: row.cruise_name,
         nameEn: row.cruise_name_en,
         description: row.description,
@@ -76,11 +79,24 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
     .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
 }
 
-async function getCruiseMainImages(cruiseIds) {
+function addImage(imagesByCruise, cruiseId, image) {
+  if (!cruiseId || !image?.url) return;
+  if (!imagesByCruise.has(cruiseId)) imagesByCruise.set(cruiseId, []);
+  const images = imagesByCruise.get(cruiseId);
+  if (!images.some((current) => current.url === image.url)) images.push(image);
+}
+
+function isMainImage(image) {
+  const filename = image.storage_path?.split('/').pop() || image.image_name || '';
+  return Boolean(image.is_primary) || /^main-/i.test(filename) || /^main-/i.test(image.image_name || '');
+}
+
+async function getCruiseMainImages(cruises) {
+  const cruiseIds = cruises.map((cruise) => cruise.id);
   if (!cruiseIds.length) return new Map();
   const { data, error } = await supabase
     .from('cruise_cafe_import_images_v2')
-    .select('id,cruise_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+    .select('id,cruise_id,image_name,storage_bucket,storage_path,sort_order,is_primary,created_at')
     .in('cruise_id', cruiseIds)
     .is('cabin_id', null)
     .order('sort_order')
@@ -95,11 +111,48 @@ async function getCruiseMainImages(cruiseIds) {
   for (const row of data || []) {
     const pathFilename = row.storage_path?.split('/').pop() || '';
     const filename = pathFilename || row.image_name || '';
-    if (!/^main-/i.test(pathFilename) && !/^main-/i.test(row.image_name || '')) continue;
+    if (!isMainImage(row)) continue;
     const url = platformStorageUrl(row.storage_bucket, row.storage_path);
-    if (!imagesByCruise.has(row.cruise_id)) imagesByCruise.set(row.cruise_id, []);
-    const images = imagesByCruise.get(row.cruise_id);
-    if (!images.some((image) => image.url === url)) images.push({ id: row.id, url, alt: `${filename} 대표 이미지` });
+    addImage(imagesByCruise, row.cruise_id, { id: row.id, url, alt: `${filename} 대표 이미지` });
+  }
+
+  const database = getHomepageDatabase();
+  if (!database) return imagesByCruise;
+  const idByName = new Map(cruises.flatMap((cruise) => [
+    [cruise.name, cruise.id],
+    [cruise.legacyName, cruise.id],
+  ]).filter(([name]) => name));
+  const sourceRows = [];
+  for (let from = 0; ; from += 1000) {
+    const { data: page, error: sourceError } = await database
+      .from('platform_source_records')
+      .select('source_id,payload')
+      .eq('source', 'sht-platform')
+      .eq('source_table', 'homepage_cruise_images')
+      .order('source_id')
+      .range(from, from + 999);
+    if (sourceError) {
+      console.warn('[cruises] source image fallback lookup skipped', sourceError.message);
+      return imagesByCruise;
+    }
+    sourceRows.push(...(page || []));
+    if ((page || []).length < 1000) break;
+  }
+
+  const fallbackImages = new Map();
+  for (const row of sourceRows) {
+    const image = row.payload || {};
+    const cruiseId = idByName.get(image.cruise_name);
+    if (!cruiseId || image.room_name) continue;
+    const url = resolvePublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
+      || resolvePublicMediaUrl(image.source_image_url);
+    if (!url) continue;
+    const nextImage = { id: String(image.id || row.source_id), url, alt: `${image.image_name || image.cruise_name} 대표 이미지` };
+    if (isMainImage(image)) addImage(imagesByCruise, cruiseId, nextImage);
+    if (!fallbackImages.has(cruiseId)) fallbackImages.set(cruiseId, nextImage);
+  }
+  for (const [cruiseId, image] of fallbackImages) {
+    if (!imagesByCruise.has(cruiseId) || imagesByCruise.get(cruiseId).length === 0) addImage(imagesByCruise, cruiseId, image);
   }
   return imagesByCruise;
 }
@@ -108,7 +161,7 @@ async function getCruises() {
   const [cruiseResult, itineraryResult, recommendationResult] = await Promise.all([
     supabase
       .from('cruises_v2')
-      .select('id,slug,name_ko,name_en,description,star_rating,hero_image')
+      .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
       .eq('is_active', true)
       .order('name_ko'),
     supabase
@@ -136,7 +189,7 @@ async function getCruises() {
 
 export default async function Cruises() {
   const cruises = await getCruises();
-  const mainImagesByCruise = await getCruiseMainImages(cruises.map((cruise) => cruise.id));
+  const mainImagesByCruise = await getCruiseMainImages(cruises);
   const cruiseCards = cruises.map((cruise) => ({
     ...cruise,
     mainImages: mainImagesByCruise.get(cruise.id) || [{ id: 'hero', url: cruise.imageUrl, alt: `${cruise.name} 대표 이미지` }],

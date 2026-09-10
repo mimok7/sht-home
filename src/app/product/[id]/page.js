@@ -810,25 +810,11 @@ export default function ProductDetail({ params }) {
     );
   }
 
-  const galleryHero = mediaGroups.find((group) => group.id === 'main')?.images?.[0]?.url;
-  const heroImage = usableImageUrl(cruise.heroImage) || galleryHero || '/images/cruises/headimage.png';
   const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ') || '일정 상담';
+  const detailGalleryGroups = archiveGroups.filter((group) => group.id !== 'main');
 
   return (
     <div className="product-page">
-      <div
-        className="product-hero"
-        style={{
-          backgroundImage: `url(${heroImage})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
-          backgroundColor: 'var(--navy)',
-        }}
-      >
-        <div className="product-hero-bg" />
-      </div>
-
       <div className="container product-content-wrapper">
         <main className="product-main">
           <header className="product-header">
@@ -842,14 +828,13 @@ export default function ProductDetail({ params }) {
             </div>
           </header>
 
-          {archiveGroups.some((group) => group.images.length) && (
+          {detailGalleryGroups.some((group) => group.images.length) && (
             <section className="product-section product-photo-archive">
               <CruiseMediaGallery
                 cruiseName={cruise.name}
                 duration={duration}
-                heroImage={heroImage}
-                groups={archiveGroups}
-                showMain
+                groups={detailGalleryGroups}
+                showMain={false}
               />
             </section>
           )}

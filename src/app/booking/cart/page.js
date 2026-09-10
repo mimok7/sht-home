@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { platformSupabase } from '@/lib/platform-supabase';
-import { bookingCartTotal, getPlatformCartSession, hydrateBookingCart, readBookingCart, removeBookingCartItem } from '@/lib/booking-cart';
+import { bookingCartTotal, getPlatformCartSession, hydrateBookingCart, readBookingCart, removeBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import '../booking.css';
 
 function money(value, currency) { return value > 0 ? `${value.toLocaleString('ko-KR')} ${currency}` : '견적 확인'; }
@@ -38,9 +38,13 @@ export default function BookingCartPage() {
   const [authorized, setAuthorized] = useState(false);
   const [items, setItems] = useState([]);
   const [syncMessage, setSyncMessage] = useState('');
+  const [quoteModalOpen, setQuoteModalOpen] = useState(false);
   const [quoteRecipient, setQuoteRecipient] = useState('');
   const [quoteMemo, setQuoteMemo] = useState('');
-  const [quoteCreatedAt] = useState(() => new Date());
+  const [quoteCreatedAt, setQuoteCreatedAt] = useState(() => new Date());
+  const [savedQuoteNumber, setSavedQuoteNumber] = useState('');
+  const [quoteSaveMessage, setQuoteSaveMessage] = useState('');
+  const [quoteSaving, setQuoteSaving] = useState(false);
   useEffect(() => {
     let cancelled = false;
     const redirectToLogin = () => {
@@ -91,6 +95,25 @@ export default function BookingCartPage() {
   const usdTotal = bookingCartTotal(items, 'USD');
   const krwTotal = bookingCartTotal(items, 'KRW');
   const printQuote = () => window.print();
+  const saveQuote = async () => {
+    setQuoteSaving(true);
+    setQuoteSaveMessage('');
+    try {
+      const session = await getPlatformCartSession();
+      if (!session) throw new Error('로그인 정보를 확인하지 못했습니다.');
+      await syncBookingCart(items);
+      const response = await fetch('/api/booking/cart-quote', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` }, body: JSON.stringify({ recipientName: quoteRecipient, memo: quoteMemo }) });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || '견적서를 저장하지 못했습니다.');
+      setSavedQuoteNumber(result.quoteNumber);
+      setQuoteCreatedAt(new Date(result.issuedAt));
+      setQuoteSaveMessage(`${result.quoteNumber}로 저장했습니다.`);
+    } catch (error) {
+      setQuoteSaveMessage(error instanceof Error ? error.message : '견적서를 저장하지 못했습니다.');
+    } finally {
+      setQuoteSaving(false);
+    }
+  };
 
   if (!authorized) return null;
   return <div className="booking-page"><div className="booking-shell cart-shell">
@@ -105,8 +128,9 @@ export default function BookingCartPage() {
       </article>)}</div>
       <section className="cart-total"><div><span>ESTIMATED TOTAL</span><p>할증·프로모션·재고 확인 전 참고 합계입니다.</p></div><div>{vndTotal > 0 && <strong>{money(vndTotal, 'VND')}</strong>}{usdTotal > 0 && <strong>{money(usdTotal, 'USD')}</strong>}{krwTotal > 0 && <strong>{money(krwTotal, 'KRW')}</strong>}</div></section>
       <div className="booking-warning">최종 결제 금액은 결제 단계에서 최신 요금과 예약 가능 여부를 다시 확인합니다.</div>
-      <section className="cart-quote-editor no-print" aria-labelledby="quote-editor-title"><div><span className="booking-section-kicker">QUOTATION / CART ITEMS</span><h2 id="quote-editor-title">견적서 만들기</h2><p>장바구니 상품과 현재 선택 금액으로 견적서를 준비합니다.</p></div><div className="cart-quote-fields"><label>견적 받는 분<input value={quoteRecipient} onChange={(event) => setQuoteRecipient(event.target.value)} placeholder="성함 또는 회사명" /></label><label>메모<input value={quoteMemo} onChange={(event) => setQuoteMemo(event.target.value)} placeholder="선택 사항" /></label></div><div className="cart-quote-actions"><button type="button" onClick={printQuote}>견적서 인쇄</button><button type="button" className="secondary" onClick={printQuote}>PDF로 저장</button></div><p className="cart-quote-help">PDF로 저장을 누른 뒤 인쇄 창에서 ‘PDF로 저장’을 선택해 주세요.</p></section>
-      <article className="cart-quote" aria-label="장바구니 여행 견적서"><header className="cart-quote-header"><div><span>STAY HALONG</span><h2>여행 견적서</h2><p>TRAVEL QUOTATION</p></div><dl><div><dt>견적 번호</dt><dd>{quoteNumber(quoteCreatedAt)}</dd></div><div><dt>발행일</dt><dd>{quoteDate(quoteCreatedAt)}</dd></div></dl></header><section className="cart-quote-recipient"><div><span>TO</span><strong>{quoteRecipient || '고객님'}</strong></div><div><span>여행 상품</span><strong>{items.length}개 서비스</strong></div></section><p className="cart-quote-intro">아래 내용은 요청하신 여행 상품의 참고 견적입니다. 이용일과 예약 가능 여부를 확인한 뒤 최종 예약 금액이 확정됩니다.</p><section className="cart-quote-services"><div className="cart-quote-table-head"><span>NO.</span><span>상품 및 이용 정보</span><span>참고 금액</span></div>{items.map((item, index) => <div className="cart-quote-row" key={item.id}><span>{String(index + 1).padStart(2, '0')}</span><div><small>{item.serviceLabel}</small><strong>{item.name}</strong><p>{quoteItemDetails(item)}</p><em>{cartPriceFormula(item)}</em></div><b>{money(item.unitPrice * item.quantity, item.currency)}</b></div>)}</section><QuoteTotals vndTotal={vndTotal} usdTotal={usdTotal} krwTotal={krwTotal} />{quoteMemo && <section className="cart-quote-memo"><span>MEMO</span><p>{quoteMemo}</p></section>}<footer className="cart-quote-footer"><div><strong>STAY HALONG</strong><span>하롱베이 현지 프리미엄 여행</span></div><p>본 견적서는 예약 확정서가 아닙니다. 최종 금액과 예약 가능 여부는 결제 전 다시 확인합니다.</p></footer></article>
+      <section className="cart-quote-trigger no-print" aria-label="견적서 도구"><div><span>QUOTATION</span><strong>장바구니 견적서</strong><small>필요할 때 열어 발행·저장한 뒤 PDF로 저장하거나 인쇄할 수 있습니다.</small></div><button type="button" aria-haspopup="dialog" onClick={() => setQuoteModalOpen(true)}>견적서 열기</button></section>
+      {quoteModalOpen && <div className="cart-quote-modal" role="dialog" aria-modal="true" aria-labelledby="quote-editor-title"><div className="cart-quote-modal-panel"><div className="cart-quote-modal-heading no-print"><div><span>QUOTATION / CART ITEMS</span><h2>장바구니 견적서</h2></div><button type="button" onClick={() => setQuoteModalOpen(false)} aria-label="견적서 팝업 닫기">닫기 ×</button></div><section className="cart-quote-editor no-print" aria-labelledby="quote-editor-title"><div><span className="booking-section-kicker">QUOTATION / CART ITEMS</span><h2 id="quote-editor-title">견적서 발행</h2><p>장바구니 상품과 현재 선택 금액으로 견적서를 준비합니다.</p></div><div className="cart-quote-fields"><label>견적 받는 분<input value={quoteRecipient} onChange={(event) => setQuoteRecipient(event.target.value)} placeholder="성함 또는 회사명" /></label><label>메모<input value={quoteMemo} onChange={(event) => setQuoteMemo(event.target.value)} placeholder="선택 사항" /></label></div><div className="cart-quote-actions"><button type="button" onClick={saveQuote} disabled={quoteSaving}>{quoteSaving ? '저장 중…' : '견적서 발행·저장'}</button><button type="button" className="secondary" onClick={printQuote}>견적서 인쇄</button><button type="button" className="secondary" onClick={printQuote}>PDF로 저장</button></div><p className="cart-quote-help">발행·저장 후 인쇄하거나 PDF로 저장하세요.</p>{quoteSaveMessage && <p className="cart-quote-save-message" role="status">{quoteSaveMessage}</p>}</section>
+      <article className="cart-quote" aria-label="장바구니 여행 견적서"><header className="cart-quote-header"><div><span>STAY HALONG</span><h2>여행 견적서</h2><p>TRAVEL QUOTATION</p></div><dl><div><dt>견적 번호</dt><dd>{savedQuoteNumber || quoteNumber(quoteCreatedAt)}</dd></div><div><dt>발행일</dt><dd>{quoteDate(quoteCreatedAt)}</dd></div></dl></header><section className="cart-quote-recipient"><div><span>TO</span><strong>{quoteRecipient || '고객님'}</strong></div><div><span>여행 상품</span><strong>{items.length}개 서비스</strong></div></section><p className="cart-quote-intro">아래 내용은 요청하신 여행 상품의 참고 견적입니다. 이용일과 예약 가능 여부를 확인한 뒤 최종 예약 금액이 확정됩니다.</p><section className="cart-quote-services"><div className="cart-quote-table-head"><span>NO.</span><span>상품 및 이용 정보</span><span>참고 금액</span></div>{items.map((item, index) => <div className="cart-quote-row" key={item.id}><span>{String(index + 1).padStart(2, '0')}</span><div><small>{item.serviceLabel}</small><strong>{item.name}</strong><p>{quoteItemDetails(item)}</p><em>{cartPriceFormula(item)}</em></div><b>{money(item.unitPrice * item.quantity, item.currency)}</b></div>)}</section><QuoteTotals vndTotal={vndTotal} usdTotal={usdTotal} krwTotal={krwTotal} />{quoteMemo && <section className="cart-quote-memo"><span>MEMO</span><p>{quoteMemo}</p></section>}<footer className="cart-quote-footer"><div><strong>STAY HALONG</strong><span>하롱베이 현지 프리미엄 여행</span></div><p>본 견적서는 예약 확정서가 아닙니다. 최종 금액과 예약 가능 여부는 결제 전 다시 확인합니다.</p></footer></article></div></div>}
       <div className="booking-controls"><Link href="/booking/checkout">원페이 결제하기 →</Link><Link href="/booking" className="secondary">서비스 더 담기</Link></div>
     </>}
   </div></div>;

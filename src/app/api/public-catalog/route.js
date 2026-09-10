@@ -8,6 +8,13 @@ function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function publicMediaList(...values) {
+  const urls = values.flatMap((value) => Array.isArray(value) ? value : [value])
+    .map((value) => resolvePublicMediaUrl(value))
+    .filter(Boolean);
+  return [...new Set(urls)];
+}
+
 async function loadRows(database, sourceTable, keyField, key) {
   const rows = [];
   const pageSize = 1000;
@@ -70,6 +77,35 @@ function publicCruiseRate(rate) {
   };
 }
 
+function publicCruiseCabin(cabin) {
+  const name = text(cabin.room_name);
+  if (!name) return null;
+  const images = publicMediaList(cabin.room_image, cabin.room_images);
+  return {
+    id: text(cabin.id) || text(cabin.__source_id) || name,
+    name,
+    nameEn: text(cabin.room_name_en),
+    imageUrl: images[0] || '',
+    images,
+    roomArea: text(cabin.room_area),
+    bedType: text(cabin.bed_type),
+    maxAdults: Number(cabin.max_adults) || null,
+    maxGuests: Number(cabin.max_guests) || null,
+    hasBalcony: Boolean(cabin.has_balcony),
+    isVip: Boolean(cabin.is_vip),
+    hasButler: Boolean(cabin.has_butler),
+    isRecommended: Boolean(cabin.is_recommended),
+    connectingAvailable: Boolean(cabin.connecting_available),
+    extraBedAvailable: Boolean(cabin.extra_bed_available),
+    facilities: cabin.facilities || [],
+    specialAmenities: text(cabin.special_amenities),
+    description: text(cabin.room_description),
+    inclusions: text(cabin.inclusions),
+    exclusions: text(cabin.exclusions),
+    warnings: text(cabin.warnings),
+  };
+}
+
 export async function GET(request) {
   const searchParams = new URL(request.url).searchParams;
   const service = searchParams.get('service');
@@ -83,14 +119,16 @@ export async function GET(request) {
 
   try {
     if (service === 'cruise') {
-      const [images, rates] = await Promise.all([
+      const [images, rates, cabins] = await Promise.all([
         loadRows(database, 'homepage_cruise_images', 'cruise_name', key),
         loadRows(database, 'cruise_rate_card', 'cruise_name', key),
+        loadRows(database, 'cruise_info', 'cruise_name', key),
       ]);
       return Response.json({
         service,
         images: images.map(publicImage).filter(Boolean),
         rates: rates.map(publicCruiseRate).filter(Boolean),
+        cabins: cabins.map(publicCruiseCabin).filter(Boolean),
       }, {
         headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
       });

@@ -20,7 +20,6 @@ const MEDIA_CATEGORY_LABELS = {
   exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
   interior: { label: '인테리어', eyebrow: 'INTERIOR' },
   menu: { label: '메뉴', eyebrow: 'MENU' },
-  other: { label: '추가 이미지', eyebrow: 'GALLERY' },
 };
 
 function positiveNumber(value) {
@@ -105,12 +104,46 @@ function buildCatalogCabins(rows) {
     extraBedAvailable: row.extra_bed_available,
     facilities: row.facilities,
     specialAmenities: row.special_amenities,
+    isActive: row.is_active !== false,
     rates: [],
   })).sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
 }
 
+function buildSourceCabins(rows) {
+  return (rows || []).map((row) => ({
+    id: `source-detail-${row.id}`,
+    legacyName: row.name,
+    name: row.name || row.nameEn || '객실',
+    nameEn: row.nameEn,
+    imageUrl: row.imageUrl,
+    roomArea: row.roomArea,
+    bedType: row.bedType,
+    maxAdults: row.maxAdults,
+    maxGuests: row.maxGuests,
+    hasBalcony: row.hasBalcony,
+    isVip: row.isVip,
+    hasButler: row.hasButler,
+    isRecommended: row.isRecommended,
+    connectingAvailable: row.connectingAvailable,
+    extraBedAvailable: row.extraBedAvailable,
+    facilities: row.facilities,
+    specialAmenities: row.specialAmenities,
+    description: row.description,
+    inclusions: row.inclusions,
+    exclusions: row.exclusions,
+    warnings: row.warnings,
+    isActive: true,
+    rates: [],
+  }));
+}
+
 function normalizedCabinName(value) {
-  return String(value || '').replace(/\([^)]*\)/g, '').replace(/[^a-zA-Z0-9가-힣]/g, '').toLowerCase();
+  return String(value || '')
+    .replace(/\([^)]*\)/g, '')
+    .replace(/[^a-zA-Z0-9가-힣]/g, '')
+    .toLowerCase()
+    .replace(/^the(?=[a-z])/, '')
+    .replace(/(?:room|룸)$/i, '');
 }
 
 function cabinAliases(cabin) {
@@ -153,20 +186,30 @@ function sourceRateForCabin(rate) {
 
 function matchingCabinForSourceRate(cabins, rate) {
   const rawNames = [rate.roomName, rate.roomNameEn].filter(Boolean);
-  // `room_type` is the authority. Check it before the translated name so a
-  // Korean room and its similarly named English duplicate never cancel each
-  // other out during the transition from the old catalog cache.
-  for (const rawName of rawNames) {
-    const rawExact = cabins.filter((cabin) => [cabin.legacyName, cabin.name, cabin.nameEn].includes(rawName));
-    if (rawExact.length === 1) return rawExact[0];
-  }
-
   const aliases = rawNames.map(normalizedCabinName).filter(Boolean);
   const exact = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)));
-  if (exact.length === 1) return exact[0];
+  if (exact.length) return bestCabinDetails(exact);
 
   const partial = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.some((rateAlias) => alias.includes(rateAlias) || rateAlias.includes(alias))));
-  return partial.length === 1 ? partial[0] : null;
+  return partial.length ? bestCabinDetails(partial) : null;
+}
+
+function cabinDetailScore(cabin) {
+  return Number(Boolean(cabin.imageUrl)) * 16
+    + Number(Boolean(cabin.roomArea)) * 8
+    + Number(Boolean(cabin.bedType)) * 8
+    + Number(Boolean(cabin.facilities)) * 4
+    + Number(Boolean(cabin.specialAmenities)) * 4
+    + Number(Boolean(cabin.maxGuests)) * 2
+    + Number(Boolean(cabin.maxAdults));
+}
+
+function bestCabinDetails(cabins) {
+  return [...cabins].sort((left, right) =>
+    cabinDetailScore(right) - cabinDetailScore(left)
+    || Number(right.isActive) - Number(left.isActive)
+    || String(left.name).localeCompare(String(right.name), 'ko')
+  )[0] || null;
 }
 
 function sourceCabinForRate(rate) {
@@ -228,24 +271,27 @@ function sourceRateCabinKey(rate) {
   return `${String(rate.roomName || '').trim().toLowerCase()}::${String(rate.roomNameEn || '').trim().toLowerCase()}`;
 }
 
-function buildRateCardCabins(sourceRates, catalogRows) {
-  const catalogCabins = buildCatalogCabins(catalogRows || []);
-  const cabinsByRateName = new Map();
+function buildRateCardCabins(sourceRates, catalogRows, sourceCabinRows = []) {
+  const catalogCabins = [
+    ...buildSourceCabins(sourceCabinRows),
+    ...buildCatalogCabins(catalogRows || []),
+  ];
+  const cabinsByProduct = new Map();
 
   for (const sourceRate of sourceRates || []) {
     const rateId = String(sourceRate.platformRateCardId || sourceRate.id || '');
     if (!rateId || !sourceRate.scheduleType) continue;
-    const key = sourceRateCabinKey(sourceRate);
-    if (!cabinsByRateName.has(key)) {
-      const matchedCabin = matchingCabinForSourceRate(catalogCabins, sourceRate);
-      cabinsByRateName.set(key, matchedCabin
+    const matchedCabin = matchingCabinForSourceRate(catalogCabins, sourceRate);
+    const key = matchedCabin ? `catalog:${matchedCabin.id}` : `source:${sourceRateCabinKey(sourceRate)}`;
+    if (!cabinsByProduct.has(key)) {
+      cabinsByProduct.set(key, matchedCabin
         ? { ...matchedCabin, rates: [] }
         : sourceCabinForRate(sourceRate));
     }
-    cabinsByRateName.get(key).rates.push(sourceRateForCabin(sourceRate));
+    cabinsByProduct.get(key).rates.push(sourceRateForCabin(sourceRate));
   }
 
-  return [...cabinsByRateName.values()].sort((left, right) =>
+  return [...cabinsByProduct.values()].sort((left, right) =>
     Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko')
   );
 }
@@ -262,20 +308,43 @@ function createCabinIdMap(allCabinRows, activeCabins) {
 }
 
 function mapSourceCruiseImages(images, cabins) {
-  return (images || []).map((image) => {
+  return (images || []).flatMap((image) => {
     const aliases = [image.roomName, image.roomNameEn].map(normalizedCabinName).filter(Boolean);
     const matches = aliases.length
       ? cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)))
       : [];
-    return {
-      id: `source-${image.id}`,
-      cabin_id: matches.length === 1 ? matches[0].id : null,
+    const targetCabins = matches.length ? matches : [null];
+    return targetCabins.map((cabin) => ({
+      id: `source-${image.id}${cabin ? `-${cabin.id}` : ''}`,
+      cabin_id: cabin?.id || null,
       collection: image.collection,
       image_name: image.imageName,
       url: image.url,
       sort_order: image.sortOrder,
       is_primary: image.isPrimary,
-    };
+    }));
+  });
+}
+
+function mapSourceCabinImages(sourceCabins, cabins) {
+  return (sourceCabins || []).flatMap((sourceCabin) => {
+    const aliases = cabinAliases({
+      legacyName: sourceCabin.name,
+      name: sourceCabin.name,
+      nameEn: sourceCabin.nameEn,
+    });
+    const matches = cabins.filter((cabin) =>
+      cabinAliases(cabin).some((alias) => aliases.includes(alias))
+    );
+    return matches.flatMap((cabin) => (sourceCabin.images || []).map((url, index) => ({
+      id: `source-cabin-${sourceCabin.id}-${cabin.id}-${index}`,
+      cabin_id: cabin.id,
+      collection: 'cabin_gallery',
+      image_name: `${sourceCabin.name}-${String(index + 1).padStart(3, '0')}`,
+      url,
+      sort_order: index,
+      is_primary: index === 0,
+    })));
   });
 }
 
@@ -326,6 +395,10 @@ function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new M
     const category = String(pathFilename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || String(row.image_name || '').match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || 'other';
+    // Unclassified legacy imports must not reappear as a misleading
+    // "additional images" gallery. Cabin images are matched above, while the
+    // named cruise collections remain available in their own sections.
+    if (category === 'other') continue;
     const label = MEDIA_CATEGORY_LABELS[category];
     addImage(
       { id: category, ...label },
@@ -384,6 +457,8 @@ function parseFacilities(value) {
 
 function cabinFeatures(cabin) {
   return [
+    cabin.roomArea ? `면적 ${cabin.roomArea}` : null,
+    cabin.bedType ? `침대 ${cabin.bedType}` : null,
     cabin.maxGuests ? `최대 ${cabin.maxGuests}명` : null,
     cabin.hasBalcony ? '발코니' : null,
     cabin.isVip ? 'VIP' : null,
@@ -554,7 +629,7 @@ export default function ProductDetail({ params }) {
         console.warn('Failed to load source cruise catalog:', error?.message || error);
       }
       if (cancelled) return;
-      if (sourcePayload?.rates?.length) nextCabins = buildRateCardCabins(sourcePayload.rates, allCabinRows);
+      if (sourcePayload?.rates?.length) nextCabins = buildRateCardCabins(sourcePayload.rates, allCabinRows, sourcePayload.cabins);
       const cabinIdMap = createCabinIdMap(allCabinRows, nextCabins);
       const allCabinIds = allCabinRows.map((cabin) => cabin.id);
       const [importsResult, cabinImagesResult] = await Promise.all([
@@ -577,7 +652,10 @@ export default function ProductDetail({ params }) {
       if (importsResult.error || cabinImagesResult.error) {
         console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
       }
-      const sourceImports = mapSourceCruiseImages(sourcePayload?.images, nextCabins);
+      const sourceImports = [
+        ...mapSourceCruiseImages(sourcePayload?.images, nextCabins),
+        ...mapSourceCabinImages(sourcePayload?.cabins, nextCabins),
+      ];
       if (cancelled) return;
       const nextMediaGroups = buildMediaGroups([...(importsResult.data || []), ...sourceImports], cabinImagesResult.data || [], nextCabins, cabinIdMap);
       const storedHeroImage = nextMediaGroups.find((group) => group.id === 'main')?.images[0]?.url
@@ -1054,8 +1132,12 @@ export default function ProductDetail({ params }) {
               <div className="feature-list">
                 {cabinFeatures(detailCabin).map((feature) => <span key={feature}>{feature}</span>)}
               </div>
+              {detailCabin.description && <div className="cabin-guide-block"><strong>객실 상세</strong><p>{detailCabin.description}</p></div>}
               {detailCabin.specialAmenities && <div className="amenity-note"><strong>스페셜 어메니티</strong><p>{detailCabin.specialAmenities}</p></div>}
               {detailFacilities.length > 0 && <div className="facility-block"><strong>등록 시설</strong><div>{detailFacilities.map((facility) => <span key={facility}>{facility}</span>)}</div></div>}
+              {detailCabin.inclusions && <div className="cabin-guide-block"><strong>포함 사항</strong><p>{detailCabin.inclusions}</p></div>}
+              {detailCabin.exclusions && <div className="cabin-guide-block"><strong>불포함 사항</strong><p>{detailCabin.exclusions}</p></div>}
+              {detailCabin.warnings && <div className="cabin-guide-block cabin-guide-warning"><strong>이용 안내</strong><p>{detailCabin.warnings}</p></div>}
               <div className="rate-reference">
                 <strong>선택 조건의 등록 요금</strong>
                 <dl>

@@ -313,7 +313,8 @@ export default function PlatformBookingForm({ type }) {
       const prices = validRateRows(options.prices, todayInSeoul());
       const legs = airportSelection(prices, form);
       const selected = legs.map((leg) => prices.find((row) => row.airport_code === leg.airportPriceCode)).filter(Boolean);
-      return { prices, legs, total: selected.reduce((sum, row) => sum + n(row.price), 0), name: '공항 이동', optionName: `${form.serviceType === 'round_trip' ? '왕복' : '편도'}${form.vehicleType ? ` · ${form.vehicleType}` : ''}`, routeLabel: form.serviceType === 'round_trip' ? form.airportRoute : (form.airportRoute ? JSON.parse(form.airportRoute)[1] : ''), startDate: '', endDate: '', adults: 0, children: 0, infants: 0, quantity: legs.length || (form.serviceType === 'round_trip' ? 2 : 1) };
+      const routeLabel = form.serviceType === 'round_trip' ? form.airportRoute : (form.airportRoute ? JSON.parse(form.airportRoute)[1] : '');
+      return { prices, legs, total: selected.reduce((sum, row) => sum + n(row.price), 0), name: routeLabel || '공항 이동', optionName: `${form.serviceType === 'round_trip' ? '왕복' : '편도'}${form.vehicleType ? ` · ${form.vehicleType}` : ''}`, routeLabel, startDate: '', endDate: '', adults: 0, children: 0, infants: 0, quantity: legs.length || (form.serviceType === 'round_trip' ? 2 : 1) };
     }
     if (type === 'rentcar' || type === 'cruise_vehicle') {
       const selected = form.vehicles.map((vehicle) => findVehiclePrice(options.prices || [], vehicle)).filter(Boolean);
@@ -390,7 +391,7 @@ export default function PlatformBookingForm({ type }) {
     setSaving(true); setError(''); setMessage('');
     try {
       const platform = buildPlatformData();
-      const nextItem = { id: editingCartItemId || `${type}:${crypto.randomUUID()}`, serviceType: type, productId: type === 'package' ? form.packageId : type, optionId: type === 'cruise' ? form.rooms[0]?.rateCardId : type === 'hotel' ? form.hotelPriceCode : '', name: derived.name, optionName: derived.optionName, startDate: derived.startDate, endDate: derived.endDate, adults: derived.adults, children: derived.children, infants: derived.infants, quantity: Math.max(1, derived.quantity), unitPrice: derived.total / Math.max(1, derived.quantity), currency: type === 'cruise' && derived.selected?.[0]?.rate?.currency === 'USD' ? 'USD' : type === 'ticket' && form.priceChannel === 'krw' ? 'KRW' : 'VND', priceStatus: 'reference', sourceHref: `/booking/service/${type}`, metadata: { platform, summary: summaryRows() } };
+      const nextItem = { id: editingCartItemId || `${type}:${crypto.randomUUID()}`, serviceType: type, productId: type === 'package' ? form.packageId : type, optionId: type === 'cruise' ? form.rooms[0]?.rateCardId : type === 'hotel' ? form.hotelPriceCode : '', name: derived.name, optionName: derived.optionName, startDate: derived.startDate, endDate: derived.endDate, adults: derived.adults, children: derived.children, infants: derived.infants, quantity: Math.max(1, derived.quantity), unitPrice: derived.total / Math.max(1, derived.quantity), currency: type === 'cruise' && derived.selected?.[0]?.rate?.currency === 'USD' ? 'USD' : type === 'ticket' && form.priceChannel === 'krw' ? 'KRW' : 'VND', priceStatus: 'reference', sourceHref: `/booking/service/${type}`, metadata: { platform, summary: summaryRows(), ...(type === 'airport' && derived.routeLabel ? { airportRoute: derived.routeLabel } : {}) } };
       const session = await getPlatformCartSession();
       if (!session) {
         const next = `${window.location.pathname}${window.location.search}`;

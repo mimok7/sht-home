@@ -153,8 +153,13 @@ function sourceRateForCabin(rate) {
 
 function matchingCabinForSourceRate(cabins, rate) {
   const rawNames = [rate.roomName, rate.roomNameEn].filter(Boolean);
-  const rawExact = cabins.filter((cabin) => rawNames.includes(cabin.legacyName) || rawNames.includes(cabin.name) || rawNames.includes(cabin.nameEn));
-  if (rawExact.length === 1) return rawExact[0];
+  // `room_type` is the authority. Check it before the translated name so a
+  // Korean room and its similarly named English duplicate never cancel each
+  // other out during the transition from the old catalog cache.
+  for (const rawName of rawNames) {
+    const rawExact = cabins.filter((cabin) => [cabin.legacyName, cabin.name, cabin.nameEn].includes(rawName));
+    if (rawExact.length === 1) return rawExact[0];
+  }
 
   const aliases = rawNames.map(normalizedCabinName).filter(Boolean);
   const exact = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)));
@@ -162,6 +167,31 @@ function matchingCabinForSourceRate(cabins, rate) {
 
   const partial = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.some((rateAlias) => alias.includes(rateAlias) || rateAlias.includes(alias))));
   return partial.length === 1 ? partial[0] : null;
+}
+
+function sourceCabinForRate(rate) {
+  const sourceKey = `${rate.roomName || ''}\u0000${rate.roomNameEn || ''}`;
+  return {
+    id: `source-cabin-${normalizedCabinName(rate.roomName || rate.roomNameEn) || rate.id}`,
+    sourceKey,
+    legacyName: rate.roomName,
+    name: rate.roomName || rate.roomNameEn || '객실',
+    nameEn: rate.roomNameEn,
+    imageUrl: null,
+    roomArea: null,
+    bedType: null,
+    maxAdults: null,
+    maxGuests: null,
+    hasBalcony: false,
+    isVip: false,
+    hasButler: false,
+    isRecommended: false,
+    connectingAvailable: false,
+    extraBedAvailable: false,
+    facilities: null,
+    specialAmenities: null,
+    rates: [],
+  };
 }
 
 function mergeSourceRates(cabins, sourceRates, catalogRows) {
@@ -178,6 +208,13 @@ function mergeSourceRates(cabins, sourceRates, catalogRows) {
       if (fallbackCabin) {
         cabin = { ...fallbackCabin, rates: [] };
         nextCabins.push(cabin);
+      } else {
+        const sourceKey = `${sourceRate.roomName || ''}\u0000${sourceRate.roomNameEn || ''}`;
+        cabin = nextCabins.find((candidate) => candidate.sourceKey === sourceKey);
+        if (!cabin) {
+          cabin = sourceCabinForRate(sourceRate);
+          nextCabins.push(cabin);
+        }
       }
     }
     if (!cabin) continue;

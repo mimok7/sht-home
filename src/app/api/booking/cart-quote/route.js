@@ -8,6 +8,11 @@ function text(value, limit) {
   return typeof value === 'string' ? value.trim().slice(0, limit) : '';
 }
 
+function recipientLabel(value) {
+  const name = text(value, 160);
+  return name ? (name.endsWith('고객님') ? name : `${name} 고객님`) : '고객님';
+}
+
 function quoteNumber() {
   const date = new Date().toISOString().slice(0, 10).replaceAll('-', '');
   return `SHT-Q-${date}-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
@@ -35,7 +40,7 @@ export async function POST(request) {
     return Response.json({ error: '견적서 정보가 올바르지 않습니다.' }, { status: 400 });
   }
 
-  const recipientName = text(body?.recipientName, 160);
+  const recipientName = recipientLabel(body?.recipientName);
   const memo = text(body?.memo, 1000);
   const cart = await database.from('homepage_booking_carts').select('items').eq('platform_user_id', owner.id).maybeSingle();
   if (cart.error) {

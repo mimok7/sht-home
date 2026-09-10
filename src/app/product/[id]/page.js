@@ -172,7 +172,7 @@ function matchingCabinForSourceRate(cabins, rate) {
 function sourceCabinForRate(rate) {
   const sourceKey = `${rate.roomName || ''}\u0000${rate.roomNameEn || ''}`;
   return {
-    id: `source-cabin-${normalizedCabinName(rate.roomName || rate.roomNameEn) || rate.id}`,
+    id: `source-cabin-${encodeURIComponent(sourceKey || rate.id)}`,
     sourceKey,
     legacyName: rate.roomName,
     name: rate.roomName || rate.roomNameEn || '객실',

@@ -45,6 +45,31 @@ function publicImage(image) {
   };
 }
 
+function publicCruiseRate(rate) {
+  const scheduleType = text(rate.schedule_type);
+  const roomName = text(rate.room_type) || text(rate.room_name);
+  const platformRateCardId = text(rate.id) || text(rate.__source_id);
+  if (!scheduleType || !roomName || !platformRateCardId || rate.is_active === false || rate.is_active === 'false') return null;
+
+  return {
+    id: platformRateCardId,
+    scheduleType,
+    roomName,
+    roomNameEn: text(rate.room_type_en) || text(rate.room_name_en),
+    validFrom: text(rate.valid_from),
+    validTo: text(rate.valid_to),
+    currency: text(rate.currency) || 'VND',
+    priceAdult: Number(rate.price_adult) || null,
+    priceChild: Number(rate.price_child) || null,
+    priceInfant: Number(rate.price_infant) || null,
+    priceSingle: Number(rate.price_single) || null,
+    priceExtraBed: Number(rate.price_extra_bed) || null,
+    singleAvailable: Boolean(rate.single_available),
+    extraBedAvailable: Boolean(rate.extra_bed_available),
+    platformRateCardId,
+  };
+}
+
 export async function GET(request) {
   const searchParams = new URL(request.url).searchParams;
   const service = searchParams.get('service');
@@ -58,8 +83,15 @@ export async function GET(request) {
 
   try {
     if (service === 'cruise') {
-      const images = await loadRows(database, 'homepage_cruise_images', 'cruise_name', key);
-      return Response.json({ service, images: images.map(publicImage).filter(Boolean) }, {
+      const [images, rates] = await Promise.all([
+        loadRows(database, 'homepage_cruise_images', 'cruise_name', key),
+        loadRows(database, 'cruise_rate_card', 'cruise_name', key),
+      ]);
+      return Response.json({
+        service,
+        images: images.map(publicImage).filter(Boolean),
+        rates: rates.map(publicCruiseRate).filter(Boolean),
+      }, {
         headers: { 'Cache-Control': 'public, s-maxage=60, stale-while-revalidate=300' },
       });
     }

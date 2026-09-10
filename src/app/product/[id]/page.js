@@ -134,6 +134,59 @@ function mergeCatalogCabins(catalogRows, recommendationRows) {
   });
 }
 
+function sourceRateForCabin(rate) {
+  return {
+    platform_rate_card_id: rate.platformRateCardId || rate.id,
+    schedule_type: rate.scheduleType,
+    valid_from: rate.validFrom,
+    valid_to: rate.validTo,
+    currency: rate.currency || 'VND',
+    price_adult: rate.priceAdult,
+    price_child: rate.priceChild,
+    price_infant: rate.priceInfant,
+    price_single: rate.priceSingle,
+    price_extra_bed: rate.priceExtraBed,
+    single_available: rate.singleAvailable,
+    extra_bed_available: rate.extraBedAvailable,
+  };
+}
+
+function matchingCabinForSourceRate(cabins, rate) {
+  const rawNames = [rate.roomName, rate.roomNameEn].filter(Boolean);
+  const rawExact = cabins.filter((cabin) => rawNames.includes(cabin.legacyName) || rawNames.includes(cabin.name) || rawNames.includes(cabin.nameEn));
+  if (rawExact.length === 1) return rawExact[0];
+
+  const aliases = rawNames.map(normalizedCabinName).filter(Boolean);
+  const exact = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)));
+  if (exact.length === 1) return exact[0];
+
+  const partial = cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.some((rateAlias) => alias.includes(rateAlias) || rateAlias.includes(alias))));
+  return partial.length === 1 ? partial[0] : null;
+}
+
+function mergeSourceRates(cabins, sourceRates, catalogRows) {
+  const nextCabins = cabins.map((cabin) => ({ ...cabin, rates: [...(cabin.rates || [])] }));
+  const fallbackCabins = buildCatalogCabins(catalogRows || []);
+  const knownRates = new Set(nextCabins.flatMap((cabin) => cabin.rates.map((rate) => String(rate.platform_rate_card_id || rate.rate_plan_id || ''))).filter(Boolean));
+
+  for (const sourceRate of sourceRates || []) {
+    const rateId = String(sourceRate.platformRateCardId || sourceRate.id || '');
+    if (!rateId || knownRates.has(rateId)) continue;
+    let cabin = matchingCabinForSourceRate(nextCabins, sourceRate);
+    if (!cabin) {
+      const fallbackCabin = matchingCabinForSourceRate(fallbackCabins, sourceRate);
+      if (fallbackCabin) {
+        cabin = { ...fallbackCabin, rates: [] };
+        nextCabins.push(cabin);
+      }
+    }
+    if (!cabin) continue;
+    cabin.rates.push(sourceRateForCabin(sourceRate));
+    knownRates.add(rateId);
+  }
+  return nextCabins;
+}
+
 function createCabinIdMap(allCabinRows, activeCabins) {
   const activeById = new Map(activeCabins.map((cabin) => [cabin.id, cabin.id]));
   for (const row of allCabinRows || []) {
@@ -430,6 +483,15 @@ export default function ProductDetail({ params }) {
       }
       const allCabinRows = allCabinsResult.data || [];
       nextCabins = mergeCatalogCabins(allCabinRows, rows);
+      let sourcePayload = null;
+      try {
+        const sourceResponse = await fetch(`/api/public-catalog?service=cruise&key=${encodeURIComponent(first.cruise_name)}`);
+        if (sourceResponse.ok) sourcePayload = await sourceResponse.json();
+      } catch (error) {
+        console.warn('Failed to load source cruise catalog:', error?.message || error);
+      }
+      if (cancelled) return;
+      nextCabins = mergeSourceRates(nextCabins, sourcePayload?.rates, allCabinRows);
       const cabinIdMap = createCabinIdMap(allCabinRows, nextCabins);
       const allCabinIds = allCabinRows.map((cabin) => cabin.id);
       const [importsResult, cabinImagesResult] = await Promise.all([
@@ -452,16 +514,7 @@ export default function ProductDetail({ params }) {
       if (importsResult.error || cabinImagesResult.error) {
         console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
       }
-      let sourceImports = [];
-      try {
-        const sourceResponse = await fetch(`/api/public-catalog?service=cruise&key=${encodeURIComponent(first.cruise_name)}`);
-        if (sourceResponse.ok) {
-          const sourcePayload = await sourceResponse.json();
-          sourceImports = mapSourceCruiseImages(sourcePayload.images, nextCabins);
-        }
-      } catch (error) {
-        console.warn('Failed to load source cruise gallery:', error?.message || error);
-      }
+      const sourceImports = mapSourceCruiseImages(sourcePayload?.images, nextCabins);
       if (cancelled) return;
       const nextMediaGroups = buildMediaGroups([...(importsResult.data || []), ...sourceImports], cabinImagesResult.data || [], nextCabins, cabinIdMap);
       const storedHeroImage = nextMediaGroups.find((group) => group.id === 'main')?.images[0]?.url
@@ -504,8 +557,10 @@ export default function ProductDetail({ params }) {
   }, [id]);
 
   const availableCabins = useMemo(
-    () => cabins,
-    [cabins]
+    () => selectedSchedule
+      ? cabins.filter((cabin) => cabin.rates.some((rate) => rate.schedule_type === selectedSchedule))
+      : cabins,
+    [cabins, selectedSchedule]
   );
   const selectedCabin = availableCabins.find((cabin) => cabin.id === selectedCabinId) || availableCabins[0] || null;
   const selectedRate = useMemo(

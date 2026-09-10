@@ -15,11 +15,13 @@ const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;
 const CRUISE_SHUTTLE_PRICE_PER_PERSON = 1000000;
+const CRUISE_FALLBACK_IMAGES = ['/yacht_1.png', '/yacht_2.png', '/yacht_3.png', '/halong-hero.png'];
 const MEDIA_CATEGORY_LABELS = {
   main: { label: '대표 이미지', eyebrow: 'CRUISE' },
   exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
   interior: { label: '인테리어', eyebrow: 'INTERIOR' },
   menu: { label: '메뉴', eyebrow: 'MENU' },
+  other: { label: '전체 갤러리', eyebrow: 'GALLERY' },
 };
 
 function positiveNumber(value) {
@@ -29,6 +31,11 @@ function positiveNumber(value) {
 
 function usableImageUrl(imageUrl) {
   return resolvePublicMediaUrl(imageUrl);
+}
+
+function cruiseFallbackImage(value) {
+  const hash = [...String(value || '')].reduce((total, character) => total + character.codePointAt(0), 0);
+  return CRUISE_FALLBACK_IMAGES[hash % CRUISE_FALLBACK_IMAGES.length];
 }
 
 function formatVnd(value, currency = 'VND') {
@@ -395,10 +402,6 @@ function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new M
     const category = String(pathFilename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || String(row.image_name || '').match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || 'other';
-    // Unclassified legacy imports must not reappear as a misleading
-    // "additional images" gallery. Cabin images are matched above, while the
-    // named cruise collections remain available in their own sections.
-    if (category === 'other') continue;
     const label = MEDIA_CATEGORY_LABELS[category];
     addImage(
       { id: category, ...label },
@@ -677,7 +680,7 @@ export default function ProductDetail({ params }) {
         nameEn: first.cruise_name_en,
         description: first.description,
         rating: first.star_rating,
-        heroImage: storedHeroImage || usableImageUrl(first.hero_image),
+        heroImage: storedHeroImage || usableImageUrl(first.hero_image) || cruiseFallbackImage(first.cruise_id),
         tags: first.tags || [],
         schedules,
       });

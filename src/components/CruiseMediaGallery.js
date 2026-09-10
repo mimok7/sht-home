@@ -13,6 +13,10 @@ function uniqueImages(images) {
   });
 }
 
+function layeredBackground(primary, fallback = '/halong-hero.png') {
+  return [...new Set([primary, fallback].filter(Boolean))].map((url) => `url(${url})`).join(', ');
+}
+
 export default function CruiseMediaGallery({
   cruiseName,
   duration,
@@ -43,6 +47,8 @@ export default function CruiseMediaGallery({
   const [activeIndex, setActiveIndex] = useState(0);
   const activeGroup = normalizedGroups.find((group) => group.id === activeGroupId) || null;
   const activeImage = activeGroup?.images[activeIndex] || null;
+  const mainImage = displayImage || mainGroup?.images[0]?.url;
+  const fallbackImage = heroImage && heroImage !== mainImage ? heroImage : '/halong-hero.png';
 
   useEffect(() => {
     if (!activeGroup) return undefined;
@@ -76,7 +82,7 @@ export default function CruiseMediaGallery({
         <button
           type="button"
           className={`product-image-box product-image-button ${mainClassName}`.trim()}
-          style={{ backgroundImage: `url(${displayImage || mainGroup.images[0].url})` }}
+          style={{ backgroundImage: layeredBackground(mainImage, fallbackImage) }}
           onClick={(event) => {
             event.stopPropagation();
             openGroup(mainGroup.id);
@@ -97,7 +103,7 @@ export default function CruiseMediaGallery({
           <div className="cruise-media-strip">
             {secondaryGroups.map((group) => (
               <button type="button" className="cruise-media-group" key={group.id} onClick={() => openGroup(group.id)}>
-                <span className="cruise-media-thumb" style={{ backgroundImage: `url(${group.images[0].url})` }} />
+                <span className="cruise-media-thumb" style={{ backgroundImage: layeredBackground(group.images[0].url, heroImage) }} />
                 <span className="cruise-media-copy"><small>{group.eyebrow}</small><strong>{group.label}</strong><i>{group.images.length}장 전체 보기 ↗</i></span>
               </button>
             ))}
@@ -113,7 +119,7 @@ export default function CruiseMediaGallery({
               <button type="button" onClick={closeGallery} aria-label="이미지 갤러리 닫기">닫기 ×</button>
             </header>
             <div className="cruise-lightbox-stage">
-              <div className="cruise-lightbox-image" role="img" aria-label={activeImage.alt} style={{ backgroundImage: `url(${activeImage.url})` }} />
+              <div className="cruise-lightbox-image" role="img" aria-label={activeImage.alt} style={{ backgroundImage: layeredBackground(activeImage.url, heroImage) }} />
               {activeGroup.images.length > 1 && (
                 <>
                   <button type="button" className="lightbox-nav prev" aria-label="이전 이미지" onClick={() => setActiveIndex((activeIndex - 1 + activeGroup.images.length) % activeGroup.images.length)}>←</button>
@@ -124,7 +130,7 @@ export default function CruiseMediaGallery({
             <footer>
               <div className="lightbox-thumbnails" aria-label={`${activeGroup.label} 전체 이미지`}>
                 {activeGroup.images.map((image, index) => (
-                  <button type="button" key={image.id || image.url} className={index === activeIndex ? 'selected' : ''} style={{ backgroundImage: `url(${image.url})` }} onClick={() => setActiveIndex(index)} aria-label={`${index + 1}번 이미지 보기`} aria-current={index === activeIndex ? 'true' : undefined} />
+                  <button type="button" key={image.id || image.url} className={index === activeIndex ? 'selected' : ''} style={{ backgroundImage: layeredBackground(image.url, heroImage) }} onClick={() => setActiveIndex(index)} aria-label={`${index + 1}번 이미지 보기`} aria-current={index === activeIndex ? 'true' : undefined} />
                 ))}
               </div>
               <p><strong>{activeIndex + 1} / {activeGroup.images.length}</strong><span>{activeImage.alt}</span></p>

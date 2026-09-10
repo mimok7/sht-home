@@ -364,15 +364,26 @@ export async function syncPlatformCruiseV2(database, catalogs) {
   const images = catalogs.homepage_cruise_images || [];
   const cabinImageRows = [];
   const cafeImageRows = [];
+  let unmatchedImages = 0;
   for (const row of images) {
     const cruise = cruiseByName.get(text(row.cruise_name));
-    if (!cruise || !row.id) continue;
-    const cabin = text(row.room_name) ? (cabinsByCruise.get(cruise.id) || []).find((item) => item.legacy_room_name === text(row.room_name) || item.name_ko === text(row.room_name)) : null;
+    if (!cruise || !row.id) {
+      unmatchedImages += 1;
+      continue;
+    }
+    const activeCabins = (cabinsByCruise.get(cruise.id) || []).filter((item) => activeCabinKeys.has(`${cruise.id}|${item.legacy_room_name}`));
+    const cabin = text(row.room_name)
+      ? findCabin({ room_type: row.room_name, room_type_en: row.room_name_en }, activeCabins, aliasCabinsByCruise.get(cruise.id))
+      : null;
     if (row.collection === 'cabin_gallery' && cabin && row.storage_bucket && row.storage_path) {
       cabinImageRows.push({ id: row.id, cabin_id: cabin.id, storage_bucket: row.storage_bucket, storage_path: row.storage_path, alt_text: text(row.image_name), sort_order: number(row.sort_order) || 0, is_primary: Boolean(row.is_primary), updated_at: now });
+    } else if (row.collection === 'cabin_gallery') {
+      unmatchedImages += 1;
     }
     if (row.collection === 'cafe_import' && row.storage_bucket && row.storage_path) {
       cafeImageRows.push({ id: row.id, cruise_id: cruise.id, cabin_id: cabin?.id || null, source_url: text(row.source_url) || row.image_url, source_image_url: text(row.source_image_url) || row.image_url, image_name: text(row.image_name), storage_bucket: row.storage_bucket, storage_path: row.storage_path, sort_order: number(row.sort_order) || 0, is_primary: Boolean(row.is_primary) });
+    } else if (row.collection !== 'cabin_gallery') {
+      unmatchedImages += 1;
     }
   }
   const [cachedCabinImages, cachedCafeImages] = await Promise.all([
@@ -407,7 +418,7 @@ export async function syncPlatformCruiseV2(database, catalogs) {
     await throwOnError(await database.from('cruise_cafe_import_images_v2').delete().in('id', staleCafeImageIds.slice(index, index + 200)), '가져온 이미지 캐시 정리 실패');
   }
 
-  return { cruises: cruiseRows.length, cabins: cabinRows.length, itineraries: itineraryRows.length, rates: rateRows.length, tags: tagRows.length, images: images.length, unmatchedRates };
+  return { cruises: cruiseRows.length, cabins: cabinRows.length, itineraries: itineraryRows.length, rates: rateRows.length, tags: tagRows.length, images: cabinImageRows.length + cafeImageRows.length, unmatchedImages, unmatchedRates };
 }
 
 export async function syncPlatformHotelImagesV2(database, catalogs) {

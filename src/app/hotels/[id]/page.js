@@ -39,6 +39,39 @@ function roomName(payload, price) {
   return payload?.room_name || payload?.room_type || price?.label || '객실명 확인 중';
 }
 
+const HOTEL_MEDIA_LABELS = {
+  main: { label: '대표 이미지', eyebrow: 'HOTEL' },
+  exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
+  interior: { label: '인테리어', eyebrow: 'INTERIOR' },
+  menu: { label: '메뉴', eyebrow: 'DINING' },
+  other: { label: '추가 이미지', eyebrow: 'GALLERY' },
+};
+
+function hotelMediaCategory(image) {
+  if (image.collection === 'hotel_menu') return 'menu';
+  const source = `${image.collection || ''} ${image.image_name || ''}`;
+  if (/exterior|외관/i.test(source)) return 'exterior';
+  if (/interior|인테리어|내부/i.test(source)) return 'interior';
+  if (/menu|메뉴/i.test(source)) return 'menu';
+  if (/main|hero|대표/i.test(source) || image.is_primary) return 'main';
+  return image.collection === 'hotel_import' ? 'main' : 'other';
+}
+
+function buildHotelMediaGroups(imageRows, hotelName) {
+  const groups = new Map();
+  for (const image of imageRows || []) {
+    if (image.hotel_price_code || !image.image_url) continue;
+    const category = hotelMediaCategory(image);
+    if (!groups.has(category)) groups.set(category, { id: category, ...HOTEL_MEDIA_LABELS[category], images: [] });
+    const url = proxiedImageUrl(image.image_url);
+    const images = groups.get(category).images;
+    if (!images.some((current) => current.url === url)) {
+      images.push({ id: image.id, url, alt: image.image_name || `${hotelName} ${HOTEL_MEDIA_LABELS[category].label}` });
+    }
+  }
+  return ['main', 'exterior', 'interior', 'menu', 'other'].map((category) => groups.get(category)).filter(Boolean);
+}
+
 function buildRooms(detailRows, priceRows, imageRows) {
   const pricesByCode = new Map((priceRows || []).map((price) => [String(price.source_id), price]));
   const imagesByCode = new Map();
@@ -80,8 +113,7 @@ export default function HotelDetail({ params }) {
   const [loadError, setLoadError] = useState('');
   const [hotel, setHotel] = useState(null);
   const [rooms, setRooms] = useState([]);
-  const [hotelImages, setHotelImages] = useState([]);
-  const [hotelMenuImages, setHotelMenuImages] = useState([]);
+  const [hotelMediaGroups, setHotelMediaGroups] = useState([]);
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [detailRoomId, setDetailRoomId] = useState('');
   const [stayDate, setStayDate] = useState('');
@@ -105,8 +137,8 @@ export default function HotelDetail({ params }) {
       if (hotelResult.error || !hotelResult.data) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); return; }
       if (detailsResult.error || pricesResult.error || imagesResult.error) console.error('Failed to load hotel detail:', detailsResult.error?.message || pricesResult.error?.message || imagesResult.error?.message);
       const product = hotelResult.data;
-      const galleryImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.collection !== 'hotel_menu' && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: image.image_name || `${product.name_ko} 대표 이미지` }));
-      const menuImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.collection === 'hotel_menu' && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: image.image_name || `${product.name_ko} 메뉴 이미지` }));
+      const nextMediaGroups = buildHotelMediaGroups(imagesResult.data || [], product.name_ko);
+      const galleryFirstImage = nextMediaGroups.flatMap((group) => group.images)[0]?.url;
       const nextRooms = buildRooms(detailsResult.data || [], pricesResult.data || [], imagesResult.data || []);
       let editingItem = null;
       const editCartItemId = editCartItemIdFromLocation();
@@ -116,8 +148,8 @@ export default function HotelDetail({ params }) {
         editingItem = cart.items.find((item) => item.id === editCartItemId && item.serviceType === 'hotel' && String(item.productId) === String(product.id)) || null;
       }
       const editingRoom = editingItem && nextRooms.find((room) => room.id === editingItem.optionId);
-      setHotel({ id: product.id, name: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryImages[0]?.url || '' });
-      setHotelImages(galleryImages); setHotelMenuImages(menuImages); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
+      setHotel({ id: product.id, name: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryFirstImage || '' });
+      setHotelMediaGroups(nextMediaGroups); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
       setStayDate(editingItem?.startDate || ''); setGuests(Math.max(1, Number(editingItem?.adults || 2))); setRoomCount(Math.max(1, Number(editingItem?.quantity || 1))); setEditingCartItemId(editingItem?.id || ''); setLoading(false);
     }
     fetchHotel();
@@ -168,11 +200,9 @@ export default function HotelDetail({ params }) {
   if (loading) return <div className="hotel-detail-state"><span>STAY HALONG / HOTEL</span><h1>호텔 객실을<br />불러오는 중입니다.</h1><i aria-hidden="true" /><p>객실 정보와 등록 요금을 확인하고 있습니다.</p></div>;
   if (!hotel || loadError) return <div className="hotel-detail-state hotel-detail-state-error"><span>STAY HALONG / NOT FOUND</span><h1>호텔을 찾을 수 없습니다.</h1><p>{loadError}</p><Link href="/hotels">호텔 목록으로 돌아가기 →</Link></div>;
 
-  const mainImages = hotelImages.length ? hotelImages : hotel.heroImage ? [{ id: 'hero', url: hotel.heroImage, alt: `${hotel.name} 대표 이미지` }] : [];
-  const hotelMediaGroups = [
-    ...(mainImages.length ? [{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images: mainImages }] : []),
-    ...(hotelMenuImages.length ? [{ id: 'menu', label: '메뉴', eyebrow: 'DINING', images: hotelMenuImages }] : []),
-  ];
+  const displayMediaGroups = hotelMediaGroups.length
+    ? hotelMediaGroups
+    : hotel.heroImage ? [{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images: [{ id: 'hero', url: hotel.heroImage, alt: `${hotel.name} 대표 이미지` }] }] : [];
 
   return <div className="hotel-detail-page">
     <div className="hotel-detail-hero" style={{ backgroundImage: hotel.heroImage ? `url(${hotel.heroImage})` : undefined }}><div /></div>
@@ -180,7 +210,7 @@ export default function HotelDetail({ params }) {
       <main className="hotel-detail-main">
         <Link href="/hotels" className="hotel-back-link">← 호텔 목록</Link>
         <header className="hotel-detail-header"><span>HOTEL / ROOM RESERVATION</span><h1>{hotel.name}</h1><p className="hotel-detail-location">{hotel.location}{hotel.rating ? ` · ★ ${hotel.rating}` : ''}</p><p className="hotel-detail-description">{hotel.description || 'Stay Halong이 엄선한 호텔의 객실과 등록 요금을 확인해 보세요.'}</p></header>
-        {hotelMediaGroups.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={hotelMediaGroups} /></section>}
+        {displayMediaGroups.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={displayMediaGroups} /></section>}
         <section className="hotel-rooms-section"><div className="hotel-section-heading"><div><span>01 / ROOMS</span><h2>객실 및 등록 요금</h2></div><label>투숙일<input type="date" value={stayDate} onChange={(event) => setStayDate(event.target.value)} /></label></div><p className="hotel-price-notice">표시된 금액은 객실 기준 등록 요금입니다. 객실 가능 여부와 최종 요금은 상담을 통해 확정됩니다.</p>
           {availableRooms.length === 0 ? <p className="hotel-no-rooms">선택한 투숙일에 적용되는 등록 객실이 없습니다. 상담으로 확인해 주세요.</p> : <div className="hotel-room-list">{availableRooms.map((room, index) => {
             const roomGroup = room.images.length ? { id: `room-${room.id}`, label: room.name, eyebrow: 'ROOM', images: room.images } : null;

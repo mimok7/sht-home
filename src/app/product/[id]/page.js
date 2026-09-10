@@ -89,6 +89,7 @@ function buildCabins(rows) {
 function buildCatalogCabins(rows) {
   return (rows || []).map((row) => ({
     id: row.id,
+    legacyName: row.legacy_room_name,
     name: row.name_ko || row.legacy_room_name || '객실',
     nameEn: row.name_en,
     imageUrl: row.image_url,
@@ -108,6 +109,42 @@ function buildCatalogCabins(rows) {
   })).sort((left, right) => Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko'));
 }
 
+function normalizedCabinName(value) {
+  return String(value || '').replace(/\([^)]*\)/g, '').replace(/[^a-zA-Z0-9가-힣]/g, '').toLowerCase();
+}
+
+function cabinAliases(cabin) {
+  return [cabin?.legacyName, cabin?.legacy_room_name, cabin?.name, cabin?.nameEn, cabin?.name_ko, cabin?.name_en]
+    .map(normalizedCabinName)
+    .filter(Boolean);
+}
+
+function mergeCatalogCabins(catalogRows, recommendationRows) {
+  const recommendationCabins = buildCabins(recommendationRows || []);
+  const recommendationById = new Map(recommendationCabins.map((cabin) => [cabin.id, cabin]));
+  return buildCatalogCabins((catalogRows || []).filter((row) => row.is_active)).map((cabin) => {
+    const aliases = cabinAliases(cabin);
+    const matches = recommendationCabins.filter((candidate) => cabinAliases(candidate).some((alias) => aliases.includes(alias)));
+    const recommendation = recommendationById.get(cabin.id) || (matches.length === 1 ? matches[0] : null);
+    return {
+      ...cabin,
+      imageUrl: cabin.imageUrl || recommendation?.imageUrl,
+      rates: recommendation?.rates || [],
+    };
+  });
+}
+
+function createCabinIdMap(allCabinRows, activeCabins) {
+  const activeById = new Map(activeCabins.map((cabin) => [cabin.id, cabin.id]));
+  for (const row of allCabinRows || []) {
+    if (activeById.has(row.id)) continue;
+    const aliases = cabinAliases(row);
+    const matches = activeCabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)));
+    if (matches.length === 1) activeById.set(row.id, matches[0].id);
+  }
+  return activeById;
+}
+
 function sortMediaImages(left, right) {
   return Number(right.isPrimary) - Number(left.isPrimary)
     || Number(left.sortOrder) - Number(right.sortOrder)
@@ -118,9 +155,13 @@ function publicStorageUrl(bucket, path) {
   return platformStorageUrl(bucket, path);
 }
 
-function buildMediaGroups(importRows, cabinImageRows, cabins) {
+function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new Map()) {
   const groups = new Map();
   const cabinById = new Map(cabins.map((cabin) => [cabin.id, cabin]));
+
+  function mappedCabin(cabinId) {
+    return cabinById.get(cabinIdMap.get(cabinId) || cabinId);
+  }
 
   function addImage(group, image) {
     if (!image.url) return;
@@ -130,9 +171,24 @@ function buildMediaGroups(importRows, cabinImageRows, cabins) {
   }
 
   for (const row of importRows || []) {
-    if (row.cabin_id) continue;
     const pathFilename = row.storage_path?.split('/').pop() || '';
     const filename = pathFilename || row.image_name || '';
+    const cabin = row.cabin_id ? mappedCabin(row.cabin_id) : null;
+    if (cabin) {
+      const label = cabin.nameEn || cabin.name || '객실';
+      addImage(
+        { id: `cabin-${cabin.id}`, label, eyebrow: 'CABIN' },
+        {
+          id: row.id,
+          url: publicStorageUrl(row.storage_bucket, row.storage_path),
+          alt: row.image_name || `${label} 객실 이미지`,
+          name: filename,
+          sortOrder: row.sort_order,
+          isPrimary: row.is_primary,
+        }
+      );
+      continue;
+    }
     const category = String(pathFilename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || String(row.image_name || '').match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase()
       || 'other';
@@ -151,7 +207,7 @@ function buildMediaGroups(importRows, cabinImageRows, cabins) {
   }
 
   for (const row of cabinImageRows || []) {
-    const cabin = cabinById.get(row.cabin_id);
+    const cabin = mappedCabin(row.cabin_id);
     if (!cabin) continue;
     const label = cabin.nameEn || cabin.name || '객실';
     addImage(
@@ -295,7 +351,6 @@ export default function ProductDetail({ params }) {
         first = rows[0];
         schedules = [...new Set(rows.map((row) => row.schedule_type).filter(Boolean))]
           .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
-        nextCabins = buildCabins(rows);
       } else {
         let catalogResult = await supabase
           .from('cruises_v2')
@@ -320,21 +375,14 @@ export default function ProductDetail({ params }) {
           return;
         }
         const catalog = catalogResult.data;
-        const [itineraryResult, cabinResult] = await Promise.all([
-          supabase
-            .from('cruise_itineraries_v2')
-            .select('schedule_type')
-            .eq('cruise_id', catalog.id)
-            .eq('is_active', true),
-          supabase
-            .from('cabins_v2')
-            .select('id,legacy_room_name,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities')
-            .eq('cruise_id', catalog.id)
-            .eq('is_active', true),
-        ]);
+        const itineraryResult = await supabase
+          .from('cruise_itineraries_v2')
+          .select('schedule_type')
+          .eq('cruise_id', catalog.id)
+          .eq('is_active', true);
         if (cancelled) return;
-        if (itineraryResult.error || cabinResult.error) {
-          setLoadError('상품의 일정과 객실 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        if (itineraryResult.error) {
+          setLoadError('상품의 일정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
           setLoading(false);
           return;
         }
@@ -350,9 +398,22 @@ export default function ProductDetail({ params }) {
         };
         schedules = [...new Set((itineraryResult.data || []).map((row) => row.schedule_type).filter(Boolean))]
           .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
-        nextCabins = buildCatalogCabins(cabinResult.data || []);
       }
-      const cabinIds = nextCabins.map((cabin) => cabin.id);
+
+      const allCabinsResult = await supabase
+        .from('cabins_v2')
+        .select('id,legacy_room_name,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,is_active')
+        .eq('cruise_id', first.cruise_id);
+      if (cancelled) return;
+      if (allCabinsResult.error) {
+        setLoadError('상품의 객실 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        setLoading(false);
+        return;
+      }
+      const allCabinRows = allCabinsResult.data || [];
+      nextCabins = mergeCatalogCabins(allCabinRows, rows);
+      const cabinIdMap = createCabinIdMap(allCabinRows, nextCabins);
+      const allCabinIds = allCabinRows.map((cabin) => cabin.id);
       const [importsResult, cabinImagesResult] = await Promise.all([
         supabase
           .from('cruise_cafe_import_images_v2')
@@ -360,11 +421,11 @@ export default function ProductDetail({ params }) {
           .eq('cruise_id', first.cruise_id)
           .order('created_at')
           .order('sort_order'),
-        cabinIds.length
+        allCabinIds.length
           ? supabase
             .from('cabin_images_v2')
             .select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at')
-            .in('cabin_id', cabinIds)
+            .in('cabin_id', allCabinIds)
             .order('sort_order')
           : Promise.resolve({ data: [], error: null }),
       ]);
@@ -394,7 +455,7 @@ export default function ProductDetail({ params }) {
         schedules,
       });
       setCabins(nextCabins);
-      setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins));
+      setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins, cabinIdMap));
       setSelectedSchedule(editingSchedule);
       setSelectedCabinId(editingCabin?.id || initialCabinId(nextCabins, editingSchedule) || nextCabins[0]?.id || null);
       setDate(editingItem?.startDate || '');

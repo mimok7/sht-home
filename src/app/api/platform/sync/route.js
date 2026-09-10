@@ -24,12 +24,27 @@ function chunks(values, size = 200) {
   return result;
 }
 
+async function collectPages(buildQuery, pageSize = 1000) {
+  const rows = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await buildQuery().range(from, from + pageSize - 1);
+    if (error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+  }
+  return rows;
+}
+
 async function removeDeletedSourceRows(database, catalogs) {
   let deleted = 0;
   for (const sourceTable of SOURCE_TABLES) {
     const incomingIds = new Set((catalogs[sourceTable] || []).map((row) => String(row.__source_id)));
-    const { data, error } = await database.from('platform_source_records').select('source_id').eq('source', 'sht-platform').eq('source_table', sourceTable);
-    if (error) throw error;
+    const data = await collectPages(() => database.from('platform_source_records')
+      .select('source_id')
+      .eq('source', 'sht-platform')
+      .eq('source_table', sourceTable)
+      .order('source_id'));
     const staleIds = (data || []).map((row) => row.source_id).filter((sourceId) => !incomingIds.has(sourceId));
     for (const batch of chunks(staleIds)) {
       for (const derivedTable of ['catalog_prices_v2', 'catalog_product_details_v2', 'catalog_reference_data_v2']) {
@@ -45,13 +60,13 @@ async function removeDeletedSourceRows(database, catalogs) {
 }
 
 async function removeStaleSourceRows(database, syncStartedAt) {
-  const { data, error } = await database
+  const data = await collectPages(() => database
     .from('platform_source_records')
     .select('source_table,source_id')
     .eq('source', 'sht-platform')
     .lt('synced_at', syncStartedAt)
-    .range(0, 10000);
-  if (error) throw error;
+    .order('source_table')
+    .order('source_id'));
 
   let deleted = 0;
   const idsByTable = new Map();
@@ -75,12 +90,12 @@ async function removeStaleSourceRows(database, syncStartedAt) {
 }
 
 async function loadStagedCatalogs(database) {
-  const { data, error } = await database
+  const data = await collectPages(() => database
     .from('platform_source_records')
     .select('source_table,source_id,payload')
     .eq('source', 'sht-platform')
-    .range(0, 10000);
-  if (error) throw error;
+    .order('source_table')
+    .order('source_id'));
 
   const catalogs = Object.fromEntries([...SOURCE_TABLES].map((table) => [table, []]));
   for (const row of data || []) {
@@ -175,6 +190,31 @@ export async function POST(request) {
     body = await request.json();
   } catch {
     return Response.json({ error: 'JSON 본문이 필요합니다.' }, { status: 400 });
+  }
+
+  if (body?.source === 'sht-platform' && body?.reconcile === true) {
+    try {
+      const catalogs = await loadStagedCatalogs(database);
+      const catalogCounts = Object.fromEntries(Object.entries(catalogs).map(([table, rows]) => [table, rows.length]));
+      const { data: transformed, error: transformError } = await database.rpc('refresh_platform_catalog_full_v2');
+      if (transformError) throw transformError;
+      const deletedProducts = await removeOrphanProducts(database, catalogs);
+      const overrides = await applyCatalogOverrides(database, catalogs);
+      const [cruiseV2, hotelImagesV2] = await Promise.all([
+        syncPlatformCruiseV2(database, catalogs),
+        syncPlatformHotelImagesV2(database, catalogs),
+      ]);
+      const { error: runError } = await database.from('platform_sync_runs').insert({
+        source: 'sht-platform',
+        trigger: 'manual',
+        catalog_counts: catalogCounts,
+      });
+      if (runError) throw runError;
+      return Response.json({ ok: true, reconciled: true, catalogCounts, transformed, deletedProducts, overrides, cruiseV2, hotelImagesV2 });
+    } catch (error) {
+      console.error('[platform-sync] staged reconciliation failed', error?.message || error);
+      return Response.json({ error: '저장된 원본 데이터의 공개 상품 재구성에 실패했습니다.' }, { status: 500 });
+    }
   }
 
   if (body?.source !== 'sht-platform' || !body?.catalogs || typeof body.catalogs !== 'object') {

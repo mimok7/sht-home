@@ -63,6 +63,47 @@ async function getHotelSourceImages() {
   }
 }
 
+async function getHotelSourceCatalog() {
+  const database = getHomepageDatabase();
+  if (!database) return new Map();
+  try {
+    const [infoResult, priceResult] = await Promise.all([
+      database.from('platform_source_records').select('payload').eq('source', 'sht-platform').eq('source_table', 'hotel_info').limit(1000),
+      database.from('platform_source_records').select('payload').eq('source', 'sht-platform').eq('source_table', 'hotel_price').limit(1000),
+    ]);
+    if (infoResult.error || priceResult.error) throw infoResult.error || priceResult.error;
+    const hotels = new Map();
+    for (const row of infoResult.data || []) {
+      const info = row.payload || {};
+      const code = String(info.hotel_code || '').trim();
+      if (!code) continue;
+      hotels.set(code, {
+        code,
+        name: info.hotel_name || code,
+        description: info.notes || '',
+        location: info.location || '지역 확인 중',
+        rating: positiveNumber(info.star_rating),
+        minPrice: null,
+        currency: 'VND',
+      });
+    }
+    for (const row of priceResult.data || []) {
+      const price = row.payload || {};
+      const code = String(price.hotel_code || '').trim();
+      if (!code) continue;
+      if (!hotels.has(code)) hotels.set(code, { code, name: price.hotel_name || code, description: '', location: '지역 확인 중', rating: null, minPrice: null, currency: price.currency || 'VND' });
+      const hotel = hotels.get(code);
+      const amount = positiveNumber(price.base_price);
+      if (amount && (!hotel.minPrice || amount < hotel.minPrice)) hotel.minPrice = amount;
+      if (price.currency) hotel.currency = price.currency;
+    }
+    return hotels;
+  } catch (error) {
+    console.warn('[hotels] source catalog fallback lookup skipped', error?.message || error);
+    return new Map();
+  }
+}
+
 async function getHotelRecommendationPriorities() {
   const database = getHomepageDatabase();
   if (!database) return new Map();
@@ -81,7 +122,7 @@ async function getHotelRecommendationPriorities() {
 }
 
 async function getHotels() {
-  const [productsResult, pricesResult, imagesResult, priorities, sourceImagesByHotelCode] = await Promise.all([
+  const [productsResult, pricesResult, imagesResult, priorities, sourceImagesByHotelCode, sourceHotels] = await Promise.all([
     supabase
       .from('catalog_products_v2')
       .select('id,source_key,name_ko,description,category,image_url,metadata,manual_override')
@@ -103,6 +144,7 @@ async function getHotels() {
       .order('sort_order'),
     getHotelRecommendationPriorities(),
     getHotelSourceImages(),
+    getHotelSourceCatalog(),
   ]);
 
   if (productsResult.error) {
@@ -132,7 +174,7 @@ async function getHotels() {
     }
   }
 
-  return (productsResult.data || []).map((hotel) => {
+  const catalogHotels = (productsResult.data || []).map((hotel) => {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
@@ -156,7 +198,27 @@ async function getHotels() {
       mainImages,
       priorityPosition: priorities.get(hotel.id) ?? null,
     };
-  }).sort((left, right) => {
+  });
+
+  const catalogCodes = new Set((productsResult.data || []).map((hotel) => hotel.source_key));
+  for (const sourceHotel of sourceHotels.values()) {
+    if (catalogCodes.has(sourceHotel.code)) continue;
+    const sourceImages = sourceImagesByHotelCode.get(sourceHotel.code) || [];
+    catalogHotels.push({
+      id: `hotel-code-${encodeURIComponent(sourceHotel.code)}`,
+      name: sourceHotel.name,
+      description: sourceHotel.description,
+      location: sourceHotel.location,
+      rating: sourceHotel.rating,
+      minPrice: sourceHotel.minPrice,
+      currency: sourceHotel.currency,
+      imageUrl: sourceImages[0]?.url || '',
+      mainImages: sourceImages,
+      priorityPosition: null,
+    });
+  }
+
+  return catalogHotels.sort((left, right) => {
     const leftRanked = Number.isFinite(left.priorityPosition);
     const rightRanked = Number.isFinite(right.priorityPosition);
     if (leftRanked !== rightRanked) return leftRanked ? -1 : 1;

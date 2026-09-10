@@ -145,6 +145,24 @@ function createCabinIdMap(allCabinRows, activeCabins) {
   return activeById;
 }
 
+function mapSourceCruiseImages(images, cabins) {
+  return (images || []).map((image) => {
+    const aliases = [image.roomName, image.roomNameEn].map(normalizedCabinName).filter(Boolean);
+    const matches = aliases.length
+      ? cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)))
+      : [];
+    return {
+      id: `source-${image.id}`,
+      cabin_id: matches.length === 1 ? matches[0].id : null,
+      collection: image.collection,
+      image_name: image.imageName,
+      url: image.url,
+      sort_order: image.sortOrder,
+      is_primary: image.isPrimary,
+    };
+  });
+}
+
 function sortMediaImages(left, right) {
   return Number(right.isPrimary) - Number(left.isPrimary)
     || Number(left.sortOrder) - Number(right.sortOrder)
@@ -180,7 +198,7 @@ function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new M
         { id: `cabin-${cabin.id}`, label, eyebrow: 'CABIN' },
         {
           id: row.id,
-          url: publicStorageUrl(row.storage_bucket, row.storage_path),
+          url: row.url || publicStorageUrl(row.storage_bucket, row.storage_path),
           alt: row.image_name || `${label} 객실 이미지`,
           name: filename,
           sortOrder: row.sort_order,
@@ -197,7 +215,7 @@ function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new M
       { id: category, ...label },
       {
         id: row.id,
-        url: publicStorageUrl(row.storage_bucket, row.storage_path),
+        url: row.url || publicStorageUrl(row.storage_bucket, row.storage_path),
         alt: `${label.label} ${filename}`,
         name: filename,
         sortOrder: row.sort_order,
@@ -434,7 +452,18 @@ export default function ProductDetail({ params }) {
       if (importsResult.error || cabinImagesResult.error) {
         console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
       }
-      const nextMediaGroups = buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins, cabinIdMap);
+      let sourceImports = [];
+      try {
+        const sourceResponse = await fetch(`/api/public-catalog?service=cruise&key=${encodeURIComponent(first.cruise_name)}`);
+        if (sourceResponse.ok) {
+          const sourcePayload = await sourceResponse.json();
+          sourceImports = mapSourceCruiseImages(sourcePayload.images, nextCabins);
+        }
+      } catch (error) {
+        console.warn('Failed to load source cruise gallery:', error?.message || error);
+      }
+      if (cancelled) return;
+      const nextMediaGroups = buildMediaGroups([...(importsResult.data || []), ...sourceImports], cabinImagesResult.data || [], nextCabins, cabinIdMap);
       const storedHeroImage = nextMediaGroups.find((group) => group.id === 'main')?.images[0]?.url
         || nextMediaGroups.flatMap((group) => group.images)[0]?.url
         || '';

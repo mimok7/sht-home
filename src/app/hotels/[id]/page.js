@@ -98,6 +98,22 @@ function buildRooms(detailRows, priceRows, imageRows) {
   }).sort((left, right) => left.name.localeCompare(right.name, 'ko'));
 }
 
+function buildSourceRooms(roomRows, imageRows) {
+  const imagesByCode = new Map();
+  for (const image of imageRows || []) {
+    if (!image.hotel_price_code || !image.image_url) continue;
+    const code = String(image.hotel_price_code);
+    if (!imagesByCode.has(code)) imagesByCode.set(code, []);
+    const url = proxiedImageUrl(image.image_url);
+    const images = imagesByCode.get(code);
+    if (!images.some((current) => current.url === url)) images.push({ id: image.id, url, alt: `${code} 객실 이미지` });
+  }
+  return (roomRows || []).map((room) => ({
+    ...room,
+    images: imagesByCode.get(String(room.id)) || [],
+  })).sort((left, right) => left.name.localeCompare(right.name, 'ko'));
+}
+
 function roomFacts(room) {
   return [room.roomType && `객실 유형 ${room.roomType}`, room.category && `객실 구분 ${room.category}`, room.maxGuests && `최대 ${room.maxGuests}명`, room.breakfast === true ? '조식 포함' : room.breakfast === false ? '조식 미포함' : null].filter(Boolean);
 }
@@ -127,6 +143,43 @@ export default function HotelDetail({ params }) {
     async function fetchHotel() {
       setLoading(true); setLoadError('');
       const hotelId = decodeURIComponent(id);
+      if (hotelId.startsWith('hotel-code-')) {
+        const hotelCode = decodeURIComponent(hotelId.slice('hotel-code-'.length));
+        try {
+          const response = await fetch(`/api/public-catalog?service=hotel&key=${encodeURIComponent(hotelCode)}`);
+          if (!response.ok) throw new Error('호텔 원본 조회 실패');
+          const source = await response.json();
+          if (cancelled) return;
+          const imageRows = (source.images || []).map((image) => ({
+            id: image.id,
+            hotel_price_code: image.hotelPriceCode,
+            collection: image.collection,
+            image_name: image.imageName,
+            image_url: image.url,
+            sort_order: image.sortOrder,
+            is_primary: image.isPrimary,
+          }));
+          const nextMediaGroups = buildHotelMediaGroups(imageRows, source.hotel.name);
+          const galleryFirstImage = nextMediaGroups.flatMap((group) => group.images)[0]?.url || '';
+          const nextRooms = buildSourceRooms(source.rooms || [], imageRows);
+          let editingItem = null;
+          const editCartItemId = editCartItemIdFromLocation();
+          if (editCartItemId) {
+            const cart = await hydrateBookingCart();
+            if (cancelled) return;
+            editingItem = cart.items.find((item) => item.id === editCartItemId && item.serviceType === 'hotel' && String(item.productId) === hotelId) || null;
+          }
+          const editingRoom = editingItem && nextRooms.find((room) => room.id === editingItem.optionId);
+          setHotel({ id: hotelId, name: source.hotel.name, description: source.hotel.description, location: source.hotel.location || '지역 확인 중', rating: positiveNumber(source.hotel.rating), heroImage: galleryFirstImage });
+          setHotelMediaGroups(nextMediaGroups); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
+          setStayDate(editingItem?.startDate || ''); setGuests(Math.max(1, Number(editingItem?.adults || 2))); setRoomCount(Math.max(1, Number(editingItem?.quantity || 1))); setEditingCartItemId(editingItem?.id || ''); setLoading(false);
+          return;
+        } catch (error) {
+          console.error('Failed to load source hotel detail:', error?.message || error);
+          if (!cancelled) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); }
+          return;
+        }
+      }
       const [hotelResult, detailsResult, pricesResult, imagesResult] = await Promise.all([
         supabase.from('catalog_products_v2').select('id,name_ko,description,image_url,metadata,manual_override').eq('id', hotelId).eq('source', 'sht-platform').eq('service_type', 'hotel').eq('is_active', true).maybeSingle(),
         supabase.from('catalog_product_details_v2').select('source_id,payload').eq('product_id', hotelId).eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('is_active', true),

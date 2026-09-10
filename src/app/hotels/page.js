@@ -97,7 +97,7 @@ async function getHotels() {
       .eq('is_active', true),
     supabase
       .from('hotel_gallery_images_v2')
-      .select('product_id,image_url,storage_bucket,storage_path,sort_order,is_primary')
+      .select('product_id,collection,image_url,storage_bucket,storage_path,sort_order,is_primary')
       .is('hotel_price_code', null)
       .order('is_primary', { ascending: false })
       .order('sort_order'),
@@ -122,6 +122,7 @@ async function getHotels() {
 
   const images = new Map();
   for (const image of imagesResult.data || []) {
+    if (image.collection === 'hotel_menu') continue;
     const imageUrl = proxiedImageUrl(image.image_url || publicStorageUrl(image.storage_bucket, image.storage_path));
     if (!imageUrl) continue;
     if (!images.has(image.product_id)) images.set(image.product_id, []);

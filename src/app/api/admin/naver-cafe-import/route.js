@@ -346,12 +346,13 @@ async function mirrorCruiseImages(database, cruiseId, cafeRows, cabinRows, heroI
 
 async function mirrorHotelImages(database, productId, images) {
   if (!images.length) return;
-  const hasPrimaryHero = images.some((image) => !image.hotelPriceCode && image.isPrimary);
+  const hasPrimaryHero = images.some((image) => image.collection === 'hotel_import' && image.isPrimary);
   if (hasPrimaryHero) {
     const { error } = await database.from('hotel_gallery_images_v2')
       .update({ is_primary: false, updated_at: new Date().toISOString() })
       .eq('product_id', productId)
       .is('hotel_price_code', null)
+      .eq('collection', 'hotel_import')
       .eq('is_primary', true);
     if (error) throw error;
   }
@@ -431,17 +432,18 @@ export async function POST(request) {
     if (productError) throw productError;
     if (!product) badRequest(serviceType === 'hotel' ? '저장할 호텔을 찾을 수 없습니다.' : '저장할 크루즈를 찾을 수 없습니다.');
     const submittedAssignments = Array.isArray(body.imageAssignments) ? body.imageAssignments : [];
-    const allowedTargets = serviceType === 'hotel' ? ['hero', 'hotel_room', 'delete'] : ['hero', 'cabin', 'gallery', 'delete'];
+    const allowedTargets = serviceType === 'hotel' ? ['hero', 'hotel_room', 'hotel_menu', 'delete'] : ['hero', 'cabin', 'gallery', 'delete'];
     // 저장 단계에서 네이버 페이지를 다시 열면 일시 접근 제한으로 400이 날 수 있다.
     // 운영자가 미리보기에서 확정한 pstatic 이미지 URL만 허용해 즉시 저장한다.
     if (submittedAssignments.some((item) => !item || typeof item.sourceImageUrl !== 'string' || !isSourceImageUrl(item.sourceImageUrl) || !allowedTargets.includes(item.target) || (item.imageName !== undefined && (typeof item.imageName !== 'string' || item.imageName.length > 160)))) badRequest('미리보기에서 확인한 네이버 원본 이미지만 선택할 수 있습니다.');
     const assignments = submittedAssignments;
     const article = { title: cleanText(body.articleTitle).slice(0, 160) || '네이버 카페 이미지' };
-    const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery' || item.target === 'hotel_room').map((item) => item.sourceImageUrl))];
+    const selectedImages = [...new Set(assignments.filter((item) => item.target === 'hero' || item.target === 'cabin' || item.target === 'gallery' || item.target === 'hotel_room' || item.target === 'hotel_menu').map((item) => item.sourceImageUrl))];
     if (serviceType === 'hotel') {
       const heroAssignments = assignments.filter((item) => item.target === 'hero');
       const roomAssignments = assignments.filter((item) => item.target === 'hotel_room');
-      if (!heroAssignments.length && !roomAssignments.length) badRequest('저장할 대표 이미지 또는 객실 이미지를 지정해 주세요.');
+      const menuAssignments = assignments.filter((item) => item.target === 'hotel_menu');
+      if (!heroAssignments.length && !roomAssignments.length && !menuAssignments.length) badRequest('저장할 대표·메뉴 또는 객실 이미지를 지정해 주세요.');
       if (roomAssignments.some((item) => typeof item.hotelPriceCode !== 'string' || !item.hotelPriceCode)) badRequest('객실 사진의 저장 대상을 선택해 주세요.');
       const hotelPriceCodes = [...new Set(roomAssignments.map((item) => item.hotelPriceCode))];
       if (hotelPriceCodes.length) {
@@ -451,10 +453,10 @@ export async function POST(request) {
       }
       const { data: existingHotelImages, error: existingHotelImagesError } = await database.from('hotel_gallery_images_v2').select('source_image_url').eq('product_id', product.id);
       if (existingHotelImagesError) throw existingHotelImagesError;
-      const { newAssignments, reusedSourceImageUrls } = excludePreviouslySavedImages(heroAssignments.concat(roomAssignments), existingHotelImages);
+      const { newAssignments, reusedSourceImageUrls } = excludePreviouslySavedImages(heroAssignments.concat(menuAssignments, roomAssignments), existingHotelImages);
       const roomCounters = new Map();
       const imageItems = newAssignments.map((assignment) => {
-        const base = assignment.target === 'hero' ? 'main' : `room-${assignment.hotelPriceCode}`;
+        const base = assignment.target === 'hero' ? 'main' : assignment.target === 'hotel_menu' ? 'menu' : `room-${assignment.hotelPriceCode}`;
         const serial = (roomCounters.get(base) || 0) + 1;
         roomCounters.set(base, serial);
         return { sourceImageUrl: assignment.sourceImageUrl, storageName: `${base}-${String(serial).padStart(3, '0')}-${randomUUID().slice(0, 8)}` };
@@ -471,7 +473,7 @@ export async function POST(request) {
         const isPrimary = (!hotelPriceCode && assignment?.target === 'hero' && !hasPrimaryHero) || (hotelPriceCode && !primaryRoomCodes.has(hotelPriceCode));
         if (!hotelPriceCode && assignment?.target === 'hero') hasPrimaryHero = true;
         if (hotelPriceCode) primaryRoomCodes.add(hotelPriceCode);
-        return { id: randomUUID(), collection: hotelPriceCode ? 'room_gallery' : 'hotel_import', hotelPriceCode,
+        return { id: randomUUID(), collection: hotelPriceCode ? 'room_gallery' : assignment?.target === 'hotel_menu' ? 'hotel_menu' : 'hotel_import', hotelPriceCode,
           sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: assignment?.imageName || article.title,
           imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: index, isPrimary };
       });

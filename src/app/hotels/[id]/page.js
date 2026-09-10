@@ -81,6 +81,7 @@ export default function HotelDetail({ params }) {
   const [hotel, setHotel] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [hotelImages, setHotelImages] = useState([]);
+  const [hotelMenuImages, setHotelMenuImages] = useState([]);
   const [selectedRoomId, setSelectedRoomId] = useState('');
   const [detailRoomId, setDetailRoomId] = useState('');
   const [stayDate, setStayDate] = useState('');
@@ -98,13 +99,14 @@ export default function HotelDetail({ params }) {
         supabase.from('catalog_products_v2').select('id,name_ko,description,image_url,metadata,manual_override').eq('id', hotelId).eq('source', 'sht-platform').eq('service_type', 'hotel').eq('is_active', true).maybeSingle(),
         supabase.from('catalog_product_details_v2').select('source_id,payload').eq('product_id', hotelId).eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('is_active', true),
         supabase.from('catalog_prices_v2').select('source_id,label,price_amount,currency,price_unit,max_guests,valid_from,valid_to').eq('product_id', hotelId).eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('is_active', true),
-        supabase.from('hotel_gallery_images_v2').select('id,hotel_price_code,image_url,sort_order,is_primary').eq('product_id', hotelId).order('is_primary', { ascending: false }).order('sort_order'),
+        supabase.from('hotel_gallery_images_v2').select('id,hotel_price_code,collection,image_name,image_url,sort_order,is_primary').eq('product_id', hotelId).order('is_primary', { ascending: false }).order('sort_order'),
       ]);
       if (cancelled) return;
       if (hotelResult.error || !hotelResult.data) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); return; }
       if (detailsResult.error || pricesResult.error || imagesResult.error) console.error('Failed to load hotel detail:', detailsResult.error?.message || pricesResult.error?.message || imagesResult.error?.message);
       const product = hotelResult.data;
-      const galleryImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: `${product.name_ko} 대표 이미지` }));
+      const galleryImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.collection !== 'hotel_menu' && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: image.image_name || `${product.name_ko} 대표 이미지` }));
+      const menuImages = (imagesResult.data || []).filter((image) => !image.hotel_price_code && image.collection === 'hotel_menu' && image.image_url).map((image) => ({ id: image.id, url: proxiedImageUrl(image.image_url), alt: image.image_name || `${product.name_ko} 메뉴 이미지` }));
       const nextRooms = buildRooms(detailsResult.data || [], pricesResult.data || [], imagesResult.data || []);
       let editingItem = null;
       const editCartItemId = editCartItemIdFromLocation();
@@ -115,7 +117,7 @@ export default function HotelDetail({ params }) {
       }
       const editingRoom = editingItem && nextRooms.find((room) => room.id === editingItem.optionId);
       setHotel({ id: product.id, name: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryImages[0]?.url || '' });
-      setHotelImages(galleryImages); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
+      setHotelImages(galleryImages); setHotelMenuImages(menuImages); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
       setStayDate(editingItem?.startDate || ''); setGuests(Math.max(1, Number(editingItem?.adults || 2))); setRoomCount(Math.max(1, Number(editingItem?.quantity || 1))); setEditingCartItemId(editingItem?.id || ''); setLoading(false);
     }
     fetchHotel();
@@ -167,6 +169,10 @@ export default function HotelDetail({ params }) {
   if (!hotel || loadError) return <div className="hotel-detail-state hotel-detail-state-error"><span>STAY HALONG / NOT FOUND</span><h1>호텔을 찾을 수 없습니다.</h1><p>{loadError}</p><Link href="/hotels">호텔 목록으로 돌아가기 →</Link></div>;
 
   const mainImages = hotelImages.length ? hotelImages : hotel.heroImage ? [{ id: 'hero', url: hotel.heroImage, alt: `${hotel.name} 대표 이미지` }] : [];
+  const hotelMediaGroups = [
+    ...(mainImages.length ? [{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images: mainImages }] : []),
+    ...(hotelMenuImages.length ? [{ id: 'menu', label: '메뉴', eyebrow: 'DINING', images: hotelMenuImages }] : []),
+  ];
 
   return <div className="hotel-detail-page">
     <div className="hotel-detail-hero" style={{ backgroundImage: hotel.heroImage ? `url(${hotel.heroImage})` : undefined }}><div /></div>
@@ -174,7 +180,7 @@ export default function HotelDetail({ params }) {
       <main className="hotel-detail-main">
         <Link href="/hotels" className="hotel-back-link">← 호텔 목록</Link>
         <header className="hotel-detail-header"><span>HOTEL / ROOM RESERVATION</span><h1>{hotel.name}</h1><p className="hotel-detail-location">{hotel.location}{hotel.rating ? ` · ★ ${hotel.rating}` : ''}</p><p className="hotel-detail-description">{hotel.description || 'Stay Halong이 엄선한 호텔의 객실과 등록 요금을 확인해 보세요.'}</p></header>
-        {mainImages.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={[{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images: mainImages }]} showMain={false} /></section>}
+        {hotelMediaGroups.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={hotelMediaGroups} showMain={false} /></section>}
         <section className="hotel-rooms-section"><div className="hotel-section-heading"><div><span>01 / ROOMS</span><h2>객실 및 등록 요금</h2></div><label>투숙일<input type="date" value={stayDate} onChange={(event) => setStayDate(event.target.value)} /></label></div><p className="hotel-price-notice">표시된 금액은 객실 기준 등록 요금입니다. 객실 가능 여부와 최종 요금은 상담을 통해 확정됩니다.</p>
           {availableRooms.length === 0 ? <p className="hotel-no-rooms">선택한 투숙일에 적용되는 등록 객실이 없습니다. 상담으로 확인해 주세요.</p> : <div className="hotel-room-list">{availableRooms.map((room, index) => {
             const roomGroup = room.images.length ? { id: `room-${room.id}`, label: room.name, eyebrow: 'ROOM', images: room.images } : null;

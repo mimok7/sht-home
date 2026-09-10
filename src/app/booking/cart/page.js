@@ -30,7 +30,14 @@ function quoteItemDetails(item) {
 }
 
 function quoteItemName(item) {
-  return item.serviceType === 'airport' && item.metadata?.airportRoute ? item.metadata.airportRoute : item.name;
+  if (item.serviceType !== 'airport') return item.name;
+  const metadata = item.metadata || {};
+  const summaryRoute = Array.isArray(metadata.summary) ? metadata.summary.find((row) => Array.isArray(row) && row[0] === '이동 경로')?.[1] : '';
+  const legs = Array.isArray(metadata.platform?.legs) ? metadata.platform.legs : [];
+  const routes = [...new Set([metadata.airportRoute, summaryRoute, ...legs.map((leg) => leg?.route)].filter(Boolean).map(String))];
+  if (routes.length === 1) return routes[0];
+  const parts = routes[0]?.split(/\s+[-↔]\s+/).map((part) => part.trim()).filter(Boolean) || [];
+  return parts.length >= 2 ? `${parts[0]} ↔ ${parts[parts.length - 1]}` : item.name;
 }
 
 function recipientLabel(value) {

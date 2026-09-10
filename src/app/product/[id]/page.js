@@ -224,6 +224,32 @@ function mergeSourceRates(cabins, sourceRates, catalogRows) {
   return nextCabins;
 }
 
+function sourceRateCabinKey(rate) {
+  return `${String(rate.roomName || '').trim().toLowerCase()}::${String(rate.roomNameEn || '').trim().toLowerCase()}`;
+}
+
+function buildRateCardCabins(sourceRates, catalogRows) {
+  const catalogCabins = buildCatalogCabins(catalogRows || []);
+  const cabinsByRateName = new Map();
+
+  for (const sourceRate of sourceRates || []) {
+    const rateId = String(sourceRate.platformRateCardId || sourceRate.id || '');
+    if (!rateId || !sourceRate.scheduleType) continue;
+    const key = sourceRateCabinKey(sourceRate);
+    if (!cabinsByRateName.has(key)) {
+      const matchedCabin = matchingCabinForSourceRate(catalogCabins, sourceRate);
+      cabinsByRateName.set(key, matchedCabin
+        ? { ...matchedCabin, rates: [] }
+        : sourceCabinForRate(sourceRate));
+    }
+    cabinsByRateName.get(key).rates.push(sourceRateForCabin(sourceRate));
+  }
+
+  return [...cabinsByRateName.values()].sort((left, right) =>
+    Number(right.isRecommended) - Number(left.isRecommended) || left.name.localeCompare(right.name, 'ko')
+  );
+}
+
 function createCabinIdMap(allCabinRows, activeCabins) {
   const activeById = new Map(activeCabins.map((cabin) => [cabin.id, cabin.id]));
   for (const row of allCabinRows || []) {
@@ -528,7 +554,7 @@ export default function ProductDetail({ params }) {
         console.warn('Failed to load source cruise catalog:', error?.message || error);
       }
       if (cancelled) return;
-      nextCabins = mergeSourceRates(nextCabins, sourcePayload?.rates, allCabinRows);
+      if (sourcePayload?.rates?.length) nextCabins = buildRateCardCabins(sourcePayload.rates, allCabinRows);
       const cabinIdMap = createCabinIdMap(allCabinRows, nextCabins);
       const allCabinIds = allCabinRows.map((cabin) => cabin.id);
       const [importsResult, cabinImagesResult] = await Promise.all([

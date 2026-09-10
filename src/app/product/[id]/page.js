@@ -434,6 +434,10 @@ export default function ProductDetail({ params }) {
       if (importsResult.error || cabinImagesResult.error) {
         console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
       }
+      const nextMediaGroups = buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins, cabinIdMap);
+      const storedHeroImage = nextMediaGroups.find((group) => group.id === 'main')?.images[0]?.url
+        || nextMediaGroups.flatMap((group) => group.images)[0]?.url
+        || '';
       let editingItem = null;
       const editCartItemId = editCartItemIdFromLocation();
       if (editCartItemId) {
@@ -450,12 +454,12 @@ export default function ProductDetail({ params }) {
         nameEn: first.cruise_name_en,
         description: first.description,
         rating: first.star_rating,
-        heroImage: first.hero_image,
+        heroImage: storedHeroImage || usableImageUrl(first.hero_image),
         tags: first.tags || [],
         schedules,
       });
       setCabins(nextCabins);
-      setMediaGroups(buildMediaGroups(importsResult.data || [], cabinImagesResult.data || [], nextCabins, cabinIdMap));
+      setMediaGroups(nextMediaGroups);
       setSelectedSchedule(editingSchedule);
       setSelectedCabinId(editingCabin?.id || initialCabinId(nextCabins, editingSchedule) || nextCabins[0]?.id || null);
       setDate(editingItem?.startDate || '');
@@ -471,11 +475,8 @@ export default function ProductDetail({ params }) {
   }, [id]);
 
   const availableCabins = useMemo(
-    () => {
-      const matching = cabins.filter((cabin) => cabin.rates.some((rate) => rate.schedule_type === selectedSchedule));
-      return matching.length ? matching : cabins;
-    },
-    [cabins, selectedSchedule]
+    () => cabins,
+    [cabins]
   );
   const selectedCabin = availableCabins.find((cabin) => cabin.id === selectedCabinId) || availableCabins[0] || null;
   const selectedRate = useMemo(

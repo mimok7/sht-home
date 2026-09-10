@@ -180,7 +180,7 @@ export default function HotelDetail({ params }) {
       <main className="hotel-detail-main">
         <Link href="/hotels" className="hotel-back-link">← 호텔 목록</Link>
         <header className="hotel-detail-header"><span>HOTEL / ROOM RESERVATION</span><h1>{hotel.name}</h1><p className="hotel-detail-location">{hotel.location}{hotel.rating ? ` · ★ ${hotel.rating}` : ''}</p><p className="hotel-detail-description">{hotel.description || 'Stay Halong이 엄선한 호텔의 객실과 등록 요금을 확인해 보세요.'}</p></header>
-        {hotelMediaGroups.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={hotelMediaGroups} showMain={false} /></section>}
+        {hotelMediaGroups.length > 0 && <section className="hotel-photo-archive"><CruiseMediaGallery cruiseName={hotel.name} heroImage={hotel.heroImage} groups={hotelMediaGroups} /></section>}
         <section className="hotel-rooms-section"><div className="hotel-section-heading"><div><span>01 / ROOMS</span><h2>객실 및 등록 요금</h2></div><label>투숙일<input type="date" value={stayDate} onChange={(event) => setStayDate(event.target.value)} /></label></div><p className="hotel-price-notice">표시된 금액은 객실 기준 등록 요금입니다. 객실 가능 여부와 최종 요금은 상담을 통해 확정됩니다.</p>
           {availableRooms.length === 0 ? <p className="hotel-no-rooms">선택한 투숙일에 적용되는 등록 객실이 없습니다. 상담으로 확인해 주세요.</p> : <div className="hotel-room-list">{availableRooms.map((room, index) => {
             const roomGroup = room.images.length ? { id: `room-${room.id}`, label: room.name, eyebrow: 'ROOM', images: room.images } : null;

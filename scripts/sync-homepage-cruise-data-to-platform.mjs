@@ -5,6 +5,11 @@ import { createClient } from '@supabase/supabase-js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
+// Historical importer: never rerun implicitly after platform cutover.
+if (!process.argv.includes('--legacy-recovery-approved')) {
+  throw new Error('이전 DB 복구 전용입니다. 명시적 복구 승인 및 --legacy-recovery-approved 옵션이 필요합니다.');
+}
+
 async function envFile(filename) {
   const source = await fs.readFile(filename, 'utf8');
   return Object.fromEntries(source.split(/\r?\n/).map((line) => {
@@ -45,6 +50,9 @@ const homeKey = homeEnv.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
 const platformUrl = platformEnv.NEXT_PUBLIC_SUPABASE_URL;
 const platformKey = platformEnv.SUPABASE_SERVICE_ROLE_KEY;
 if (!homeUrl || !homeKey || !platformUrl || !platformKey) throw new Error('두 프로젝트의 Supabase URL과 service role key가 필요합니다.');
+if (new URL(homeUrl).hostname !== 'tthwqfhdojncqtwfssqe.supabase.co' || new URL(platformUrl).hostname !== 'jkhookaflhibrcafmlxn.supabase.co') {
+  throw new Error('이전 홈페이지 원본과 플랫폼 대상 프로젝트를 확인해 주세요. 동일 DB 간 복사는 금지합니다.');
+}
 
 const home = createClient(homeUrl, homeKey, { auth: { persistSession: false } });
 const platform = createClient(platformUrl, platformKey, { auth: { persistSession: false } });

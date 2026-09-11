@@ -2,15 +2,17 @@
 
 ## 확인된 원본
 
-- 홈페이지 Supabase: `tthwqfhdojncqtwfssqe`
+- 이전 홈페이지 Supabase(이관 점검·복구 전용, 운영 사용 금지): `tthwqfhdojncqtwfssqe`
 - 예약 플랫폼 Supabase: `jkhookaflhibrcafmlxn`
 - 회원 원본: 예약 플랫폼의 `auth.users`, 운영 정보: `public.users`
 - 상품 원본: `cruise_rate_card`, `hotel_price`, `tour_pricing`, `rentcar_price`
 
-두 프로젝트는 서로 다른 Supabase 데이터베이스다. 따라서 홈페이지의
-`NEXT_PUBLIC_SUPABASE_*` 값을 플랫폼 값으로 교체하면 홈페이지의 `*_v2`
-테이블을 읽을 수 없게 된다. 홈페이지 데이터베이스는 큐레이션/표시용으로
-유지하고, 플랫폼은 회원·예약·상품 원본으로 사용한다.
+운영 홈페이지는 플랫폼 프로젝트만 사용한다. 공개 상품 `*_v2`, 관리자 편집,
+이미지 Storage, 인증, 장바구니와 발행 견적서도 모두 플랫폼에 저장한다.
+`src/lib/supabase.js`는 `platformSupabase`를 재사용한다. 이전 프로젝트의
+`NEXT_PUBLIC_SUPABASE_*`, `HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY`는 운영에 필요하지 않다.
+연결 통합과 원본 데이터의 완전한 이관은 별도 검증 대상이다. 테이블 수가
+비슷하다는 이유로 원본을 삭제하지 말고 누락 행·첨부파일·권한까지 대조한다.
 
 ## 환경 설정
 
@@ -25,6 +27,9 @@ NEXT_PUBLIC_PLATFORM_SUPABASE_ANON_KEY=<platform anon or publishable key>
 # 서버 API에만 별도 값을 쓰고 싶을 때 선택적으로 설정한다.
 PLATFORM_SUPABASE_URL=https://jkhookaflhibrcafmlxn.supabase.co
 PLATFORM_SUPABASE_ANON_KEY=<platform anon or publishable key>
+
+# 관리자 API, 이미지 저장, 장바구니 및 견적서 서버 처리 전용. 브라우저 노출 금지.
+PLATFORM_SUPABASE_SERVICE_ROLE_KEY=<platform service role key>
 
 # 홈페이지 상품에서 예약 플랫폼으로 이동할 서버 측 목적지
 PLATFORM_CUSTOMER_URL=https://customer.stayhalong.com
@@ -53,10 +58,11 @@ GET /api/platform/catalog?service=vehicle
 ## 권한 경계
 
 - 예약 생성·변경·결제는 계속 플랫폼 API/DB에서만 처리한다.
-- 홈페이지의 `*_v2` 편집 권한은 플랫폼 `users.role`을 서버에서 검증하는
-  전용 관리 API로 전환한 뒤 사용한다. 서로 다른 Supabase 프로젝트의 JWT는
-  자동으로 다른 프로젝트 RLS를 통과하지 않는다.
+- 홈페이지의 `*_v2` 편집 권한은 플랫폼 인증 및 `users.role`을 서버에서 검증하는
+  전용 관리 API를 사용한다. 이전 홈페이지 JWT로 관리 기능을 허용하지 않는다.
 - 비밀번호, `auth.users` 행, service-role 키를 홈페이지 DB로 복사하지 않는다.
+- 이전 회원관리 마이그레이션을 플랫폼에 그대로 실행하지 않는다. Auth 트리거와
+  역할 정책이 운영중인 플랫폼에 영향을 줄 수 있어 별도 승인과 호환성 검토가 필요하다.
 
 ## 예약 handoff
 

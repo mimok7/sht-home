@@ -12,7 +12,9 @@ const db = createClient(url, key, { auth: { persistSession: false, autoRefreshTo
 const source = JSON.parse(await fs.readFile(process.argv[2] || '.migration-audit/source.json', 'utf8'));
 const tables = [];
 for (const item of source.tables) {
-  const { count, error, status } = await db.from(item.table).select('*', { count: 'exact', head: true });
+  // Some gateways respond 204 to HEAD even for a missing relation. GET one row
+  // with an exact count so absence is never mistaken for a successful check.
+  const { count, error, status } = await db.from(item.table).select('*', { count: 'exact' }).limit(1);
   tables.push({ table: item.table, source: item.count, target: count, status, error: error?.code || (status >= 400 ? 'unavailable' : null) });
 }
 console.log(JSON.stringify({ tables }, null, 2));

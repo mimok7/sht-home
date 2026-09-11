@@ -27,9 +27,12 @@ async function all(client, table, select = '*') {
 }
 
 const homeEnv = await envFile(path.join(root, '.env.local'));
-const platformEnv = await envFile(path.join(root, '..', 'sht-platform', 'apps', 'admin', '.env.local'));
-const home = createClient(homeEnv.NEXT_PUBLIC_SUPABASE_URL, homeEnv.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
-const platform = createClient(platformEnv.NEXT_PUBLIC_SUPABASE_URL, platformEnv.SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
+const platformUrl = homeEnv.PLATFORM_SUPABASE_URL || homeEnv.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
+const platformKey = homeEnv.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
+if (!platformUrl || !platformKey || new URL(platformUrl).hostname !== 'jkhookaflhibrcafmlxn.supabase.co') throw new Error('플랫폼 DB 설정을 확인해 주세요.');
+if (!process.argv.includes('--apply')) throw new Error('캐시 동기화는 --apply 옵션으로 명시적으로 실행해 주세요.');
+const platform = createClient(platformUrl, platformKey, { auth: { persistSession: false } });
+const home = platform;
 
 const tables = {
   cruise_info: '*',

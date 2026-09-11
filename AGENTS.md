@@ -28,3 +28,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Version control
 
 - Always create a Git commit after modifying files. Include only the files relevant to the completed task.
+
+## Quote consistency
+
+- When changing a quotation document’s content, footer, printing, or PDF output, apply the same change across the homepage, manager, manager1, and mobile apps.
+- Confirm that manager1 and mobile still receive the change when they reuse the manager quotation component.

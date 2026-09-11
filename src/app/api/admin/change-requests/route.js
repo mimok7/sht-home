@@ -20,7 +20,14 @@ async function list(database) {
     database.from('admin_change_request_comments').select('*').order('created_at'),
   ]);
   if (requests.error || comments.error) throw requests.error || comments.error;
-  return (requests.data || []).map((request) => ({ ...request, screenshot_urls: (request.screenshot_paths || []).map((path) => database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl), comments: (comments.data || []).filter((comment) => comment.request_id === request.id) }));
+  return Promise.all((requests.data || []).map(async (request) => {
+    const paths = request.screenshot_paths || [];
+    const signed = await Promise.all(paths.map(async (path) => {
+      const { data } = await database.storage.from(BUCKET).createSignedUrl(path, 300);
+      return data?.signedUrl || null;
+    }));
+    return { ...request, screenshot_urls: signed.filter(Boolean), comments: (comments.data || []).filter((comment) => comment.request_id === request.id) };
+  }));
 }
 export async function GET(request) { try {
   const { database } = await operatorAndDatabase(request);
@@ -74,5 +81,7 @@ export async function POST(request) { try {
   const id = randomUUID(); const paths = [];
   for (const file of files) { const extension = file.type.split('/')[1]; const path = `${id}/${randomUUID()}.${extension}`; const { error } = await database.storage.from(BUCKET).upload(path, Buffer.from(await file.arrayBuffer()), { contentType: file.type, upsert: false }); if (error) throw error; paths.push(path); }
   const { data, error } = await database.from('admin_change_requests').insert({ id, category, title, description, screenshot_paths: paths, created_by: operator.id, created_by_email: operator.email || '관리자' }).select().single();
-  if (error) throw error; return Response.json({ request: { ...data, screenshot_urls: paths.map((path) => database.storage.from(BUCKET).getPublicUrl(path).data.publicUrl), comments: [] } });
+  if (error) throw error;
+  const signed = await Promise.all(paths.map(async (path) => (await database.storage.from(BUCKET).createSignedUrl(path, 300)).data?.signedUrl || null));
+  return Response.json({ request: { ...data, screenshot_urls: signed.filter(Boolean), comments: [] } });
 } catch (error) { return fail(error); } }

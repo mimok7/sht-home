@@ -292,15 +292,14 @@ async function getDashboard(database, role) {
   ];
   if (role === 'admin') {
     queries.push(
-      database.from('member_profiles').select('id,email,display_name,phone,role_id,status,created_at').order('created_at', { ascending: false }),
-      database.from('member_roles').select('id,label,description,permissions').order('id'),
+      database.from('users').select('id,email,name,phone_number,role,status,created_at').order('created_at', { ascending: false }),
     );
   }
   const results = await Promise.all(queries);
   const failed = results.find((result) => result.error);
   if (failed) throw failed.error;
 
-  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, serviceDetails, members, roles] = results;
+  const [cruises, itineraries, cabins, cabinImages, cruiseImages, rates, tags, catalogProducts, catalogPrices, hotelRoomDetails, serviceDetails, members] = results;
   // 호텔 이미지 테이블은 별도 마이그레이션으로 도입되었다. PostgREST 스키마
   // 캐시가 아직 갱신되지 않은 경우에도 기본 관리자 화면이 멈추지 않도록
   // 갤러리만 빈 목록으로 처리한다.
@@ -322,8 +321,15 @@ async function getDashboard(database, role) {
     serviceDetails: serviceDetails.data || [],
     hotelImages: hotelImagesResult.data || [],
     serviceTags: serviceTagsResult.data || [],
-    members: members?.data || [],
-    roles: roles?.data || [],
+    members: (members?.data || []).map((member) => ({
+      id: member.id, email: member.email || '', display_name: member.name || '', phone: member.phone_number || '',
+      role_id: member.role || 'member', status: member.status || 'pending', created_at: member.created_at,
+    })),
+    roles: [
+      { id: 'admin', label: '관리자', description: '전체 관리', permissions: { manage_members: true, manage_cruises: true } },
+      { id: 'manager', label: '운영자', description: '운영 데이터와 예약 관리', permissions: { manage_members: false, manage_cruises: true } },
+      { id: 'member', label: '회원', description: '고객 계정', permissions: { manage_members: false, manage_cruises: false } },
+    ],
     unmatchedRates: await getUnmatchedRateCruises(database),
   };
 }
@@ -344,14 +350,15 @@ async function mutate(database, operator, body) {
   }
   if (operator.role !== 'admin') throw new Error('회원과 권한은 관리자만 변경할 수 있습니다.');
   if (action === 'updateMember') {
-    const { error } = await database.from('member_profiles').update(pick(values || {}, ['role_id', 'status'])).eq('id', id);
+    const updates = {};
+    if (Object.hasOwn(values || {}, 'role_id')) updates.role = values.role_id;
+    if (Object.hasOwn(values || {}, 'status')) updates.status = values.status;
+    const { error } = await database.from('users').update(updates).eq('id', id);
     if (error) throw error;
     return null;
   }
   if (action === 'updateMemberRole') {
-    const { error } = await database.from('member_roles').update({ permissions: values?.permissions || {} }).eq('id', id);
-    if (error) throw error;
-    return null;
+    throw new Error('플랫폼 사용자 역할은 고정되어 있으며 권한 항목을 별도로 수정할 수 없습니다.');
   }
   throw new Error('지원하지 않는 관리자 작업입니다.');
 }

@@ -10,9 +10,11 @@ const env = { ...parseEnv(await fs.readFile('.env.local', 'utf8')), ...process.e
 const sourceKey = env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
 const targetUrl = env.PLATFORM_SUPABASE_URL || env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
 const targetKey = env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
-if (!sourceKey || !targetUrl || !targetKey) throw new Error('Source and platform service credentials are required.');
+const manifestArg = process.argv.find((arg) => arg.startsWith('--manifest='));
+const manifestPath = manifestArg?.slice('--manifest='.length);
+if ((!sourceKey && !manifestPath) || !targetUrl || !targetKey) throw new Error('Source credentials or an audit manifest, plus platform credentials, are required.');
 if (new URL(targetUrl).hostname !== 'jkhookaflhibrcafmlxn.supabase.co') throw new Error('Expected the platform database as target.');
-const source = createClient(sourceUrl, sourceKey, { auth: { persistSession: false, autoRefreshToken: false } });
+const source = sourceKey ? createClient(sourceUrl, sourceKey, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 const target = createClient(targetUrl, targetKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const apply = process.argv.includes('--apply');
 
@@ -26,13 +28,15 @@ async function all(client, table) {
   }
 }
 
-const [requests, comments] = await Promise.all([
-  all(source, 'admin_change_requests'), all(source, 'admin_change_request_comments'),
-]);
+const auditManifest = manifestPath ? JSON.parse(await fs.readFile(manifestPath, 'utf8')) : null;
+const [requests, comments] = auditManifest
+  ? [auditManifest.requests || [], auditManifest.comments || []]
+  : await Promise.all([all(source, 'admin_change_requests'), all(source, 'admin_change_request_comments')]);
 const paths = [...new Set(requests.flatMap((request) => Array.isArray(request.screenshot_paths) ? request.screenshot_paths : []))];
 const copied = new Set();
 const failedPaths = [];
 for (const path of paths) {
+  if (!source) { failedPaths.push(path); continue; }
   const { data: sourceFile, error: sourceError } = await source.storage.from('admin-change-request-images').download(path);
   if (sourceError || !sourceFile) { failedPaths.push(path); continue; }
   if (!apply) { copied.add(path); continue; }
@@ -45,7 +49,9 @@ for (const path of paths) {
 }
 const recoveredRequests = requests.map((request) => ({
   ...request,
-  screenshot_paths: (Array.isArray(request.screenshot_paths) ? request.screenshot_paths : []).filter((path) => copied.has(path)),
+  // Preserve unavailable legacy paths in the database. This keeps the audit
+  // record complete and lets a later byte recovery reconnect the attachment.
+  screenshot_paths: Array.isArray(request.screenshot_paths) ? request.screenshot_paths : [],
 }));
 let insertedRequests = 0;
 let insertedComments = 0;

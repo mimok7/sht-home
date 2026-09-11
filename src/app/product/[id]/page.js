@@ -441,9 +441,19 @@ function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new M
     ...cabins.map((cabin, index) => [`cabin-${cabin.id}`, index + 4]),
   ]);
 
-  return [...groups.values()]
+  const orderedGroups = [...groups.values()]
     .map((group) => ({ ...group, images: group.images.sort(sortMediaImages) }))
     .sort((left, right) => (groupOrder.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (groupOrder.get(right.id) ?? Number.MAX_SAFE_INTEGER));
+
+  // Once curated cruise/facility/cabin groups exist, do not surface old
+  // unclassified imports as one large mixed gallery. They remain available in
+  // storage for recovery, while the product page shows only the correct group.
+  const hasStructuredGroups = orderedGroups.some((group) =>
+    ['exterior', 'interior', 'menu'].includes(group.id) || group.id.startsWith('cabin-')
+  );
+  return hasStructuredGroups
+    ? orderedGroups.filter((group) => group.id !== 'other')
+    : orderedGroups;
 }
 
 function parseFacilities(value) {

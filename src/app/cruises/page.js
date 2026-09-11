@@ -96,7 +96,9 @@ function addImage(imagesByCruise, cruiseId, image) {
 
 function isMainImage(image) {
   const filename = image.storage_path?.split('/').pop() || image.image_name || '';
-  return Boolean(image.is_primary) || /^main-/i.test(filename) || /^main-/i.test(image.image_name || '');
+  const category = String(image.image_name || filename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase();
+  if (category) return category === 'main';
+  return Boolean(image.is_primary) || /^main-/i.test(filename);
 }
 
 async function getCruiseMainImages(cruises) {

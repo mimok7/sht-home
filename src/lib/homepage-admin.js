@@ -13,31 +13,16 @@ function getPlatformConfig() {
   return url && key ? { url, key } : null;
 }
 
-function getHomepageAuthConfig() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  return url && key ? { url, key } : null;
-}
-
 export function getHomepageDatabase() {
   const url = process.env.PLATFORM_SUPABASE_URL || process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
   const key = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
   return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 }
 
-// 홈페이지 전용 운영자는 홈페이지 Auth의 서버가 부여한 app_metadata 역할을
-// 사용한다. 플랫폼 운영자는 기존 플랫폼 users.role 검증을 유지한다.
+// 인증과 운영자 권한은 플랫폼에서만 검증한다. 이전 홈페이지 JWT는 허용하지 않는다.
 export async function getHomepageOperator(request) {
   const token = getBearerToken(request);
-  const homepageConfig = getHomepageAuthConfig();
   if (!token) return null;
-
-  if (homepageConfig) {
-    const homepage = createClient(homepageConfig.url, homepageConfig.key, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: homepageAuth } = await homepage.auth.getUser(token);
-    const homepageRole = homepageAuth.user?.app_metadata?.role || '';
-    if (OPERATOR_ROLES.has(homepageRole)) return { id: homepageAuth.user.id, email: homepageAuth.user.email || '', role: homepageRole };
-  }
 
   const config = getPlatformConfig();
   if (!config) return null;

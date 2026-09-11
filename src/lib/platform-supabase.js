@@ -1,8 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 
-// The booking platform is the single authority for customer identity. Keep this
-// client separate from the homepage v2-data client in ./supabase.js: the two
-// Supabase projects intentionally have different databases.
+// The platform is the sole database, Storage and identity provider.
+// ./supabase.js re-exports this client for public catalogue queries as well.
 const platformUrl = process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_URL;
 const platformAnonKey = process.env.NEXT_PUBLIC_PLATFORM_SUPABASE_ANON_KEY;
 const REFRESH_RETRY_DELAY_MS = 60_000;

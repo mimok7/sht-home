@@ -110,7 +110,7 @@ function classifyCatalogProduct(title, products) {
 }
 
 function previewSignature(imageUrl, expiresAt) {
-  const secret = process.env.HOMEPAGE_SUPABASE_SERVICE_ROLE_KEY;
+  const secret = process.env.PLATFORM_SUPABASE_SERVICE_ROLE_KEY;
   if (!secret) throw new Error('홈페이지 관리자 서비스 키가 설정되지 않았습니다.');
   return createHmac('sha256', secret).update(`${expiresAt}:${imageUrl}`).digest('base64url');
 }

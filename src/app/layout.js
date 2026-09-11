@@ -22,6 +22,7 @@ export const viewport = {
 export default async function RootLayout({ children }) {
   const host = (await headers()).get('host')?.split(':')[0].toLowerCase();
   const showRootNavigation = ['shthome.stayhalong.com', 'localhost', '127.0.0.1'].includes(host);
+  const temporaryLanding = ['stayhalong.com', 'www.stayhalong.com'].includes(host);
 
   return (
     <html lang="ko">
@@ -31,7 +32,7 @@ export default async function RootLayout({ children }) {
           {children}
           <GlobalAlert />
         </main>
-        <Footer />
+        <Footer temporaryLanding={temporaryLanding} />
         <TravelAssistant />
       </body>
     </html>

@@ -34,6 +34,112 @@
   gap: 12px;
 }
 
+.bookingNoticeOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1400;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(2, 39, 42, .78);
+}
+
+.bookingNoticePanel {
+  width: min(100%, 520px);
+  border-top: 7px solid var(--acid);
+  background: #fff;
+  color: var(--navy);
+  box-shadow: none;
+}
+
+.bookingNoticePanel header,
+.bookingNoticePanel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+}
+
+.bookingNoticePanel header { border-bottom: 1px solid var(--line); }
+
+.bookingNoticePanel header span {
+  display: block;
+  color: var(--muted);
+  font-size: .62rem;
+  font-weight: 900;
+  letter-spacing: .15em;
+}
+
+.bookingNoticePanel h2 {
+  margin: 5px 0 0;
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -.05em;
+}
+
+.bookingNoticePanel header button,
+.closeButton,
+.bookingButton,
+.quoteLink {
+  min-height: 44px;
+  border: 1px solid var(--navy);
+  border-radius: 0;
+  font: inherit;
+  font-size: .78rem;
+  font-weight: 850;
+  letter-spacing: -.02em;
+}
+
+.bookingNoticePanel header button,
+.closeButton {
+  padding: 0 13px;
+  background: #fff;
+  color: var(--navy);
+}
+
+.bookingNoticeBody {
+  padding: 24px 20px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.bookingNoticeBody p {
+  margin: 0 0 10px;
+  font-size: .92rem;
+  line-height: 1.75;
+  word-break: keep-all;
+}
+
+.bookingNoticeBody p strong { font-weight: 800; }
+
+.quoteLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 18px;
+  padding: 0 14px;
+  background: var(--navy);
+  color: #fff;
+  text-decoration: none;
+}
+
+.bookingNoticePanel footer { justify-content: flex-end; }
+
+.bookingButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 15px;
+  background: var(--acid);
+  color: var(--navy);
+  text-decoration: none;
+}
+
+.bookingNoticePanel button:focus-visible,
+.bookingNoticePanel a:focus-visible {
+  outline: 3px solid var(--acid);
+  outline-offset: 2px;
+}
+
 @media (max-width: 700px) {
   .contactActions {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -43,4 +149,20 @@
   .officialActionRow {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .bookingNoticeOverlay {
+    place-items: end center;
+    padding: 0;
+  }
+
+  .bookingNoticePanel { width: 100%; }
+
+  .bookingNoticePanel header,
+  .bookingNoticePanel footer,
+  .bookingNoticeBody { padding-left: 18px; padding-right: 18px; }
+
+  .bookingNoticePanel footer { display: grid; grid-template-columns: 1fr 1.4fr; }
+
+  .closeButton,
+  .bookingButton { justify-content: center; width: 100%; }
 }

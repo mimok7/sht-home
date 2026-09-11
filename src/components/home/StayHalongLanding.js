@@ -1,8 +1,35 @@
+'use client';
+
 import Image from 'next/image';
+import { useEffect, useState } from 'react';
 import styles from '@/app/page.module.css';
 import landingStyles from './StayHalongLanding.module.css';
 
+const BOOKING_URL = 'https://customer.stayhalong.com/mypage/direct-booking';
+const KAKAO_QUOTE_URL = 'http://pf.kakao.com/_zvsxaG/chat';
+
 export default function StayHalongLanding() {
+  const [bookingNoticeOpen, setBookingNoticeOpen] = useState(false);
+
+  useEffect(() => {
+    if (!bookingNoticeOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event) => {
+      if (event.key === 'Escape') setBookingNoticeOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [bookingNoticeOpen]);
+
+  function openBookingNotice(event) {
+    event.preventDefault();
+    setBookingNoticeOpen(true);
+  }
+
   return <div className={styles.home}>
     <section className={styles.hero}>
       <div className={styles.heroCopy}>
@@ -10,7 +37,8 @@ export default function StayHalongLanding() {
         <h1>하롱베이,<br /><span>머무는 여행<br />되다.</span></h1>
         <p className={styles.description}>배 한 척이 여행의 분위기를 바꿉니다. 현지에서 직접 보고 고른 크루즈로 복잡한 선택은 줄이고, 좋은 순간은 더 오래 남겨보세요.</p>
         <div className={styles.actions}>
-          <a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.yellowButton} target="_blank" rel="noreferrer">예약하기 <span>↗</span></a>
+          <a href={KAKAO_QUOTE_URL} className={styles.yellowButton} target="_blank" rel="noreferrer">견적 상담 <span>↗</span></a>
+          <a href={BOOKING_URL} className={styles.yellowButton} onClick={openBookingNotice}>예약하기 <span>↗</span></a>
           <a href="https://customer.stayhalong.com/mypage" className={styles.yellowButton} target="_blank" rel="noreferrer">예약 확인 <span>↗</span></a>
         </div>
         <div className={landingStyles.contactActions}>
@@ -34,8 +62,26 @@ export default function StayHalongLanding() {
     </section>
     <section className={styles.route}>
       <div className={styles.routeImage}><Image src="/images/cruises/111.png" alt="크루즈 내부 프리미엄 다이닝 공간" fill sizes="(max-width:800px) 100vw, 48vw" /><strong>ON<br />BOARD</strong></div>
-      <div className={styles.routeCopy}><small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2><ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol><a href="https://customer.stayhalong.com/mypage/direct-booking" className={styles.darkButton} target="_blank" rel="noreferrer">예약하기　↗</a></div>
+      <div className={styles.routeCopy}><small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2><ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol><a href={BOOKING_URL} className={styles.darkButton} onClick={openBookingNotice}>예약하기　↗</a></div>
     </section>
-    <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><a href="https://customer.stayhalong.com/mypage/direct-booking" target="_blank" rel="noreferrer">예약 시작하기　↗</a></section>
+    <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><a href={BOOKING_URL} onClick={openBookingNotice}>예약 시작하기　↗</a></section>
+    {bookingNoticeOpen && <div className={landingStyles.bookingNoticeOverlay} role="dialog" aria-modal="true" aria-labelledby="booking-notice-title" onClick={(event) => { if (event.target === event.currentTarget) setBookingNoticeOpen(false); }}>
+      <section className={landingStyles.bookingNoticePanel}>
+        <header>
+          <div><span>PRODUCT RESERVATION</span><h2 id="booking-notice-title">상품 예약 안내</h2></div>
+          <button type="button" onClick={() => setBookingNoticeOpen(false)} aria-label="예약 안내 닫기">닫기 ×</button>
+        </header>
+        <div className={landingStyles.bookingNoticeBody}>
+          <p><strong>이곳은 견적 상담이 아닌, 상품 예약 창입니다.</strong></p>
+          <p>신청서를 작성하셔도 금액이 표시되지는 않습니다.</p>
+          <p>견적 상담은 아래 카카오톡 채널로 연락해 주세요.</p>
+          <a href={KAKAO_QUOTE_URL} target="_blank" rel="noreferrer" className={landingStyles.quoteLink}>견적상담 바로가기 ↗</a>
+        </div>
+        <footer>
+          <button type="button" className={landingStyles.closeButton} onClick={() => setBookingNoticeOpen(false)}>닫기</button>
+          <a href={BOOKING_URL} target="_blank" rel="noreferrer" className={landingStyles.bookingButton}>상품 예약 창 열기 ↗</a>
+        </footer>
+      </section>
+    </div>}
   </div>;
 }

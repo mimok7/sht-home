@@ -1,5 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: ['stayhalong.com'],
   // Chromium resolves compressed Linux binaries relative to this package.
   // Keep the module external and trace its runtime assets into this API route.
   serverExternalPackages: ['@sparticuz/chromium'],

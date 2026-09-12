@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createBrowserClient } from '@supabase/ssr';
 
 // The platform is the sole database, Storage and identity provider.
 // ./supabase.js re-exports this client for public catalogue queries as well.
@@ -14,7 +14,7 @@ if (!platformUrl || !platformAnonKey) {
   );
 }
 
-export const platformSupabase = createClient(
+export const platformSupabase = createBrowserClient(
   platformUrl || 'https://placeholder.supabase.co',
   platformAnonKey || 'placeholder',
   {
@@ -22,7 +22,6 @@ export const platformSupabase = createClient(
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: true,
-      storageKey: 'stayhalong-platform-auth',
     },
   }
 );

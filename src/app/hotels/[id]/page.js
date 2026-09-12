@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
-import { supabase } from '@/lib/supabase';
 import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
@@ -143,13 +142,21 @@ export default function HotelDetail({ params }) {
     async function fetchHotel() {
       setLoading(true); setLoadError('');
       const hotelId = decodeURIComponent(id);
+      let detailPayload;
+      try {
+        const detailResponse = await fetch(`/api/public-product-detail?service=hotel&id=${encodeURIComponent(hotelId)}`);
+        if (!detailResponse.ok) throw new Error('호텔 상세 조회 실패');
+        detailPayload = await detailResponse.json();
+      } catch (error) {
+        console.error('Failed to load hotel detail:', error?.message || error);
+        if (!cancelled) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); }
+        return;
+      }
+      if (cancelled) return;
       if (hotelId.startsWith('hotel-code-')) {
-        const hotelCode = decodeURIComponent(hotelId.slice('hotel-code-'.length));
         try {
-          const response = await fetch(`/api/public-catalog?service=hotel&key=${encodeURIComponent(hotelCode)}`);
-          if (!response.ok) throw new Error('호텔 원본 조회 실패');
-          const source = await response.json();
-          if (cancelled) return;
+          const source = detailPayload.source;
+          if (!source) throw new Error('호텔 원본 조회 실패');
           const imageRows = (source.images || []).map((image) => ({
             id: image.id,
             hotel_price_code: image.hotelPriceCode,
@@ -180,19 +187,12 @@ export default function HotelDetail({ params }) {
           return;
         }
       }
-      const [hotelResult, detailsResult, pricesResult, imagesResult] = await Promise.all([
-        supabase.from('catalog_products_v2').select('id,name_ko,description,image_url,metadata,manual_override').eq('id', hotelId).eq('source', 'sht-platform').eq('service_type', 'hotel').eq('is_active', true).maybeSingle(),
-        supabase.from('catalog_product_details_v2').select('source_id,payload').eq('product_id', hotelId).eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('is_active', true),
-        supabase.from('catalog_prices_v2').select('source_id,label,price_amount,currency,price_unit,max_guests,valid_from,valid_to').eq('product_id', hotelId).eq('source', 'sht-platform').eq('source_table', 'hotel_price').eq('is_active', true),
-        supabase.from('hotel_gallery_images_v2').select('id,hotel_price_code,collection,image_name,image_url,sort_order,is_primary').eq('product_id', hotelId).order('is_primary', { ascending: false }).order('sort_order'),
-      ]);
-      if (cancelled) return;
-      if (hotelResult.error || !hotelResult.data) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); return; }
-      if (detailsResult.error || pricesResult.error || imagesResult.error) console.error('Failed to load hotel detail:', detailsResult.error?.message || pricesResult.error?.message || imagesResult.error?.message);
-      const product = hotelResult.data;
-      const nextMediaGroups = buildHotelMediaGroups(imagesResult.data || [], product.name_ko);
+      if (detailPayload.notFound || !detailPayload.hotel) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); return; }
+      const product = detailPayload.hotel;
+      const imageRows = detailPayload.images || [];
+      const nextMediaGroups = buildHotelMediaGroups(imageRows, product.name_ko);
       const galleryFirstImage = nextMediaGroups.flatMap((group) => group.images)[0]?.url;
-      const nextRooms = buildRooms(detailsResult.data || [], pricesResult.data || [], imagesResult.data || []);
+      const nextRooms = buildRooms(detailPayload.details || [], detailPayload.prices || [], imageRows);
       let editingItem = null;
       const editCartItemId = editCartItemIdFromLocation();
       if (editCartItemId) {

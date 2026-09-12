@@ -1,16 +1,12 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking-options';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './product.css';
 
-// Keep this list aligned with the public recommendation view. Cabin imagery is
-// loaded separately from the public gallery tables below.
-const PRODUCT_COLUMNS = 'cruise_id,slug,cruise_name,cruise_name_en,description,star_rating,hero_image,itinerary_id,schedule_type,nights,cabin_id,cabin_name,cabin_name_en,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,rate_plan_id,valid_from,valid_to,price_basis,currency,price_adult,price_child,price_infant,price_single,price_extra_bed,single_available,tags';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;
@@ -550,20 +546,22 @@ export default function ProductDetail({ params }) {
       setLoadError('');
       setMediaGroups([]);
       const decodedId = decodeURIComponent(id);
-      let result = await supabase
-        .from('public_cruise_recommendation_v2')
-        .select(PRODUCT_COLUMNS)
-        .eq('slug', decodedId);
-
-      if (!result.error && !result.data?.length) {
-        result = await supabase
-          .from('public_cruise_recommendation_v2')
-          .select(PRODUCT_COLUMNS)
-          .eq('cruise_name', decodedId);
+      let detailPayload;
+      try {
+        const detailResponse = await fetch(`/api/public-product-detail?service=cruise&id=${encodeURIComponent(decodedId)}`);
+        if (!detailResponse.ok) throw new Error('크루즈 상세 조회 실패');
+        detailPayload = await detailResponse.json();
+      } catch (error) {
+        console.error('Failed to load cruise detail:', error?.message || error);
+        if (!cancelled) {
+          setLoadError('상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+          setLoading(false);
+        }
+        return;
       }
 
       if (cancelled) return;
-      const rows = result.error ? [] : result.data || [];
+      const rows = detailPayload.rows || [];
       let first;
       let schedules;
       let nextCabins;
@@ -573,37 +571,9 @@ export default function ProductDetail({ params }) {
         schedules = [...new Set(rows.map((row) => row.schedule_type).filter(Boolean))]
           .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
       } else {
-        let catalogResult = await supabase
-          .from('cruises_v2')
-          .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
-          .eq('slug', decodedId)
-          .eq('is_active', true)
-          .maybeSingle();
-        if (!catalogResult.error && !catalogResult.data) {
-          catalogResult = await supabase
-            .from('cruises_v2')
-            .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
-            .eq('name_ko', decodedId)
-            .eq('is_active', true)
-            .maybeSingle();
-        }
-        if (cancelled) return;
-        if (catalogResult.error || !catalogResult.data) {
-          setLoadError(result.error
-            ? '상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
-            : '현재 공개된 상품을 찾을 수 없습니다.');
-          setLoading(false);
-          return;
-        }
-        const catalog = catalogResult.data;
-        const itineraryResult = await supabase
-          .from('cruise_itineraries_v2')
-          .select('schedule_type')
-          .eq('cruise_id', catalog.id)
-          .eq('is_active', true);
-        if (cancelled) return;
-        if (itineraryResult.error) {
-          setLoadError('상품의 일정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
+        const catalog = detailPayload.catalog;
+        if (!catalog || detailPayload.notFound) {
+          setLoadError('현재 공개된 상품을 찾을 수 없습니다.');
           setLoading(false);
           return;
         }
@@ -617,59 +587,22 @@ export default function ProductDetail({ params }) {
           hero_image: catalog.hero_image,
           tags: [],
         };
-        schedules = [...new Set((itineraryResult.data || []).map((row) => row.schedule_type).filter(Boolean))]
+        schedules = [...new Set((detailPayload.itineraryRows || []).map((row) => row.schedule_type).filter(Boolean))]
           .sort((left, right) => SCHEDULE_ORDER.indexOf(left) - SCHEDULE_ORDER.indexOf(right));
       }
 
-      const allCabinsResult = await supabase
-        .from('cabins_v2')
-        .select('id,legacy_room_name,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,is_active')
-        .eq('cruise_id', first.cruise_id);
-      if (cancelled) return;
-      if (allCabinsResult.error) {
-        setLoadError('상품의 객실 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.');
-        setLoading(false);
-        return;
-      }
-      const allCabinRows = allCabinsResult.data || [];
+      const allCabinRows = detailPayload.allCabinRows || [];
       nextCabins = mergeCatalogCabins(allCabinRows, rows);
-      let sourcePayload = null;
-      try {
-        const sourceResponse = await fetch(`/api/public-catalog?service=cruise&key=${encodeURIComponent(first.cruise_name)}`);
-        if (sourceResponse.ok) sourcePayload = await sourceResponse.json();
-      } catch (error) {
-        console.warn('Failed to load source cruise catalog:', error?.message || error);
-      }
+      const sourceCatalogPromise = fetch(`/api/public-catalog?service=cruise&key=${encodeURIComponent(first.cruise_name)}`)
+        .then(async (response) => (response.ok ? response.json() : null))
+        .catch((error) => {
+          console.warn('Failed to load supplemental cruise catalog:', error?.message || error);
+          return null;
+        });
       if (cancelled) return;
-      if (sourcePayload?.rates?.length) nextCabins = buildRateCardCabins(sourcePayload.rates, allCabinRows, sourcePayload.cabins);
       const cabinIdMap = createCabinIdMap(allCabinRows, nextCabins);
-      const allCabinIds = allCabinRows.map((cabin) => cabin.id);
-      const [importsResult, cabinImagesResult] = await Promise.all([
-        supabase
-          .from('cruise_cafe_import_images_v2')
-          .select('id,cabin_id,image_name,storage_bucket,storage_path,sort_order,is_primary,created_at')
-          .eq('cruise_id', first.cruise_id)
-          .order('created_at')
-          .order('sort_order'),
-        allCabinIds.length
-          ? supabase
-            .from('cabin_images_v2')
-            .select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at')
-            .in('cabin_id', allCabinIds)
-            .order('sort_order')
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
       if (cancelled) return;
-      if (importsResult.error || cabinImagesResult.error) {
-        console.error('Failed to load public cruise gallery:', importsResult.error?.message || cabinImagesResult.error?.message);
-      }
-      const sourceImports = [
-        ...mapSourceCruiseImages(sourcePayload?.images, nextCabins),
-        ...mapSourceCabinImages(sourcePayload?.cabins, nextCabins),
-      ];
-      if (cancelled) return;
-      const nextMediaGroups = buildMediaGroups([...(importsResult.data || []), ...sourceImports], cabinImagesResult.data || [], nextCabins, cabinIdMap);
+      const nextMediaGroups = buildMediaGroups(detailPayload.importRows || [], detailPayload.cabinImageRows || [], nextCabins, cabinIdMap);
       const storedHeroImage = nextMediaGroups.find((group) => group.id === 'main')?.images[0]?.url
         || nextMediaGroups.flatMap((group) => group.images)[0]?.url
         || '';
@@ -703,6 +636,29 @@ export default function ProductDetail({ params }) {
       setInfants(Number(editingItem?.infants || 0));
       setEditingCartItemId(editingItem?.id || '');
       setLoading(false);
+
+      void sourceCatalogPromise.then((sourcePayload) => {
+        if (cancelled || !sourcePayload) return;
+        const enrichedCabins = sourcePayload.rates?.length
+          ? buildRateCardCabins(sourcePayload.rates, allCabinRows, sourcePayload.cabins)
+          : nextCabins;
+        const enrichedCabinIdMap = createCabinIdMap(allCabinRows, enrichedCabins);
+        const sourceImports = [
+          ...mapSourceCruiseImages(sourcePayload.images, enrichedCabins),
+          ...mapSourceCabinImages(sourcePayload.cabins, enrichedCabins),
+        ];
+        const enrichedMediaGroups = buildMediaGroups(
+          [...(detailPayload.importRows || []), ...sourceImports],
+          detailPayload.cabinImageRows || [],
+          enrichedCabins,
+          enrichedCabinIdMap,
+        );
+        setCabins(enrichedCabins);
+        setMediaGroups(enrichedMediaGroups);
+        setSelectedCabinId((current) => enrichedCabins.some((cabin) => cabin.id === current)
+          ? current
+          : initialCabinId(enrichedCabins, editingSchedule) || enrichedCabins[0]?.id || null);
+      });
     }
 
     fetchProduct();

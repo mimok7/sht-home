@@ -1,6 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { unstable_cache } from 'next/cache';
-import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
+import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
 import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
@@ -11,9 +11,7 @@ const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일
 export const dynamic = 'force-dynamic';
 
 function normalizeImagePath(imageUrl) {
-  return resolvePublicMediaUrl(imageUrl)
-    ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
-    ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
+  return resolveR2PublicMediaUrl(imageUrl);
 }
 
 function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
@@ -113,7 +111,7 @@ async function getCruiseMainImages(cruises) {
     const pathFilename = row.storage_path?.split('/').pop() || '';
     const filename = pathFilename || row.image_name || '';
     if (!isMainImage(row)) continue;
-    const url = platformStorageUrl(row.storage_bucket, row.storage_path);
+    const url = resolveR2PublicMediaUrl('', row.storage_bucket, row.storage_path);
     addImage(imagesByCruise, row.cruise_id, { id: row.id, url, alt: `${filename} 대표 이미지` });
   }
 

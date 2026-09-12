@@ -1,5 +1,5 @@
 import { getHomepageDatabase } from '@/lib/homepage-admin';
-import { resolvePublicMediaUrl } from '@/lib/public-media-url';
+import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
 
 function text(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
@@ -15,7 +15,7 @@ function normalizedCruiseName(value) {
 
 function publicMediaList(...values) {
   const urls = values.flatMap((value) => Array.isArray(value) ? value : [value])
-    .map((value) => resolvePublicMediaUrl(value))
+    .map((value) => resolveR2PublicMediaUrl(value))
     .filter(Boolean);
   return [...new Set(urls)];
 }
@@ -66,8 +66,8 @@ function translatedRoomNames(rates) {
 }
 
 function publicImage(image, roomNames = new Map()) {
-  const url = resolvePublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
-    || resolvePublicMediaUrl(image.source_image_url);
+  const url = resolveR2PublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
+    || resolveR2PublicMediaUrl(image.source_image_url);
   if (!url) return null;
   return {
     id: text(image.id) || text(image.__source_id) || url,

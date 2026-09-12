@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
-import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
+import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking-options';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
@@ -10,7 +10,6 @@ import './product.css';
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_ORDER = ['DAY', '1N2D', '2N3D'];
 const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;
-const CRUISE_FALLBACK_IMAGES = ['/yacht_1.png', '/yacht_2.png', '/yacht_3.png', '/halong-hero.png'];
 const MEDIA_CATEGORY_LABELS = {
   main: { label: '대표 이미지', eyebrow: 'CRUISE' },
   exterior: { label: '익스테리어', eyebrow: 'EXTERIOR' },
@@ -25,12 +24,7 @@ function positiveNumber(value) {
 }
 
 function usableImageUrl(imageUrl) {
-  return resolvePublicMediaUrl(imageUrl);
-}
-
-function cruiseFallbackImage(value) {
-  const hash = [...String(value || '')].reduce((total, character) => total + character.codePointAt(0), 0);
-  return CRUISE_FALLBACK_IMAGES[hash % CRUISE_FALLBACK_IMAGES.length];
+  return resolveR2PublicMediaUrl(imageUrl);
 }
 
 function formatVnd(value, currency = 'VND') {
@@ -311,6 +305,8 @@ function createCabinIdMap(allCabinRows, activeCabins) {
 
 function mapSourceCruiseImages(images, cabins) {
   return (images || []).flatMap((image) => {
+    const imageUrl = usableImageUrl(image.url);
+    if (!imageUrl) return [];
     const aliases = [image.roomName, image.roomNameEn].map(normalizedCabinName).filter(Boolean);
     const matches = aliases.length
       ? cabins.filter((cabin) => cabinAliases(cabin).some((alias) => aliases.includes(alias)))
@@ -321,7 +317,7 @@ function mapSourceCruiseImages(images, cabins) {
       cabin_id: cabin?.id || null,
       collection: image.collection,
       image_name: image.imageName,
-      url: image.url,
+      url: imageUrl,
       sort_order: image.sortOrder,
       is_primary: image.isPrimary,
     }));
@@ -338,15 +334,18 @@ function mapSourceCabinImages(sourceCabins, cabins) {
     const matches = cabins.filter((cabin) =>
       cabinAliases(cabin).some((alias) => aliases.includes(alias))
     );
-    return matches.flatMap((cabin) => (sourceCabin.images || []).map((url, index) => ({
-      id: `source-cabin-${sourceCabin.id}-${cabin.id}-${index}`,
-      cabin_id: cabin.id,
-      collection: 'cabin_gallery',
-      image_name: `${sourceCabin.name}-${String(index + 1).padStart(3, '0')}`,
-      url,
-      sort_order: index,
-      is_primary: index === 0,
-    })));
+    return matches.flatMap((cabin) => (sourceCabin.images || []).flatMap((url, index) => {
+      const imageUrl = usableImageUrl(url);
+      return imageUrl ? [{
+        id: `source-cabin-${sourceCabin.id}-${cabin.id}-${index}`,
+        cabin_id: cabin.id,
+        collection: 'cabin_gallery',
+        image_name: `${sourceCabin.name}-${String(index + 1).padStart(3, '0')}`,
+        url: imageUrl,
+        sort_order: index,
+        is_primary: index === 0,
+      }] : [];
+    }));
   });
 }
 
@@ -357,22 +356,27 @@ function sortMediaImages(left, right) {
 }
 
 function publicStorageUrl(bucket, path) {
-  return platformStorageUrl(bucket, path);
+  return resolveR2PublicMediaUrl('', bucket, path);
 }
 
 function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new Map()) {
   const groups = new Map();
   const cabinById = new Map(cabins.map((cabin) => [cabin.id, cabin]));
+  const displayedUrls = new Set();
 
   function mappedCabin(cabinId) {
     return cabinById.get(cabinIdMap.get(cabinId) || cabinId);
   }
 
   function addImage(group, image) {
-    if (!image.url) return;
+    const url = usableImageUrl(image.url);
+    if (!url || displayedUrls.has(url)) return;
     if (!groups.has(group.id)) groups.set(group.id, { ...group, images: [] });
     const images = groups.get(group.id).images;
-    if (!images.some((current) => current.url === image.url)) images.push(image);
+    if (!images.some((current) => current.url === url)) {
+      displayedUrls.add(url);
+      images.push({ ...image, url });
+    }
   }
 
   for (const row of importRows || []) {
@@ -629,7 +633,7 @@ export default function ProductDetail({ params }) {
         nameEn: first.cruise_name_en,
         description: first.description,
         rating: first.star_rating,
-        heroImage: storedHeroImage || usableImageUrl(first.hero_image) || cruiseFallbackImage(first.cruise_id),
+        heroImage: storedHeroImage || usableImageUrl(first.hero_image) || '',
         tags: first.tags || [],
         schedules,
       });
@@ -1043,7 +1047,7 @@ export default function ProductDetail({ params }) {
               : '현재 일정과 요금을 준비하고 있습니다. 원하는 날짜와 객실은 상담으로 확인해 주세요.'}</p>
             <div className="cabins-list">
               {availableCabins.length === 0 && <p className="price-notice">등록된 객실 정보가 없습니다. 상담으로 이용 가능한 객실을 확인해 주세요.</p>}
-              {availableCabins.map((cabin, index) => {
+              {availableCabins.map((cabin) => {
                 const rate = chooseRate(cabin, selectedSchedule, date);
                 const cabinMedia = cabinMediaById.get(cabin.id);
                 return (
@@ -1055,7 +1059,7 @@ export default function ProductDetail({ params }) {
                       {cabinMedia ? (
                         <CruiseMediaGallery
                           cruiseName={cruise.name}
-                heroImage={usableImageUrl(cabin.imageUrl) || `/cabin_${(index % 5) + 1}.png`}
+                heroImage={usableImageUrl(cabin.imageUrl)}
                           groups={[cabinMedia]}
                           mainGroupId={cabinMedia.id}
                           mainClassName="cabin-image cabin-gallery-trigger"
@@ -1063,7 +1067,7 @@ export default function ProductDetail({ params }) {
                           showMainMeta={false}
                         />
                       ) : (
-                        <span className="cabin-image" style={{ backgroundImage: `url(${cabin.imageUrl || `/cabin_${(index % 5) + 1}.png`})` }} />
+                        <span className="cabin-image" />
                       )}
                       <button type="button" className="cabin-detail-button" onClick={() => { setSelectedCabinId(cabin.id); setDetailCabinId(cabin.id); }}>상세 안내 <span>↗</span></button>
                     </div>

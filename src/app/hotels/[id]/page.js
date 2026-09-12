@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
-import { resolvePublicMediaUrl } from '@/lib/public-media-url';
+import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem } from '@/lib/booking-cart';
 import '../hotel-detail.css';
 import '../hotel-cart.css';
@@ -19,14 +19,7 @@ function formatPrice(value, currency = 'VND') {
 }
 
 function proxiedImageUrl(imageUrl) {
-  const resolvedUrl = resolvePublicMediaUrl(imageUrl);
-  if (!resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) return resolvedUrl;
-  try {
-    if (!new URL(resolvedUrl).hostname.endsWith('.supabase.co')) return resolvedUrl;
-  } catch {
-    return resolvedUrl;
-  }
-  return `/api/public-image?url=${encodeURIComponent(resolvedUrl)}`;
+  return resolveR2PublicMediaUrl(imageUrl);
 }
 
 function dateMatches(rate, date) {
@@ -58,13 +51,16 @@ function hotelMediaCategory(image) {
 
 function buildHotelMediaGroups(imageRows, hotelName) {
   const groups = new Map();
+  const displayedUrls = new Set();
   for (const image of imageRows || []) {
     if (image.hotel_price_code || !image.image_url) continue;
     const category = hotelMediaCategory(image);
-    if (!groups.has(category)) groups.set(category, { id: category, ...HOTEL_MEDIA_LABELS[category], images: [] });
     const url = proxiedImageUrl(image.image_url);
+    if (!url || displayedUrls.has(url)) continue;
+    if (!groups.has(category)) groups.set(category, { id: category, ...HOTEL_MEDIA_LABELS[category], images: [] });
     const images = groups.get(category).images;
     if (!images.some((current) => current.url === url)) {
+      displayedUrls.add(url);
       images.push({ id: image.id, url, alt: image.image_name || `${hotelName} ${HOTEL_MEDIA_LABELS[category].label}` });
     }
   }
@@ -80,6 +76,7 @@ function buildRooms(detailRows, priceRows, imageRows) {
     if (!imagesByCode.has(code)) imagesByCode.set(code, []);
     const images = imagesByCode.get(code);
     const imageUrl = proxiedImageUrl(image.image_url);
+    if (!imageUrl) continue;
     if (!images.some((current) => current.url === imageUrl)) images.push({ id: image.id, url: imageUrl, alt: `${code} 객실 이미지` });
   }
 
@@ -104,6 +101,7 @@ function buildSourceRooms(roomRows, imageRows) {
     const code = String(image.hotel_price_code);
     if (!imagesByCode.has(code)) imagesByCode.set(code, []);
     const url = proxiedImageUrl(image.image_url);
+    if (!url) continue;
     const images = imagesByCode.get(code);
     if (!images.some((current) => current.url === url)) images.push({ id: image.id, url, alt: `${code} 객실 이미지` });
   }

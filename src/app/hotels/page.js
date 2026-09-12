@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { unstable_cache } from 'next/cache';
 import { getHomepageDatabase } from '@/lib/homepage-admin';
 import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import HotelCollection from './HotelCollection';
@@ -127,8 +128,15 @@ async function getHotels() {
   });
 }
 
+// 공개 상태와 추천 순위가 바뀐 경우에도 짧은 시간 안에 반영되도록 30초만 재사용한다.
+const getCachedHotels = unstable_cache(
+  getHotels,
+  ['public-hotel-listing-v2'],
+  { revalidate: 30, tags: ['public-hotel-listing'] },
+);
+
 export default async function Hotels() {
-  const hotels = await getHotels();
+  const hotels = await getCachedHotels();
 
   return (
     <div className="hotel-page">

@@ -22,14 +22,11 @@ function useDeferredImage(imageUrl) {
   const [shouldLoad, setShouldLoad] = useState(false);
 
   useEffect(() => {
-    if (!imageUrl) {
-      setShouldLoad(false);
-      return undefined;
-    }
+    if (!imageUrl) return undefined;
     const target = targetRef.current;
     if (!target || typeof IntersectionObserver === 'undefined') {
-      setShouldLoad(true);
-      return undefined;
+      const timeoutId = window.setTimeout(() => setShouldLoad(true), 0);
+      return () => window.clearTimeout(timeoutId);
     }
     const observer = new IntersectionObserver(([entry]) => {
       if (!entry.isIntersecting) return;

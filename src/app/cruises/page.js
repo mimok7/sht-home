@@ -1,12 +1,13 @@
 import { supabase } from '@/lib/supabase';
+import { unstable_cache } from 'next/cache';
 import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 
-// 관리자에서 공개 상태를 변경한 직후에도 목록이 이전 캐시를 보여주지 않도록
-// 공개 크루즈 상태는 요청마다 최신값을 조회한다.
+// 화면 자체는 동적으로 유지하되, 목록 구성에 필요한 대량 이미지 조회는 짧게 재사용한다.
+// 관리자 변경 사항은 최대 30초 안에 목록에 반영된다.
 export const dynamic = 'force-dynamic';
 
 function normalizeImagePath(imageUrl) {
@@ -149,13 +150,25 @@ async function getCruises() {
   return buildCruiseCards(cruiseResult.data || [], itineraryRows, recommendationResult.data || []);
 }
 
-export default async function Cruises() {
+async function getCruiseCards() {
   const cruises = await getCruises();
   const mainImagesByCruise = await getCruiseMainImages(cruises);
-  const cruiseCards = cruises.map((cruise) => ({
+  return cruises.map((cruise) => ({
     ...cruise,
-    mainImages: mainImagesByCruise.get(cruise.id) || [{ id: 'hero', url: cruise.imageUrl, alt: `${cruise.name} 대표 이미지` }],
+    mainImages: mainImagesByCruise.get(cruise.id) || (cruise.imageUrl
+      ? [{ id: 'hero', url: cruise.imageUrl, alt: `${cruise.name} 대표 이미지` }]
+      : []),
   }));
+}
+
+const getCachedCruiseCards = unstable_cache(
+  getCruiseCards,
+  ['public-cruise-listing-v2'],
+  { revalidate: 30, tags: ['public-cruise-listing'] },
+);
+
+export default async function Cruises() {
+  const cruiseCards = await getCachedCruiseCards();
 
   return (
     <div className="page-container">

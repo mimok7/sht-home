@@ -1,4 +1,4 @@
-import { getR2Object } from '@/lib/r2-storage';
+import { getR2Object, isPublicR2ImagePath } from '@/lib/r2-storage';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -13,6 +13,7 @@ export async function GET(request) {
   const params = new URL(request.url).searchParams;
   const r2Path = params.get('r2');
   if (r2Path) {
+    if (!isPublicR2ImagePath(r2Path)) return new Response('이미지를 찾을 수 없습니다.', { status: 404 });
     try {
       const image = await getR2Object(r2Path);
       if (!image.Body || typeof image.Body.transformToByteArray !== 'function') return new Response('이미지를 불러오지 못했습니다.', { status: 502 });

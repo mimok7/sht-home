@@ -19,6 +19,19 @@ export function getHomepageDatabase() {
   return url && key ? createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
 }
 
+// Customer APIs verify the platform access token server-side before using the
+// service role client. This keeps private reservation documents out of public
+// storage URLs and avoids trusting a browser-provided user id.
+export async function getHomepageUser(request) {
+  const token = getBearerToken(request);
+  if (!token) return null;
+  const config = getPlatformConfig();
+  if (!config) return null;
+  const verifier = createClient(config.url, config.key, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await verifier.auth.getUser(token);
+  return error || !data.user ? null : data.user;
+}
+
 // 인증과 운영자 권한은 플랫폼에서만 검증한다. 이전 홈페이지 JWT는 허용하지 않는다.
 export async function getHomepageOperator(request) {
   const token = getBearerToken(request);

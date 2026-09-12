@@ -8,7 +8,12 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 const R2_BUCKET_PREFIX = 'r2:';
-const IMAGE_PATH = /^(?:cruises|cabins|hotels|catalog)\/[a-zA-Z0-9_./-]+$/;
+// The bucket itself is private. Public catalogue media is delivered only by
+// the public-image route; reservation and operator attachments use separate
+// prefixes and are exposed only with a short-lived, authenticated URL.
+const PUBLIC_IMAGE_PATH = /^(?:cruises|cabins|hotels|catalog)\/[a-zA-Z0-9_./-]+$/;
+const PRIVATE_IMAGE_PATH = /^(?:documents|admin-change-requests)\/[a-zA-Z0-9_./-]+$/;
+const IMAGE_PATH = /^(?:(?:cruises|cabins|hotels|catalog)|(?:documents|admin-change-requests))\/[a-zA-Z0-9_./-]+$/;
 let client;
 
 function configuration() {
@@ -54,18 +59,37 @@ export function r2ImageUrl(path, origin = '') {
   return origin ? `${String(origin).replace(/\/$/, '')}${relativeUrl}` : relativeUrl;
 }
 
-export async function createR2UploadUrl(path, contentType) {
+export function isPublicR2ImagePath(path) {
+  const value = String(path || '');
+  return PUBLIC_IMAGE_PATH.test(value) && !value.includes('..') && !value.includes('\\');
+}
+
+export function isPrivateR2ImagePath(path) {
+  const value = String(path || '');
+  return PRIVATE_IMAGE_PATH.test(value) && !value.includes('..') && !value.includes('\\');
+}
+
+export async function createR2UploadUrl(path, contentType, cacheControl = 'public, max-age=31536000, immutable') {
   const safePath = assertImagePath(path);
   const { client: storage, config } = r2Client();
   return getSignedUrl(storage, new PutObjectCommand({
     Bucket: config.bucket,
     Key: safePath,
     ContentType: contentType,
-    CacheControl: 'public, max-age=31536000, immutable',
+    CacheControl: cacheControl,
   }), { expiresIn: 300 });
 }
 
-export async function putR2Object(path, body, contentType) {
+export async function createR2DownloadUrl(path, expiresIn = 300) {
+  const safePath = assertImagePath(path);
+  const { client: storage, config } = r2Client();
+  return getSignedUrl(storage, new GetObjectCommand({
+    Bucket: config.bucket,
+    Key: safePath,
+  }), { expiresIn: Math.max(60, Math.min(Number(expiresIn) || 300, 900)) });
+}
+
+export async function putR2Object(path, body, contentType, cacheControl = 'public, max-age=31536000, immutable') {
   const safePath = assertImagePath(path);
   const { client: storage, config } = r2Client();
   await storage.send(new PutObjectCommand({
@@ -73,7 +97,7 @@ export async function putR2Object(path, body, contentType) {
     Key: safePath,
     Body: body,
     ContentType: contentType,
-    CacheControl: 'public, max-age=31536000, immutable',
+    CacheControl: cacheControl,
   }));
 }
 

@@ -25,7 +25,7 @@ function RotatingHotelImage({ hotel, index }) {
     return () => window.clearInterval(timer);
   }, [images.length]);
 
-  if (!images.length) return <div className="hotel-card-image hotel-card-image-empty" role="img" aria-label={`${hotel.name} 이미지 준비 중`}><span>HOTEL / IMAGE ARCHIVE</span><strong>PHOTO<br />PENDING</strong></div>;
+  if (!images.length) return <div className="hotel-card-image product-image-box" role="img" aria-label={`${hotel.name} 이미지 준비 중`} />;
 
   return <CruiseMediaGallery cruiseName={hotel.name} duration={`HOTEL / ${String(index + 1).padStart(2, '0')}`} heroImage={hotel.imageUrl} displayImage={images[imageIndex]?.url} groups={[{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images }]} showArchive={false} mainClassName="hotel-card-image" />;
 }

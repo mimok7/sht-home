@@ -1,10 +1,8 @@
 import { supabase } from '@/lib/supabase';
-import { getHomepageDatabase } from '@/lib/homepage-admin';
 import { platformStorageUrl, resolvePublicMediaUrl } from '@/lib/public-media-url';
 import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
-const FALLBACK_IMAGES = ['/yacht_1.png', '/yacht_2.png', '/yacht_3.png', '/halong-hero.png'];
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 
 // 관리자에서 공개 상태를 변경한 직후에도 목록이 이전 캐시를 보여주지 않도록
@@ -15,14 +13,6 @@ function normalizeImagePath(imageUrl) {
   return resolvePublicMediaUrl(imageUrl)
     ?.replace(/^\/images\/cruises\/(yacht_[^/]+)$/, '/$1')
     ?.replace('/images/cruises/c9_official.jpg', '/yacht_1.png');
-}
-
-function normalizedCruiseName(value) {
-  return String(value || '')
-    .normalize('NFKC')
-    .toLowerCase()
-    .replace(/크루즈|cruise/g, '')
-    .replace(/[^a-z0-9가-힣]/g, '');
 }
 
 function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
@@ -79,10 +69,10 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
   }
 
   return [...cruises.values()]
-    .map((cruise, index) => ({
+    .map((cruise) => ({
       ...cruise,
       duration: [...cruise.scheduleTypes].map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · '),
-      imageUrl: normalizeImagePath(cruise.heroImage) || FALLBACK_IMAGES[index % FALLBACK_IMAGES.length],
+      imageUrl: normalizeImagePath(cruise.heroImage) || '',
     }))
     .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
 }
@@ -126,58 +116,6 @@ async function getCruiseMainImages(cruises) {
     addImage(imagesByCruise, row.cruise_id, { id: row.id, url, alt: `${filename} 대표 이미지` });
   }
 
-  const database = getHomepageDatabase();
-  if (!database) return imagesByCruise;
-  const idsByName = new Map();
-  const idsByNormalizedName = new Map();
-  for (const cruise of cruises) {
-    for (const name of [cruise.name, cruise.legacyName].filter(Boolean)) {
-      if (!idsByName.has(name)) idsByName.set(name, new Set());
-      idsByName.get(name).add(cruise.id);
-      const normalizedName = normalizedCruiseName(name);
-      if (!normalizedName) continue;
-      if (!idsByNormalizedName.has(normalizedName)) idsByNormalizedName.set(normalizedName, new Set());
-      idsByNormalizedName.get(normalizedName).add(cruise.id);
-    }
-  }
-  const sourceRows = [];
-  for (let from = 0; ; from += 1000) {
-    const { data: page, error: sourceError } = await database
-      .from('platform_source_records')
-      .select('source_id,payload')
-      .eq('source', 'sht-platform')
-      .eq('source_table', 'homepage_cruise_images')
-      .order('source_id')
-      .range(from, from + 999);
-    if (sourceError) {
-      console.warn('[cruises] source image fallback lookup skipped', sourceError.message);
-      return imagesByCruise;
-    }
-    sourceRows.push(...(page || []));
-    if ((page || []).length < 1000) break;
-  }
-
-  const fallbackImages = new Map();
-  for (const row of sourceRows) {
-    const image = row.payload || {};
-    if (image.room_name) continue;
-    const cruiseIds = new Set([
-      ...(idsByName.get(image.cruise_name) || []),
-      ...(idsByNormalizedName.get(normalizedCruiseName(image.cruise_name)) || []),
-    ]);
-    if (!cruiseIds.size) continue;
-    const url = resolvePublicMediaUrl(image.image_url, image.storage_bucket, image.storage_path)
-      || resolvePublicMediaUrl(image.source_image_url);
-    if (!url) continue;
-    const nextImage = { id: String(image.id || row.source_id), url, alt: `${image.image_name || image.cruise_name} 대표 이미지` };
-    for (const cruiseId of cruiseIds) {
-      if (isMainImage(image)) addImage(imagesByCruise, cruiseId, nextImage);
-      if (!fallbackImages.has(cruiseId)) fallbackImages.set(cruiseId, nextImage);
-    }
-  }
-  for (const [cruiseId, image] of fallbackImages) {
-    if (!imagesByCruise.has(cruiseId) || imagesByCruise.get(cruiseId).length === 0) addImage(imagesByCruise, cruiseId, image);
-  }
   return imagesByCruise;
 }
 

@@ -14,6 +14,10 @@ function RotatingCruiseImage({ cruise }) {
     return () => window.clearInterval(timer);
   }, [images.length]);
 
+  if (!images.length) {
+    return <div className="product-image-box" role="img" aria-label={`${cruise.name} 이미지 준비 중`} />;
+  }
+
   return (
     <CruiseMediaGallery
       cruiseName={cruise.name}

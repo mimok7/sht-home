@@ -21,6 +21,10 @@ const IMAGE_NAME_PRESETS = [
 ];
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
 const SCHEDULE_TYPES = ['DAY', '1N2D', '2N3D'];
+function storedImageUrl(image) {
+  if (String(image?.storage_bucket || '').startsWith('r2:')) return `/api/public-image?r2=${encodeURIComponent(image.storage_path || '')}`;
+  return supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
+}
 const CRUISE_RATING_OPTIONS = [
   { value: '5', label: '5성급', description: '최상위 시설과 서비스를 제공하는 상품입니다.' },
   { value: '6', label: '6성급', description: '최고 수준의 시설과 맞춤형 서비스를 제공하는 상품입니다.' },
@@ -165,7 +169,7 @@ function CabinImageGallery({ images, busy, onUpload, onSetPrimary, onRemove, onR
   return <section className="cabin-image-gallery wide" aria-label="객실 이미지 관리">
     <div className="cabin-image-gallery-heading"><div><span>ROOM GALLERY</span><strong>객실 이미지 {images.length}장</strong><small>첫 이미지는 대표 이미지로 자동 지정됩니다.</small></div><ImageFilePicker label="객실 이미지 추가" multiple disabled={busy} onSelect={onUpload} /></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
     {images.length > 0 && <div className="cabin-image-grid">{images.map((image, index) => {
-      const imageUrl = supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
+      const imageUrl = storedImageUrl(image);
       return <ImageSurface key={`${image.id}-${imageUrl}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={imageUrl} alt={image.alt_text || `객실 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
         <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
       </ImageSurface>;
@@ -182,7 +186,7 @@ function CruiseImageGallery({ images, busy, onSetPrimary, onRemove, onRemoveSele
   return <section className="cabin-image-gallery wide" aria-label="크루즈 업로드 이미지 관리">
     <div className="cabin-image-gallery-heading"><div><span>CRUISE GALLERY</span><strong>업로드 이미지 {images.length}장</strong><small>대표 이미지는 한 장만 지정됩니다. 다른 이미지를 대표로 바꾸거나 삭제할 수 있습니다.</small></div></div><GallerySelectionControls images={images} selectedIds={selection.selectedIds} busy={busy} onToggleAll={selection.toggleAll} onDeleteSelected={removeSelected} />
     {images.length > 0 ? <div className="cabin-image-grid">{images.map((image, index) => {
-      const imageUrl = supabase.storage.from(image.storage_bucket).getPublicUrl(image.storage_path).data.publicUrl;
+      const imageUrl = storedImageUrl(image);
       return <ImageSurface key={`${image.id}-${imageUrl}`} className={`cabin-gallery-image ${selection.selectedIds.has(image.id) ? 'is-selected' : ''}`} src={imageUrl} alt={image.image_name || `크루즈 이미지 ${index + 1}`}><label className="gallery-image-select"><input type="checkbox" checked={selection.selectedIds.has(image.id)} disabled={busy} onChange={(event) => selection.toggle(image.id, event.target.checked)} /> 선택</label>
         <figcaption><span>{image.is_primary ? '대표 이미지' : `이미지 ${index + 1}`}</span><div>{!image.is_primary && <button type="button" onClick={() => onSetPrimary(image.id)} disabled={busy}>대표로 지정</button>}<button type="button" className="danger" onClick={() => onRemove(image.id)} disabled={busy}>삭제</button></div></figcaption>
       </ImageSurface>;
@@ -404,16 +408,18 @@ export default function AdminCruiseManager({ importOnly = false }) {
           method: 'POST',
           body: JSON.stringify({ target, entityId, filename: file.name, contentType: file.type, size: file.size, ...extra }),
         });
-        const { error: uploadError } = await supabase.storage
-          .from(ticket.upload.bucket)
-          .uploadToSignedUrl(ticket.upload.path, ticket.upload.token, file, { contentType: file.type, cacheControl: '31536000' });
-        if (uploadError) throw uploadError;
+        const uploadResponse = await fetch(ticket.upload.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': file.type, 'Cache-Control': 'public, max-age=31536000, immutable' },
+          body: file,
+        });
+        if (!uploadResponse.ok) throw new Error('이미지 파일을 R2 저장소에 업로드하지 못했습니다.');
         await adminRequest('/api/admin/images', {
           method: 'PATCH',
           body: JSON.stringify({ action: 'completeUpload', target, entityId, path: ticket.upload.path, altText: file.name, ...extra }),
         });
       }
-      setMessage(`${files.length}개 이미지를 Storage에 저장했습니다.`);
+      setMessage(`${files.length}개 이미지를 이미지 저장소에 저장했습니다.`);
       await load();
     } catch (uploadError) {
       setError(uploadError.message || '이미지 저장에 실패했습니다.');
@@ -858,7 +864,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
                 <div className="catalog-price-heading"><span>HOTEL ROOMS</span><strong>객실 {hotelRooms.length}건</strong><small>호텔별 객실 정보·홈페이지 요금·객실 이미지를 한 곳에서 관리합니다. 객실 기본 정보는 플랫폼 원본과 동기화됩니다.</small></div>
                 {hotelRooms.length === 0 ? <p className="admin-loading">동기화된 객실 데이터가 없습니다.</p> : <div className="rate-editor">{hotelRooms.map(({ detail, room, price }) => <HotelRoomForm key={`${detail.product_id}-${detail.source_id}`} room={room} price={price} images={hotelImagesByRoom.get(String(detail.source_id)) || []} saving={price ? saving === `catalog-price-${price.id}` : false} imageBusy={saving === `image-upload-hotel-room-gallery-${selectedCatalogProduct.id}` || saving.startsWith('hotel-image-setHotelRoomPrimaryImage-') || saving.startsWith('image-bulk-remove-')} onSave={price ? (values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values) : null} onUpload={(files) => uploadImages('hotel-room-gallery', selectedCatalogProduct.id, files, { hotelPriceCode: String(detail.source_id) })} onSetPrimary={(imageId) => changeHotelImage('setHotelRoomPrimaryImage', imageId)} onRemoveSelected={(imageIds) => removeImages('removeHotelImages', imageIds, '호텔 객실 이미지')} />)}</div>}
               </section>}
-              {catalogSection === 'images' && catalogService === 'hotel' && <section className="hotel-room-manager" aria-label="호텔 대표 이미지 관리"><div className="catalog-price-heading"><span>HOTEL GALLERY</span><strong>대표·갤러리 이미지 {hotelImages.length}장</strong><small>이미지를 Storage에 직접 저장하고, 첫 이미지 또는 선택한 이미지를 대표 이미지로 지정할 수 있습니다.</small></div><HotelImageGallery images={hotelImages} busy={saving === `image-upload-hotel-gallery-${selectedCatalogProduct.id}` || saving.startsWith('hotel-image-setHotelPrimaryImage-') || saving.startsWith('image-bulk-remove-')} onUpload={(files) => uploadImages('hotel-gallery', selectedCatalogProduct.id, files)} onSetPrimary={(imageId) => changeHotelImage('setHotelPrimaryImage', imageId)} onRemoveSelected={(imageIds) => removeImages('removeHotelImages', imageIds, '호텔 이미지')} /></section>}
+              {catalogSection === 'images' && catalogService === 'hotel' && <section className="hotel-room-manager" aria-label="호텔 대표 이미지 관리"><div className="catalog-price-heading"><span>HOTEL GALLERY</span><strong>대표·갤러리 이미지 {hotelImages.length}장</strong><small>이미지를 이미지 저장소에 직접 저장하고, 첫 이미지 또는 선택한 이미지를 대표 이미지로 지정할 수 있습니다.</small></div><HotelImageGallery images={hotelImages} busy={saving === `image-upload-hotel-gallery-${selectedCatalogProduct.id}` || saving.startsWith('hotel-image-setHotelPrimaryImage-') || saving.startsWith('image-bulk-remove-')} onUpload={(files) => uploadImages('hotel-gallery', selectedCatalogProduct.id, files)} onSetPrimary={(imageId) => changeHotelImage('setHotelPrimaryImage', imageId)} onRemoveSelected={(imageIds) => removeImages('removeHotelImages', imageIds, '호텔 이미지')} /></section>}
               {catalogSection === 'prices' && <><div className="catalog-price-heading"><span>PRICE DATA</span><strong>상품 요금 {catalogPrices.length}건</strong></div>
                 <div className="rate-editor">{catalogPrices.map((price) => <CatalogPriceForm key={price.id} price={price} saving={saving === `catalog-price-${price.id}`} onSave={(values) => save(`catalog-price-${price.id}`, 'updateCatalogPrice', price.id, values)} />)}</div>
               </>}

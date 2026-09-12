@@ -1,3 +1,5 @@
+import { isR2StorageBucket, r2ImageUrl } from '@/lib/r2-storage';
+
 const LEGACY_HOMEPAGE_STORAGE_ORIGIN = 'https://tthwqfhdojncqtwfssqe.supabase.co';
 
 function platformOrigin() {
@@ -5,6 +7,7 @@ function platformOrigin() {
 }
 
 export function platformStorageUrl(bucket, storagePath) {
+  if (isR2StorageBucket(bucket)) return r2ImageUrl(storagePath);
   const origin = platformOrigin();
   if (!origin || !bucket || !storagePath) return '';
   const encodedPath = String(storagePath).split('/').map(encodeURIComponent).join('/');

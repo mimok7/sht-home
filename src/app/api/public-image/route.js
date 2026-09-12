@@ -1,3 +1,5 @@
+import { getR2Object } from '@/lib/r2-storage';
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
@@ -8,7 +10,25 @@ function isPublicSupabaseImage(url) {
 }
 
 export async function GET(request) {
-  const sourceUrl = new URL(request.url).searchParams.get('url');
+  const params = new URL(request.url).searchParams;
+  const r2Path = params.get('r2');
+  if (r2Path) {
+    try {
+      const image = await getR2Object(r2Path);
+      if (!image.Body || typeof image.Body.transformToByteArray !== 'function') return new Response('이미지를 불러오지 못했습니다.', { status: 502 });
+      return new Response(Buffer.from(await image.Body.transformToByteArray()), {
+        headers: {
+          'Content-Type': image.ContentType || 'application/octet-stream',
+          'Cache-Control': 'public, max-age=3600, s-maxage=86400, stale-while-revalidate=604800',
+        },
+      });
+    } catch (error) {
+      console.error('R2 image proxy failed:', error);
+      return new Response('이미지 연결에 실패했습니다.', { status: 404 });
+    }
+  }
+
+  const sourceUrl = params.get('url');
   if (!sourceUrl) return new Response('이미지 주소가 필요합니다.', { status: 400 });
 
   let remoteUrl;

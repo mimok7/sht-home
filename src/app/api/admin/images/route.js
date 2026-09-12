@@ -2,11 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
+import { assertR2Object, createR2UploadUrl, deleteR2Objects, isR2StorageBucket, r2ImageUrl, r2StorageBucket } from '@/lib/r2-storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MEDIA_BUCKET = 'homepage-images';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = new Map([
   ['image/jpeg', 'jpg'],
@@ -26,8 +26,8 @@ function storageStatus(error) {
   return Number(error?.statusCode || error?.status || 0);
 }
 
-function publicUrl(database, path) {
-  return database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl;
+function publicUrl(request, path) {
+  return r2ImageUrl(path, new URL(request.url).origin);
 }
 
 function bearerToken(request) {
@@ -132,29 +132,6 @@ function validateUploadInput({ target, entityId, contentType, size, hotelPriceCo
   }
 }
 
-async function ensureMediaBucket(database) {
-  const bucket = await database.storage.getBucket(MEDIA_BUCKET);
-  if (!bucket.error) {
-    if (!bucket.data?.public) {
-      const { error } = await database.storage.updateBucket(MEDIA_BUCKET, {
-        public: true,
-        fileSizeLimit: MAX_IMAGE_BYTES,
-        allowedMimeTypes: [...IMAGE_TYPES.keys()],
-      });
-      if (error) throw error;
-    }
-    return;
-  }
-  if (storageStatus(bucket.error) !== 404) throw bucket.error;
-
-  const { error } = await database.storage.createBucket(MEDIA_BUCKET, {
-    public: true,
-    fileSizeLimit: MAX_IMAGE_BYTES,
-    allowedMimeTypes: [...IMAGE_TYPES.keys()],
-  });
-  if (error && storageStatus(error) !== 409) throw error;
-}
-
 async function assertTargetEntity(database, target, entityId, hotelPriceCode = '') {
   const config = TARGETS[target];
   let query = database.from(config.table).select('id').eq('id', entityId);
@@ -171,17 +148,14 @@ async function assertTargetEntity(database, target, entityId, hotelPriceCode = '
   }
 }
 
-async function requestUploadTicket(database, values) {
+async function requestUploadTicket(request, database, values) {
   validateUploadInput(values);
   const { target, entityId, contentType } = values;
   await assertTargetEntity(database, target, entityId, values.hotelPriceCode);
-  await ensureMediaBucket(database);
 
   const galleryFolder = target === 'cabin-gallery' || target === 'hotel-gallery' || target === 'hotel-room-gallery' ? 'gallery/' : 'hero/';
   const path = `${targetPrefix(target, entityId, values.hotelPriceCode)}${galleryFolder}${randomUUID()}.${IMAGE_TYPES.get(contentType)}`;
-  const { data, error } = await database.storage.from(MEDIA_BUCKET).createSignedUploadUrl(path);
-  if (error) throw error;
-  return { bucket: MEDIA_BUCKET, path: data.path, token: data.token, publicUrl: publicUrl(database, data.path) };
+  return { bucket: r2StorageBucket(), path, uploadUrl: await createR2UploadUrl(path, contentType), publicUrl: publicUrl(request, path) };
 }
 
 function assertExpectedPath(target, entityId, path, hotelPriceCode = '') {
@@ -190,10 +164,8 @@ function assertExpectedPath(target, entityId, path, hotelPriceCode = '') {
   }
 }
 
-async function assertStoredObject(database, path) {
-  const { data, error } = await database.storage.from(MEDIA_BUCKET).exists(path);
-  if (error) throw error;
-  if (!data) throw new Error('Storage에 업로드된 이미지를 찾을 수 없습니다.');
+async function assertStoredObject(path) {
+  await assertR2Object(path);
 }
 
 async function completeHotelUpload(request, database, { target, entityId, path, altText, hotelPriceCode = '' }) {
@@ -207,7 +179,7 @@ async function completeHotelUpload(request, database, { target, entityId, path, 
   const image = {
     id: randomUUID(), product_id: entityId, hotel_price_code: isRoomImage ? hotelPriceCode : null,
     collection: isRoomImage ? 'room_gallery' : 'hotel_gallery', source_url: null, source_image_url: null,
-    image_name: altText || null, image_url: publicUrl(database, path), storage_bucket: MEDIA_BUCKET, storage_path: path,
+    image_name: altText || null, image_url: publicUrl(request, path), storage_bucket: r2StorageBucket(), storage_path: path,
     sort_order: (existing || []).reduce((max, item) => Math.max(max, Number(item.sort_order) || 0), -1) + 1,
     is_primary: !(existing || []).some((item) => item.is_primary),
   };
@@ -250,8 +222,13 @@ function selectedImageIds(value) {
 
 async function removeStoredImages(database, rows) {
   const pathsByBucket = new Map();
+  const r2Paths = [];
   for (const row of rows) {
     if (!row.storage_bucket || !row.storage_path) continue;
+    if (isR2StorageBucket(row.storage_bucket)) {
+      r2Paths.push(row.storage_path);
+      continue;
+    }
     const paths = pathsByBucket.get(row.storage_bucket) || [];
     paths.push(row.storage_path);
     pathsByBucket.set(row.storage_bucket, paths);
@@ -260,6 +237,7 @@ async function removeStoredImages(database, rows) {
     const { error } = await database.storage.from(bucket).remove(paths);
     if (error && storageStatus(error) !== 404) throw error;
   }
+  await deleteR2Objects(r2Paths);
 }
 
 async function removeCabinImages(database, imageIds) {
@@ -328,7 +306,7 @@ export async function POST(request) {
   const database = getHomepageDatabase();
   if (!database) return Response.json({ error: '홈페이지 관리자 서비스 키가 설정되지 않았습니다.' }, { status: 503 });
   try {
-    return Response.json({ ok: true, upload: await requestUploadTicket(database, await request.json()) });
+    return Response.json({ ok: true, upload: await requestUploadTicket(request, database, await request.json()) });
   } catch (error) {
     return failureResponse(error, '이미지 업로드 준비에 실패했습니다.');
   }
@@ -346,12 +324,12 @@ export async function PATCH(request) {
       if (!TARGETS[target] || typeof entityId !== 'string') throw new Error('이미지 저장 대상을 확인해 주세요.');
       await assertTargetEntity(database, target, entityId, hotelPriceCode);
       assertExpectedPath(target, entityId, path, hotelPriceCode);
-      await assertStoredObject(database, path);
+      await assertStoredObject(path);
       if (target === 'hotel-gallery' || target === 'hotel-room-gallery') {
         return Response.json({ ok: true, result: await completeHotelUpload(request, database, { target, entityId, path, altText, hotelPriceCode }) });
       }
       const source = await platformImageSource(database, target, entityId);
-      const imageUrl = publicUrl(database, path);
+      const imageUrl = publicUrl(request, path);
       let isPrimary = false;
       if (target === 'cruise-hero') {
         const { data: currentPrimary, error: primaryError } = await database.from('cruise_cafe_import_images_v2')
@@ -367,7 +345,7 @@ export async function PATCH(request) {
       }
       const result = await forwardPlatformImage(request, source, 'upsertImage', {
         collection: target === 'cabin-gallery' ? 'cabin_gallery' : 'cafe_import', imageUrl,
-        imageName: altText || null, storageBucket: MEDIA_BUCKET, storagePath: path,
+        imageName: altText || null, storageBucket: r2StorageBucket(), storagePath: path,
         isPrimary,
       });
       return Response.json({ ok: true, result: { ...result, imageUrl } });

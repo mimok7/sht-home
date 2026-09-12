@@ -12,6 +12,8 @@
     "browser:cart": "node scripts/browser-cart-smoke.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.1131.0",
+    "@aws-sdk/s3-request-presigner": "3.1131.0",
     "@sparticuz/chromium": "149.0.0",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.116.0",

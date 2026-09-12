@@ -5,11 +5,11 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
+import { putR2Object, r2ImageUrl, r2StorageBucket } from '@/lib/r2-storage';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MEDIA_BUCKET = 'homepage-images';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = new Map([['image/jpeg', 'jpg'], ['image/png', 'png'], ['image/webp', 'webp'], ['image/avif', 'avif'], ['image/gif', 'gif']]);
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
@@ -231,21 +231,7 @@ async function readArticle(sourceUrl, credentials = null) {
   }
 }
 
-async function ensureMediaBucket(database) {
-  const bucketOptions = { public: true, fileSizeLimit: MAX_IMAGE_BYTES, allowedMimeTypes: [...IMAGE_TYPES.keys()] };
-  const bucket = await database.storage.getBucket(MEDIA_BUCKET);
-  if (!bucket.error) {
-    // 기존 버킷도 새로 지원하는 GIF 형식을 허용해야 가져오기 저장이 가능하다.
-    const { error } = await database.storage.updateBucket(MEDIA_BUCKET, bucketOptions);
-    if (error) throw error;
-    return;
-  }
-  if (Number(bucket.error.statusCode || bucket.error.status) !== 404) throw bucket.error;
-  const { error } = await database.storage.createBucket(MEDIA_BUCKET, bucketOptions);
-  if (error && Number(error.statusCode || error.status) !== 409) throw error;
-}
-
-async function copyImage(database, serviceType, productId, item, index) {
+async function copyImage(request, serviceType, productId, item, index) {
   const imageUrl = typeof item === 'string' ? item : item.sourceImageUrl;
   try {
     const response = await fetch(imageUrl, { headers: { Referer: 'https://cafe.naver.com/', 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(20000) });
@@ -260,31 +246,23 @@ async function copyImage(database, serviceType, productId, item, index) {
     const name = typeof item === 'string' ? String(index + 1).padStart(3, '0') : item.storageName;
     const safeName = String(name || index + 1).toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '') || String(index + 1).padStart(3, '0');
     const path = `${serviceType === 'hotel' ? 'hotels' : 'cruises'}/${productId}/cafe-import/${safeName}.${IMAGE_TYPES.get(contentType)}`;
-    const { error } = await database.storage.from(MEDIA_BUCKET).upload(path, buffer, { contentType, cacheControl: '31536000', upsert: false });
-    if (error) {
-      // 업로드 직후 DB 반영이 끊긴 이전 요청은 스토리지에만 파일을 남길 수 있다.
-      // 이 경우 같은 이름의 파일은 그대로 재사용해 DB 저장을 끝까지 이어간다.
-      const status = Number(error.statusCode || error.status);
-      if (status !== 409 && !/already exists/i.test(error.message || '')) throw error;
-      return { sourceImageUrl: imageUrl, path, publicUrl: database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl, reused: true };
-    }
-    return { sourceImageUrl: imageUrl, path, publicUrl: database.storage.from(MEDIA_BUCKET).getPublicUrl(path).data.publicUrl };
+    await putR2Object(path, Buffer.from(buffer), contentType);
+    return { sourceImageUrl: imageUrl, path, publicUrl: r2ImageUrl(path, new URL(request.url).origin) };
   } catch (error) {
     console.warn('[naver-cafe-import] image skipped', error?.message || error);
     return { sourceImageUrl: imageUrl, error: error?.message || '이미지를 저장하지 못했습니다.' };
   }
 }
 
-async function copyImages(database, serviceType, productId, imageUrls) {
+async function copyImages(request, serviceType, productId, imageUrls) {
   if (!imageUrls.length) return { copied: [], skipped: [] };
-  await ensureMediaBucket(database);
   const results = new Array(imageUrls.length);
   let cursor = 0;
   const worker = async () => {
     while (cursor < imageUrls.length) {
       const index = cursor;
       cursor += 1;
-      results[index] = await copyImage(database, serviceType, productId, imageUrls[index], index);
+      results[index] = await copyImage(request, serviceType, productId, imageUrls[index], index);
     }
   };
   await Promise.all(Array.from({ length: Math.min(6, imageUrls.length) }, worker));
@@ -461,7 +439,7 @@ export async function POST(request) {
         roomCounters.set(base, serial);
         return { sourceImageUrl: assignment.sourceImageUrl, storageName: `${base}-${String(serial).padStart(3, '0')}-${randomUUID().slice(0, 8)}` };
       });
-      const { copied, skipped } = await copyImages(database, serviceType, product.id, imageItems);
+      const { copied, skipped } = await copyImages(request, serviceType, product.id, imageItems);
       if (!copied.length) return Response.json({ ok: true, result: { title: article.title, imageCount: 0, savedImageUrls: reusedSourceImageUrls, reusedImageCount: reusedSourceImageUrls.length, skippedImageCount: skipped.length, skippedImages: skipped.slice(0, 5).map((row) => ({ sourceImageUrl: row.sourceImageUrl, reason: row.error })) } });
       const platformSource = { serviceType, sourceKey: product.source_key };
       const assignmentBySource = new Map(assignments.map((item) => [item.sourceImageUrl, item]));
@@ -475,7 +453,7 @@ export async function POST(request) {
         if (hotelPriceCode) primaryRoomCodes.add(hotelPriceCode);
         return { id: randomUUID(), collection: hotelPriceCode ? 'room_gallery' : assignment?.target === 'hotel_menu' ? 'hotel_menu' : 'hotel_import', hotelPriceCode,
           sourceUrl: source.url, sourceImageUrl: saved.sourceImageUrl, imageName: assignment?.imageName || article.title,
-          imageUrl: saved.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: saved.path, sortOrder: index, isPrimary };
+          imageUrl: saved.publicUrl, storageBucket: r2StorageBucket(), storagePath: saved.path, sortOrder: index, isPrimary };
       });
       await mirrorHotelImages(database, product.id, platformImages);
       const heroImage = platformImages.find((image) => image.collection === 'hotel_import' && image.isPrimary);
@@ -536,7 +514,7 @@ export async function POST(request) {
       nameCounters.set(safeBaseName, nextNumber);
       return { sourceImageUrl: assignment.sourceImageUrl, storageName: `${safeBaseName}-${String(nextNumber).padStart(3, '0')}` };
     });
-    const { copied, skipped } = await copyImages(database, serviceType, product.id, imageItems);
+    const { copied, skipped } = await copyImages(request, serviceType, product.id, imageItems);
     const assignmentBySource = new Map(assignments.map((item) => [item.sourceImageUrl, item]));
     const copiedWithTarget = copied.map((image, index) => {
       const assignment = assignmentBySource.get(image.sourceImageUrl);
@@ -559,13 +537,13 @@ export async function POST(request) {
       platformImages.push({
         id: cafeImageId, collection: 'cafe_import', roomName: cabin?.roomName || null,
         sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
-        imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path, sortOrder: cafeSortOrder,
+        imageUrl: image.publicUrl, storageBucket: r2StorageBucket(), storagePath: image.path, sortOrder: cafeSortOrder,
         isPrimary: isPrimaryHero,
       });
       cafeImageRows.push({
         id: cafeImageId, cruise_id: product.id, cabin_id: cabin ? image.assignment.cabinId : null,
         source_url: source.url, source_image_url: image.sourceImageUrl, image_name: image.assignment?.imageName || null,
-        storage_bucket: MEDIA_BUCKET, storage_path: image.path, sort_order: cafeSortOrder, is_primary: isPrimaryHero,
+        storage_bucket: r2StorageBucket(), storage_path: image.path, sort_order: cafeSortOrder, is_primary: isPrimaryHero,
       });
       if (cabin) {
         const state = cabinImageState.get(image.assignment.cabinId);
@@ -576,11 +554,11 @@ export async function POST(request) {
         platformImages.push({
           id: cabinImageId, collection: 'cabin_gallery', roomName: cabin.roomName,
           sourceUrl: source.url, sourceImageUrl: image.sourceImageUrl, imageName: image.assignment?.imageName || null,
-          imageUrl: image.publicUrl, storageBucket: MEDIA_BUCKET, storagePath: image.path,
+          imageUrl: image.publicUrl, storageBucket: r2StorageBucket(), storagePath: image.path,
           sortOrder: state.sortOrder, isPrimary,
         });
         cabinImageRows.push({
-          id: cabinImageId, cabin_id: image.assignment.cabinId, storage_bucket: MEDIA_BUCKET, storage_path: image.path,
+          id: cabinImageId, cabin_id: image.assignment.cabinId, storage_bucket: r2StorageBucket(), storage_path: image.path,
           alt_text: image.assignment?.imageName || null, sort_order: state.sortOrder, is_primary: isPrimary,
           updated_at: new Date().toISOString(),
         });

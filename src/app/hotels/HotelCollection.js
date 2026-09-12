@@ -5,6 +5,16 @@ import { useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import './HotelCollection.css';
 
+const prefetchedHotelDetails = new Set();
+
+function prefetchHotelDetail(id) {
+  if (!id || prefetchedHotelDetails.has(id)) return;
+  prefetchedHotelDetails.add(id);
+  void fetch(`/api/public-product-detail?service=hotel&id=${encodeURIComponent(id)}`).catch(() => {
+    prefetchedHotelDetails.delete(id);
+  });
+}
+
 function hotelArea(location) {
   if (/하노이/.test(location)) return 'hanoi';
   if (/하롱|바이짜이|스코어베이/.test(location)) return 'halong';
@@ -76,7 +86,7 @@ export default function HotelCollection({ hotels }) {
                   <div><dt>RATING</dt><dd>{hotel.rating ? `${hotel.rating} STAR` : '등급 확인 중'}</dd></div>
                   <div><dt>FROM</dt><dd>{formatPrice(hotel.minPrice, hotel.currency)}</dd></div>
                 </dl>
-                <Link className="hotel-inquiry-link" href={`/hotels/${encodeURIComponent(hotel.id)}`}>객실 상세 및 예약 보기 <span>→</span></Link>
+                <Link className="hotel-inquiry-link" href={`/hotels/${encodeURIComponent(hotel.id)}`} onPointerEnter={() => prefetchHotelDetail(hotel.id)} onFocus={() => prefetchHotelDetail(hotel.id)} onTouchStart={() => prefetchHotelDetail(hotel.id)}>객실 상세 및 예약 보기 <span>→</span></Link>
               </div>
             </article>
           ))}

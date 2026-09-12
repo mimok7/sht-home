@@ -52,9 +52,9 @@ function runStorageDelete(paths) {
   return new Promise((resolve, reject) => {
     const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx';
     const child = spawn(executable, [
-      '--yes', '-p', 'supabase@2.109.1', 'supabase', '--experimental', 'storage', 'rm', '--linked',
+      '--yes', '-p', 'supabase@2.109.1', 'supabase', '--yes', '--experimental', 'storage', 'rm', '--linked',
       ...paths.map((name) => `ss:///homepage-images/${name}`),
-    ], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], shell: false });
+    ], { cwd: process.cwd(), stdio: ['ignore', 'pipe', 'pipe'], shell: process.platform === 'win32' });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => { stdout += chunk; });
@@ -95,22 +95,38 @@ const plan = {
 await fs.mkdir('.migration-audit', { recursive: true });
 await fs.writeFile('.migration-audit/legacy-storage-reclaim-plan.json', JSON.stringify(plan, null, 2));
 
+const report = ({ deleted = 0, failed = [] } = {}) => ({
+  sourceProjectRef: plan.sourceProjectRef,
+  apply: plan.apply,
+  requestedGiB: plan.requestedGiB,
+  sourceObjects: plan.sourceObjects,
+  verifiedEligible: plan.verifiedEligible,
+  selectedObjects: plan.selectedObjects,
+  selectedBytes: plan.selectedBytes,
+  selectedGiB: plan.selectedGiB,
+  remainingSourceGiB: plan.remainingSourceGiB,
+  deleted,
+  failed,
+});
+
 if (!apply) {
-  console.log(JSON.stringify(plan, null, 2));
+  console.log(JSON.stringify(report(), null, 2));
   process.exit();
 }
 
 let deleted = 0;
 const failed = [];
-for (let offset = 0; offset < selected.length; offset += 100) {
-  const batch = selected.slice(offset, offset + 100);
+const batchSize = 10;
+for (let offset = 0; offset < selected.length; offset += batchSize) {
+  const batch = selected.slice(offset, offset + batchSize);
   try {
     await runStorageDelete(batch.map((item) => item.name));
     deleted += batch.length;
+    console.log(JSON.stringify({ deleted, selectedObjects: selected.length }));
   } catch (error) {
     failed.push({ batchStart: offset, count: batch.length, error: error.message });
     break;
   }
 }
-console.log(JSON.stringify({ ...plan, deleted, failed }, null, 2));
+console.log(JSON.stringify(report({ deleted, failed }), null, 2));
 if (failed.length) process.exitCode = 1;

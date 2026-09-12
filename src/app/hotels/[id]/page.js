@@ -144,9 +144,18 @@ export default function HotelDetail({ params }) {
       const hotelId = decodeURIComponent(id);
       let detailPayload;
       try {
-        const detailResponse = await fetch(`/api/public-product-detail?service=hotel&id=${encodeURIComponent(hotelId)}`);
+        const detailUrl = `/api/public-product-detail?service=hotel&id=${encodeURIComponent(hotelId)}`;
+        const detailResponse = await fetch(detailUrl);
         if (!detailResponse.ok) throw new Error('호텔 상세 조회 실패');
         detailPayload = await detailResponse.json();
+        if (!hotelId.startsWith('hotel-code-')) {
+          detailPayload.mediaPromise = fetch(`${detailUrl}&includeMedia=1`)
+            .then(async (response) => (response.ok ? response.json() : null))
+            .catch((error) => {
+              console.warn('Failed to load hotel media:', error?.message || error);
+              return null;
+            });
+        }
       } catch (error) {
         console.error('Failed to load hotel detail:', error?.message || error);
         if (!cancelled) { setLoadError('현재 공개된 호텔 정보를 찾을 수 없습니다.'); setLoading(false); }
@@ -204,6 +213,17 @@ export default function HotelDetail({ params }) {
       setHotel({ id: product.id, name: product.manual_override?.name_ko || product.name_ko, description: product.manual_override?.description ?? product.description, location: product.metadata?.location || '지역 확인 중', rating: positiveNumber(product.metadata?.star_rating), heroImage: proxiedImageUrl(product.manual_override?.image_url || product.image_url) || galleryFirstImage || '' });
       setHotelMediaGroups(nextMediaGroups); setRooms(nextRooms); setSelectedRoomId(editingRoom?.id || nextRooms[0]?.id || '');
       setStayDate(editingItem?.startDate || ''); setGuests(Math.max(1, Number(editingItem?.adults || 2))); setRoomCount(Math.max(1, Number(editingItem?.quantity || 1))); setEditingCartItemId(editingItem?.id || ''); setLoading(false);
+      void detailPayload.mediaPromise?.then((mediaPayload) => {
+        if (cancelled || !mediaPayload) return;
+        const mediaRows = mediaPayload.images || [];
+        const enrichedMediaGroups = buildHotelMediaGroups(mediaRows, product.name_ko);
+        const enrichedRooms = buildRooms(detailPayload.details || [], detailPayload.prices || [], mediaRows);
+        const mediaHeroImage = enrichedMediaGroups.flatMap((group) => group.images)[0]?.url || '';
+        setHotelMediaGroups(enrichedMediaGroups);
+        setRooms(enrichedRooms);
+        setSelectedRoomId((current) => enrichedRooms.some((room) => room.id === current) ? current : enrichedRooms[0]?.id || '');
+        if (mediaHeroImage) setHotel((current) => ({ ...current, heroImage: mediaHeroImage }));
+      });
     }
     fetchHotel();
     return () => { cancelled = true; };

@@ -548,9 +548,16 @@ export default function ProductDetail({ params }) {
       const decodedId = decodeURIComponent(id);
       let detailPayload;
       try {
-        const detailResponse = await fetch(`/api/public-product-detail?service=cruise&id=${encodeURIComponent(decodedId)}`);
+        const detailUrl = `/api/public-product-detail?service=cruise&id=${encodeURIComponent(decodedId)}`;
+        const detailResponse = await fetch(detailUrl);
         if (!detailResponse.ok) throw new Error('크루즈 상세 조회 실패');
         detailPayload = await detailResponse.json();
+        detailPayload.mediaPromise = fetch(`${detailUrl}&includeMedia=1`)
+          .then(async (response) => (response.ok ? response.json() : null))
+          .catch((error) => {
+            console.warn('Failed to load cruise media:', error?.message || error);
+            return null;
+          });
       } catch (error) {
         console.error('Failed to load cruise detail:', error?.message || error);
         if (!cancelled) {
@@ -637,8 +644,25 @@ export default function ProductDetail({ params }) {
       setEditingCartItemId(editingItem?.id || '');
       setLoading(false);
 
-      void sourceCatalogPromise.then((sourcePayload) => {
+      void detailPayload.mediaPromise.then((mediaPayload) => {
+        if (cancelled || !mediaPayload) return;
+        const mediaGroups = buildMediaGroups(
+          mediaPayload.importRows || [],
+          mediaPayload.cabinImageRows || [],
+          nextCabins,
+          cabinIdMap,
+        );
+        const mediaHeroImage = mediaGroups.find((group) => group.id === 'main')?.images[0]?.url
+          || mediaGroups.flatMap((group) => group.images)[0]?.url
+          || '';
+        setMediaGroups(mediaGroups);
+        if (mediaHeroImage) setCruise((current) => ({ ...current, heroImage: mediaHeroImage }));
+      });
+
+      void sourceCatalogPromise.then(async (sourcePayload) => {
         if (cancelled || !sourcePayload) return;
+        const mediaPayload = await detailPayload.mediaPromise;
+        if (cancelled) return;
         const enrichedCabins = sourcePayload.rates?.length
           ? buildRateCardCabins(sourcePayload.rates, allCabinRows, sourcePayload.cabins)
           : nextCabins;
@@ -648,8 +672,8 @@ export default function ProductDetail({ params }) {
           ...mapSourceCabinImages(sourcePayload.cabins, enrichedCabins),
         ];
         const enrichedMediaGroups = buildMediaGroups(
-          [...(detailPayload.importRows || []), ...sourceImports],
-          detailPayload.cabinImageRows || [],
+          [...(mediaPayload?.importRows || []), ...sourceImports],
+          mediaPayload?.cabinImageRows || [],
           enrichedCabins,
           enrichedCabinIdMap,
         );

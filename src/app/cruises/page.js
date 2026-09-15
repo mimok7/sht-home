@@ -5,6 +5,11 @@ import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
+// R2에서 제거된 예전 파일은 목록의 기본 후보에서 제외한다.
+// 선택된 초기 이미지나 상세 갤러리에는 영향을 주지 않는다.
+const UNAVAILABLE_LISTING_IMAGE_PATHS = new Set([
+  'cruises/be0b433c-f528-45b7-8c0a-4e3c155d8b66/official-structured/exterior/35d22ba3fba2.jpg',
+]);
 
 // 화면 자체는 동적으로 유지하되, 목록 구성에 필요한 대량 이미지 조회는 짧게 재사용한다.
 // 관리자 변경 사항은 최대 30초 안에 목록에 반영된다.
@@ -25,15 +30,19 @@ function listingImageCandidate(imageName) {
   return null;
 }
 
-function buildListingImageUrls(imageRows) {
+function buildListingImageUrls(imageRows, initialImageIds) {
   const listingImages = new Map();
+  const selectedInitialImages = new Map();
 
   for (const row of imageRows) {
     if (!row.cruise_id || row.cabin_id) continue;
 
     const candidateType = listingImageCandidate(row.image_name);
     const imageUrl = resolveR2PublicMediaUrl('', row.storage_bucket, row.storage_path);
-    if (!candidateType || !imageUrl) continue;
+    if (!imageUrl) continue;
+    if (initialImageIds.get(row.cruise_id) === row.id) selectedInitialImages.set(row.cruise_id, imageUrl);
+    if (UNAVAILABLE_LISTING_IMAGE_PATHS.has(row.storage_path)) continue;
+    if (!candidateType) continue;
 
     const candidate = {
       imageUrl,
@@ -51,10 +60,13 @@ function buildListingImageUrls(imageRows) {
     if (isBetterCandidate) listingImages.set(row.cruise_id, candidate);
   }
 
-  return new Map([...listingImages.entries()].map(([cruiseId, image]) => [cruiseId, image.imageUrl]));
+  return {
+    initialImages: selectedInitialImages,
+    listingImages: new Map([...listingImages.entries()].map(([cruiseId, image]) => [cruiseId, image.imageUrl])),
+  };
 }
 
-function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows, listingImageUrls) {
+function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows, imageUrls) {
   const cruises = new Map();
 
   for (const row of cruiseRows) {
@@ -67,6 +79,7 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows, listing
       description: row.description,
       rating: row.star_rating,
       heroImage: row.hero_image,
+      initialImageId: row.initial_image_id,
       minPrice: null,
       currency: 'VND',
       scheduleTypes: new Set(),
@@ -112,7 +125,7 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows, listing
       ...cruise,
       duration: [...cruise.scheduleTypes].map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · '),
       // 목록은 선박 외관을 우선 사용하고, 상세 페이지에서만 전체 갤러리를 보여 준다.
-      imageUrl: listingImageUrls.get(cruise.id) || normalizeImagePath(cruise.heroImage) || '',
+      imageUrl: imageUrls.initialImages.get(cruise.id) || imageUrls.listingImages.get(cruise.id) || normalizeImagePath(cruise.heroImage) || '',
     }))
     .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
 }
@@ -121,7 +134,7 @@ async function getCruises() {
   const [cruiseResult, itineraryResult, recommendationResult] = await Promise.all([
     supabase
       .from('cruises_v2')
-      .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image')
+      .select('id,slug,legacy_name,name_ko,name_en,description,star_rating,hero_image,initial_image_id')
       .eq('is_active', true)
       .order('name_ko'),
     supabase
@@ -149,7 +162,7 @@ async function getCruises() {
   const imageResult = cruiseIds.length
     ? await supabase
       .from('cruise_cafe_import_images_v2')
-      .select('cruise_id,cabin_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+      .select('id,cruise_id,cabin_id,image_name,storage_bucket,storage_path,sort_order,created_at')
       .in('cruise_id', cruiseIds)
       .or('image_name.ilike.exterior-%,image_name.ilike.main-%')
     : { data: [], error: null };
@@ -158,11 +171,14 @@ async function getCruises() {
   }
 
   const itineraryRows = itineraryResult.error ? recommendationResult.data || [] : itineraryResult.data || [];
+  const imageUrls = imageResult.error
+    ? { initialImages: new Map(), listingImages: new Map() }
+    : buildListingImageUrls(imageResult.data || [], new Map(cruiseRows.map((cruise) => [cruise.id, cruise.initial_image_id])));
   return buildCruiseCards(
     cruiseRows,
     itineraryRows,
     recommendationResult.data || [],
-    imageResult.error ? new Map() : buildListingImageUrls(imageResult.data || []),
+    imageUrls,
   );
 }
 
@@ -172,7 +188,7 @@ async function getCruiseCards() {
 
 const getCachedCruiseCards = unstable_cache(
   getCruiseCards,
-  ['public-cruise-listing-v7'],
+  ['public-cruise-listing-v9'],
   { revalidate: 30, tags: ['public-cruise-listing'] },
 );
 

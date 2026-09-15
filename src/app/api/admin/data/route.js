@@ -278,7 +278,7 @@ async function getUnmatchedRateCruises(database) {
 
 async function getDashboard(database, role) {
   const queries = [
-    database.from('cruises_v2').select('id,slug,code,legacy_name,name_ko,name_en,description,category,star_rating,hero_image,is_active,updated_at').order('name_ko'),
+    database.from('cruises_v2').select('id,slug,code,legacy_name,name_ko,name_en,description,category,star_rating,hero_image,initial_image_id,is_active,updated_at').order('name_ko'),
     database.from('cruise_itineraries_v2').select('id,cruise_id,schedule_type,nights,description,is_active').order('schedule_type'),
     database.from('cabins_v2').select('id,cruise_id,name_ko,name_en,image_url,room_area_text,bed_type,max_adults,max_guests,has_balcony,is_vip,has_butler,is_recommended,connecting_available,extra_bed_available,facilities,special_amenities,is_active').order('name_ko'),
     database.from('cabin_images_v2').select('id,cabin_id,storage_bucket,storage_path,alt_text,sort_order,is_primary,created_at').order('sort_order'),

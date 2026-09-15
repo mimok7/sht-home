@@ -264,6 +264,32 @@ async function removeCruiseImages(database, imageIds) {
   return { deletedCount: images.length };
 }
 
+async function setCruiseInitialImage(database, imageId) {
+  if (typeof imageId !== 'string' || !imageId) throw new Error('초기 이미지 선택을 확인해 주세요.');
+  const { data: image, error: imageError } = await database
+    .from('cruise_cafe_import_images_v2')
+    .select('id,cruise_id,cabin_id')
+    .eq('id', imageId)
+    .maybeSingle();
+  if (imageError || !image || image.cabin_id || !image.cruise_id) {
+    throw imageError || new Error('초기 이미지로 지정할 크루즈 대표 이미지를 찾을 수 없습니다.');
+  }
+
+  const { data: cruise, error: cruiseError } = await database
+    .from('cruises_v2')
+    .update({ initial_image_id: image.id, updated_at: new Date().toISOString() })
+    .eq('id', image.cruise_id)
+    .select('id,initial_image_id')
+    .maybeSingle();
+  if (cruiseError) throw cruiseError;
+  if (!cruise || cruise.initial_image_id !== image.id) throw new Error('초기 이미지 저장을 확인하지 못했습니다.');
+
+  revalidatePath('/cruises');
+  revalidatePath('/');
+  revalidatePath('/temp-home');
+  return { cruiseId: cruise.id, imageId: image.id };
+}
+
 async function removeHotelImages(database, imageIds) {
   const { data: images, error } = await database.from('hotel_gallery_images_v2')
     .select('id,product_id,hotel_price_code,storage_bucket,storage_path').in('id', imageIds);
@@ -355,6 +381,9 @@ export async function PATCH(request) {
     }
     if (body.action === 'setCruisePrimaryImage') {
       return Response.json({ ok: true, result: await forwardPlatformImage(request, { imageId: body.imageId }, 'setPrimaryImage') });
+    }
+    if (body.action === 'setCruiseInitialImage') {
+      return Response.json({ ok: true, result: await setCruiseInitialImage(database, body.imageId) });
     }
     if (body.action === 'setHotelPrimaryImage') {
       return Response.json({ ok: true, result: await setHotelPrimaryImage(request, database, body.imageId) });

@@ -5,6 +5,10 @@ import CruiseCollection from './CruiseCollection';
 import './cruises.css';
 
 const SCHEDULE_LABELS = { DAY: '당일', '1N2D': '1박 2일', '2N3D': '2박 3일' };
+// 원본 대표값이 범용 배너를 가리키는 경우에는 검수된 기본 이미지를 고정한다.
+const CRUISE_LISTING_IMAGE_OVERRIDES = new Map([
+  ['platform-966c4cbc24d6', '/api/public-image?r2=cruises%2F5d34cb2b-f90e-404e-bb28-b23bff099b63%2Fcafe-import%2Fmain-001.png'],
+]);
 
 // 화면 자체는 동적으로 유지하되, 목록 구성에 필요한 대량 이미지 조회는 짧게 재사용한다.
 // 관리자 변경 사항은 최대 30초 안에 목록에 반영된다.
@@ -14,7 +18,40 @@ function normalizeImagePath(imageUrl) {
   return resolveR2PublicMediaUrl(imageUrl);
 }
 
-function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
+function mainImageNumber(imageName) {
+  const match = String(imageName || '').trim().toLowerCase().match(/^main-(\d+)(?:\.[a-z0-9]+)?$/);
+  return match ? Number(match[1]) : null;
+}
+
+function buildDefaultImageUrls(imageRows) {
+  const defaultImages = new Map();
+
+  const mainImages = imageRows
+    .filter((row) => row.cruise_id && !row.cabin_id)
+    .map((row) => ({
+      cruiseId: row.cruise_id,
+      imageUrl: resolveR2PublicMediaUrl('', row.storage_bucket, row.storage_path),
+      mainNumber: mainImageNumber(row.image_name),
+      sortOrder: Number(row.sort_order) || 0,
+      createdAt: row.created_at || '',
+    }))
+    .filter((row) => row.imageUrl && row.mainNumber !== null)
+    .sort((left, right) => (
+      left.mainNumber - right.mainNumber
+      || left.sortOrder - right.sortOrder
+      || left.createdAt.localeCompare(right.createdAt)
+    ));
+
+  for (const image of mainImages) {
+    if (!defaultImages.has(image.cruiseId)) {
+      defaultImages.set(image.cruiseId, image.imageUrl);
+    }
+  }
+
+  return defaultImages;
+}
+
+function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows, defaultImageUrls) {
   const cruises = new Map();
 
   for (const row of cruiseRows) {
@@ -71,7 +108,8 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
     .map((cruise) => ({
       ...cruise,
       duration: [...cruise.scheduleTypes].map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · '),
-      imageUrl: normalizeImagePath(cruise.heroImage) || '',
+      // 목록은 첫 기본(main) 이미지만 쓰며, 상세 페이지에서만 전체 갤러리를 보여 준다.
+      imageUrl: CRUISE_LISTING_IMAGE_OVERRIDES.get(cruise.slug) || defaultImageUrls.get(cruise.id) || normalizeImagePath(cruise.heroImage) || '',
     }))
     .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
 }
@@ -102,8 +140,26 @@ async function getCruises() {
   if (itineraryResult.error) {
     console.error('Failed to load active v2 itineraries:', itineraryResult.error.message);
   }
+
+  const cruiseRows = cruiseResult.data || [];
+  const cruiseIds = cruiseRows.map((cruise) => cruise.id).filter(Boolean);
+  const imageResult = cruiseIds.length
+    ? await supabase
+      .from('cruise_cafe_import_images_v2')
+      .select('cruise_id,cabin_id,image_name,storage_bucket,storage_path,sort_order,created_at')
+      .in('cruise_id', cruiseIds)
+    : { data: [], error: null };
+  if (imageResult.error) {
+    console.error('Failed to load cruise default images:', imageResult.error.message);
+  }
+
   const itineraryRows = itineraryResult.error ? recommendationResult.data || [] : itineraryResult.data || [];
-  return buildCruiseCards(cruiseResult.data || [], itineraryRows, recommendationResult.data || []);
+  return buildCruiseCards(
+    cruiseRows,
+    itineraryRows,
+    recommendationResult.data || [],
+    imageResult.error ? new Map() : buildDefaultImageUrls(imageResult.data || []),
+  );
 }
 
 async function getCruiseCards() {
@@ -112,7 +168,7 @@ async function getCruiseCards() {
 
 const getCachedCruiseCards = unstable_cache(
   getCruiseCards,
-  ['public-cruise-listing-v2'],
+  ['public-cruise-listing-v5'],
   { revalidate: 30, tags: ['public-cruise-listing'] },
 );
 

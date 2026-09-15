@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import CruiseMediaGallery from '@/components/CruiseMediaGallery';
+import { useMemo, useState } from 'react';
 import './HotelCollection.css';
 
 const prefetchedHotelDetails = new Set();
@@ -25,19 +24,10 @@ function formatPrice(value, currency) {
   return value ? `${value.toLocaleString('ko-KR')} ${currency}` : '요금 문의';
 }
 
-function RotatingHotelImage({ hotel, index }) {
-  const [imageIndex, setImageIndex] = useState(0);
-  const images = hotel.mainImages?.length ? hotel.mainImages : hotel.imageUrl ? [{ id: 'hero', url: hotel.imageUrl, alt: `${hotel.name} 대표 이미지` }] : [];
-
-  useEffect(() => {
-    if (images.length < 2) return undefined;
-    const timer = window.setInterval(() => setImageIndex((current) => (current + 1) % images.length), 20000);
-    return () => window.clearInterval(timer);
-  }, [images.length]);
-
-  if (!images.length) return <div className="hotel-card-image product-image-box" role="img" aria-label={`${hotel.name} 이미지 준비 중`} />;
-
-  return <CruiseMediaGallery cruiseName={hotel.name} duration={`HOTEL / ${String(index + 1).padStart(2, '0')}`} heroImage={hotel.imageUrl} displayImage={images[imageIndex]?.url} groups={[{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images }]} showArchive={false} mainClassName="hotel-card-image" />;
+function HotelRepresentativeImage({ hotel, index }) {
+  return <div className="hotel-card-image product-image-box" role="img" aria-label={`${hotel.name} 대표 이미지`} style={hotel.imageUrl ? { backgroundImage: `url(${hotel.imageUrl})` } : undefined}>
+    <span className="duration-tag">HOTEL / {String(index + 1).padStart(2, '0')}</span>
+  </div>;
 }
 
 export default function HotelCollection({ hotels }) {
@@ -77,7 +67,7 @@ export default function HotelCollection({ hotels }) {
         <section className="hotel-list" aria-label="호텔 목록">
           {filteredHotels.map((hotel, index) => (
             <article className="hotel-card" key={hotel.id}>
-              <RotatingHotelImage hotel={hotel} index={index} />
+              <HotelRepresentativeImage hotel={hotel} index={index} />
               <div className="hotel-card-copy">
                 <div className="hotel-card-location">{hotel.location}</div>
                 <h2>{hotel.name}</h2>

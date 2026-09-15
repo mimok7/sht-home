@@ -76,48 +76,6 @@ function buildCruiseCards(cruiseRows, itineraryRows, recommendationRows) {
     .map((cruise) => ({ ...cruise, scheduleTypes: [...cruise.scheduleTypes] }));
 }
 
-function addImage(imagesByCruise, cruiseId, image) {
-  if (!cruiseId || !image?.url) return;
-  if (!imagesByCruise.has(cruiseId)) imagesByCruise.set(cruiseId, []);
-  const images = imagesByCruise.get(cruiseId);
-  if (!images.some((current) => current.url === image.url)) images.push(image);
-}
-
-function isMainImage(image) {
-  const filename = image.storage_path?.split('/').pop() || image.image_name || '';
-  const category = String(image.image_name || filename).match(/^(main|exterior|interior|menu)-/i)?.[1]?.toLowerCase();
-  if (category) return category === 'main';
-  return Boolean(image.is_primary) || /^main-/i.test(filename);
-}
-
-async function getCruiseMainImages(cruises) {
-  const cruiseIds = cruises.map((cruise) => cruise.id);
-  if (!cruiseIds.length) return new Map();
-  const { data, error } = await supabase
-    .from('cruise_cafe_import_images_v2')
-    .select('id,cruise_id,image_name,storage_bucket,storage_path,sort_order,is_primary,created_at')
-    .in('cruise_id', cruiseIds)
-    .is('cabin_id', null)
-    .order('sort_order')
-    .order('created_at');
-
-  if (error) {
-    console.error('Failed to load cruise main images:', error.message);
-    return new Map();
-  }
-
-  const imagesByCruise = new Map();
-  for (const row of data || []) {
-    const pathFilename = row.storage_path?.split('/').pop() || '';
-    const filename = pathFilename || row.image_name || '';
-    if (!isMainImage(row)) continue;
-    const url = resolveR2PublicMediaUrl('', row.storage_bucket, row.storage_path);
-    addImage(imagesByCruise, row.cruise_id, { id: row.id, url, alt: `${filename} 대표 이미지` });
-  }
-
-  return imagesByCruise;
-}
-
 async function getCruises() {
   const [cruiseResult, itineraryResult, recommendationResult] = await Promise.all([
     supabase
@@ -149,14 +107,7 @@ async function getCruises() {
 }
 
 async function getCruiseCards() {
-  const cruises = await getCruises();
-  const mainImagesByCruise = await getCruiseMainImages(cruises);
-  return cruises.map((cruise) => ({
-    ...cruise,
-    mainImages: mainImagesByCruise.get(cruise.id) || (cruise.imageUrl
-      ? [{ id: 'hero', url: cruise.imageUrl, alt: `${cruise.name} 대표 이미지` }]
-      : []),
-  }));
+  return getCruises();
 }
 
 const getCachedCruiseCards = unstable_cache(

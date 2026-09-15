@@ -12,10 +12,6 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function publicStorageUrl(bucket, path) {
-  return resolveR2PublicMediaUrl('', bucket, path);
-}
-
 function proxiedImageUrl(imageUrl) {
   return resolveR2PublicMediaUrl(imageUrl);
 }
@@ -38,7 +34,7 @@ async function getHotelRecommendationPriorities() {
 }
 
 async function getHotels() {
-  const [productsResult, pricesResult, imagesResult, priorities] = await Promise.all([
+  const [productsResult, pricesResult, priorities] = await Promise.all([
     supabase
       .from('catalog_products_v2')
       .select('id,source_key,name_ko,description,category,image_url,metadata,manual_override')
@@ -52,12 +48,6 @@ async function getHotels() {
       .eq('source', 'sht-platform')
       .eq('source_table', 'hotel_price')
       .eq('is_active', true),
-    supabase
-      .from('hotel_gallery_images_v2')
-      .select('product_id,collection,image_url,storage_bucket,storage_path,sort_order,is_primary')
-      .is('hotel_price_code', null)
-      .order('is_primary', { ascending: false })
-      .order('sort_order'),
     getHotelRecommendationPriorities(),
   ]);
 
@@ -66,7 +56,6 @@ async function getHotels() {
     return [];
   }
   if (pricesResult.error) console.error('Failed to load hotel prices:', pricesResult.error.message);
-  if (imagesResult.error) console.error('Failed to load hotel images:', imagesResult.error.message);
 
   const minimumPrices = new Map();
   for (const price of pricesResult.data || []) {
@@ -76,28 +65,11 @@ async function getHotels() {
     if (!current || amount < current.amount) minimumPrices.set(price.product_id, { amount, currency: price.currency || 'VND' });
   }
 
-  const images = new Map();
-  for (const image of imagesResult.data || []) {
-    if (image.collection === 'hotel_menu') continue;
-    const imageUrl = proxiedImageUrl(image.image_url || publicStorageUrl(image.storage_bucket, image.storage_path));
-    if (!imageUrl) continue;
-    if (!images.has(image.product_id)) images.set(image.product_id, []);
-    const productImages = images.get(image.product_id);
-    if (!productImages.some((current) => current.url === imageUrl)) {
-      productImages.push({ id: `${image.product_id}-${image.sort_order}-${productImages.length}`, url: imageUrl, alt: '호텔 대표 이미지' });
-    }
-  }
-
   const catalogHotels = (productsResult.data || []).map((hotel) => {
     const metadata = hotel.metadata || {};
     const manualOverride = hotel.manual_override || {};
     const price = minimumPrices.get(hotel.id) || null;
-    const galleryImages = images.get(hotel.id) || [];
-    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || galleryImages[0]?.url || '';
-    const mainImages = [
-      ...(imageUrl ? [{ id: `${hotel.id}-hero`, url: imageUrl, alt: `${hotel.name_ko} 대표 이미지` }] : []),
-      ...galleryImages,
-    ].filter((image, index, all) => all.findIndex((current) => current.url === image.url) === index);
+    const imageUrl = proxiedImageUrl(manualOverride.image_url || hotel.image_url) || '';
     return {
       id: hotel.id,
       name: manualOverride.name_ko || hotel.name_ko,
@@ -107,7 +79,6 @@ async function getHotels() {
       minPrice: price?.amount || null,
       currency: price?.currency || 'VND',
       imageUrl,
-      mainImages,
       priorityPosition: priorities.get(hotel.id) ?? null,
     };
   });

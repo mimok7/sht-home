@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
-import CruiseMediaGallery from '@/components/CruiseMediaGallery';
+import { useMemo, useState } from 'react';
 
 const prefetchedCruiseDetails = new Set();
 
@@ -14,30 +13,10 @@ function prefetchCruiseDetail(slug) {
   });
 }
 
-function RotatingCruiseImage({ cruise }) {
-  const [imageIndex, setImageIndex] = useState(0);
-  const images = cruise.mainImages || [];
-
-  useEffect(() => {
-    if (images.length < 2) return undefined;
-    const timer = window.setInterval(() => setImageIndex((current) => (current + 1) % images.length), 20000);
-    return () => window.clearInterval(timer);
-  }, [images.length]);
-
-  if (!images.length) {
-    return <div className="product-image-box" role="img" aria-label={`${cruise.name} 이미지 준비 중`} />;
-  }
-
-  return (
-    <CruiseMediaGallery
-      cruiseName={cruise.name}
-      duration={cruise.duration}
-      heroImage={cruise.imageUrl}
-      displayImage={images[imageIndex]?.url}
-      groups={[{ id: 'main', label: '대표 이미지', eyebrow: 'CRUISE', images }]}
-      showArchive={false}
-    />
-  );
+function CruiseRepresentativeImage({ cruise }) {
+  return <div className="product-image-box" role="img" aria-label={`${cruise.name} 대표 이미지`} style={cruise.imageUrl ? { backgroundImage: `url(${cruise.imageUrl})` } : undefined}>
+    <span className="duration-tag">{cruise.duration || '일정 확인'}</span>
+  </div>;
 }
 
 export default function CruiseCollection({ cruises }) {
@@ -76,7 +55,7 @@ export default function CruiseCollection({ cruises }) {
         <div className="product-list">
           {filteredCruises.map((cruise) => (
             <article key={cruise.id} className="product-list-card">
-              <RotatingCruiseImage cruise={cruise} />
+              <CruiseRepresentativeImage cruise={cruise} />
               <div className="product-details">
                 <h2><Link href={`/product/${encodeURIComponent(cruise.slug)}`} onPointerEnter={() => prefetchCruiseDetail(cruise.slug)} onFocus={() => prefetchCruiseDetail(cruise.slug)} onTouchStart={() => prefetchCruiseDetail(cruise.slug)}>{cruise.name}</Link></h2>
                 <p>{cruise.description || cruise.nameEn || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>

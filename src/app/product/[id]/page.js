@@ -1004,7 +1004,6 @@ export default function ProductDetail({ params }) {
   }
 
   const duration = cruise.schedules.map((type) => SCHEDULE_LABELS[type]).filter(Boolean).join(' · ') || '일정 상담';
-  const detailGalleryGroups = archiveGroups.filter((group) => group.id !== 'main');
 
   return (
     <div className="product-page">
@@ -1021,13 +1020,13 @@ export default function ProductDetail({ params }) {
             </div>
           </header>
 
-          {detailGalleryGroups.some((group) => group.images.length) && (
+          {archiveGroups.some((group) => group.images.length) && (
             <section className="product-section product-photo-archive">
               <CruiseMediaGallery
                 cruiseName={cruise.name}
                 duration={duration}
-                groups={detailGalleryGroups}
-                showMain={false}
+                heroImage={cruise.heroImage}
+                groups={archiveGroups}
               />
             </section>
           )}

@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 const SCHEDULE_TYPES = new Set(['DAY', '1N2D', '2N3D']);
 const PLATFORM_PRODUCT_ACTIONS = new Set([
   'updateCatalogProduct', 'updateCatalogPrice', 'updateCatalogDetails', 'createRateOnlyCruise',
-  'updateCruise', 'updateItinerary', 'updateCabin', 'createCabin', 'updateRate',
+  'updateCruise', 'updateItinerary', 'updateCabin', 'createCabin', 'cloneCabin', 'updateRate', 'cloneRate',
   'upsertCruiseTag',
 ]);
 const CRUISE_CACHE_FIELDS = ['name_ko', 'name_en', 'description', 'star_rating', 'hero_image', 'is_active'];
@@ -41,12 +41,12 @@ async function platformMutationSource(database, action, id, values) {
     if (error || !data) throw error || new Error('플랫폼 일정 원본을 찾을 수 없습니다.');
     return { ...(await cruiseSource(database, data.cruise_id)), scheduleType: data.schedule_type };
   }
-  if (action === 'updateCabin') {
+  if (action === 'updateCabin' || action === 'cloneCabin') {
     const { data, error } = await database.from('cabins_v2').select('cruise_id,legacy_room_name,name_ko').eq('id', id).maybeSingle();
     if (error || !data) throw error || new Error('플랫폼 객실 원본을 찾을 수 없습니다.');
     return { ...(await cruiseSource(database, data.cruise_id)), roomName: data.legacy_room_name || data.name_ko };
   }
-  if (action === 'updateRate') {
+  if (action === 'updateRate' || action === 'cloneRate') {
     const { data, error } = await database.from('rate_plans_v2').select('source_rate_id').eq('id', id).maybeSingle();
     if (error || !data?.source_rate_id) throw error || new Error('플랫폼 요금 원본을 찾을 수 없습니다.');
     return { sourceId: String(data.source_rate_id) };

@@ -40,8 +40,8 @@ function buildListingImageUrls(imageRows, initialImageIds) {
     const candidateType = listingImageCandidate(row.image_name);
     const imageUrl = resolveR2PublicMediaUrl('', row.storage_bucket, row.storage_path);
     if (!imageUrl) continue;
-    if (initialImageIds.get(row.cruise_id) === row.id) selectedInitialImages.set(row.cruise_id, imageUrl);
     if (UNAVAILABLE_LISTING_IMAGE_PATHS.has(row.storage_path)) continue;
+    if (initialImageIds.get(row.cruise_id) === row.id) selectedInitialImages.set(row.cruise_id, imageUrl);
     if (!candidateType) continue;
 
     const candidate = {

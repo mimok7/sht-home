@@ -7,6 +7,15 @@ const nextConfig = {
   outputFileTracingIncludes: {
     '/api/admin/naver-cafe-import': ['node_modules/@sparticuz/chromium/bin/**/*'],
   },
+  images: {
+    // Catalogue image paths include a validated R2 key in the query string.
+    // Allow only this internal proxy and the existing local media paths.
+    localPatterns: [
+      { pathname: '/api/public-image' },
+      { pathname: '/stayhalong_title.png', search: '' },
+      { pathname: '/images/cruises/**', search: '' },
+    ],
+  },
 };
 
 export default nextConfig;

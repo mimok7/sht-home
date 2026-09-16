@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
@@ -13,8 +14,18 @@ function prefetchCruiseDetail(slug) {
   });
 }
 
-function CruiseRepresentativeImage({ cruise }) {
-  return <div className="product-image-box" role="img" aria-label={`${cruise.name} 대표 이미지`} style={cruise.imageUrl ? { backgroundImage: `url(${cruise.imageUrl})` } : undefined}>
+function CruiseRepresentativeImage({ cruise, eager = false, highPriority = false }) {
+  return <div className="product-image-box">
+    {cruise.imageUrl && <Image
+      className="product-representative-image"
+      src={cruise.imageUrl}
+      alt={`${cruise.name} 대표 이미지`}
+      fill
+      sizes="(max-width: 720px) calc(100vw - 48px), (max-width: 1200px) calc(50vw - 36px), 566px"
+      quality={75}
+      loading={eager ? 'eager' : 'lazy'}
+      fetchPriority={highPriority ? 'high' : 'auto'}
+    />}
     <span className="duration-tag">{cruise.duration || '일정 확인'}</span>
   </div>;
 }
@@ -53,9 +64,9 @@ export default function CruiseCollection({ cruises }) {
         <div className="collection-empty"><strong>선택한 조건에 맞는 크루즈가 없습니다.</strong><p>필터를 변경해 다른 상품을 확인해 주세요.</p></div>
       ) : (
         <div className="product-list">
-          {filteredCruises.map((cruise) => (
+          {filteredCruises.map((cruise, index) => (
             <article key={cruise.id} className="product-list-card">
-              <CruiseRepresentativeImage cruise={cruise} />
+              <CruiseRepresentativeImage cruise={cruise} eager={index < 2} highPriority={index === 0} />
               <div className="product-details">
                 <h2><Link href={`/product/${encodeURIComponent(cruise.slug)}`} onPointerEnter={() => prefetchCruiseDetail(cruise.slug)} onFocus={() => prefetchCruiseDetail(cruise.slug)} onTouchStart={() => prefetchCruiseDetail(cruise.slug)}>{cruise.name}</Link></h2>
                 <p>{cruise.description || cruise.nameEn || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>

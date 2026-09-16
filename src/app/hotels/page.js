@@ -92,11 +92,11 @@ async function getHotels() {
   });
 }
 
-// 공개 상태와 추천 순위가 바뀐 경우에도 짧은 시간 안에 반영되도록 30초만 재사용한다.
+// 관리자 저장 때 태그를 즉시 만료하므로 공개 조회는 5분간 재사용한다.
 const getCachedHotels = unstable_cache(
   getHotels,
   ['public-hotel-listing-v2'],
-  { revalidate: 30, tags: ['public-hotel-listing'] },
+  { revalidate: 300, tags: ['public-hotel-listing'] },
 );
 
 export default async function Hotels() {

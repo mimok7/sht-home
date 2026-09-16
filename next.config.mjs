@@ -1,4 +1,15 @@
 /** @type {import('next').NextConfig} */
+const r2PublicMediaUrl = String(process.env.NEXT_PUBLIC_R2_MEDIA_ORIGIN || '').trim();
+let r2PublicMediaPattern;
+try {
+  const url = new URL(r2PublicMediaUrl);
+  if (url.protocol === 'https:') {
+    r2PublicMediaPattern = { protocol: 'https', hostname: url.hostname, port: url.port, pathname: '/**' };
+  }
+} catch {
+  // The media domain is optional until the R2 custom domain is connected.
+}
+
 const nextConfig = {
   allowedDevOrigins: ['stayhalong.com'],
   // Chromium resolves compressed Linux binaries relative to this package.
@@ -15,6 +26,7 @@ const nextConfig = {
       { pathname: '/stayhalong_title.png', search: '' },
       { pathname: '/images/cruises/**', search: '' },
     ],
+    remotePatterns: r2PublicMediaPattern ? [r2PublicMediaPattern] : [],
   },
 };
 

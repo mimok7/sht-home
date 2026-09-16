@@ -130,7 +130,7 @@ async function loadPublicProductDetail(service, id, includeMedia) {
 const getCachedPublicProductDetail = unstable_cache(
   loadPublicProductDetail,
   ['public-product-detail-v3'],
-  { revalidate: 30, tags: ['public-product-detail'] },
+  { revalidate: 300, tags: ['public-product-detail'] },
 );
 
 export async function GET(request) {
@@ -145,7 +145,7 @@ export async function GET(request) {
   try {
     const detail = await getCachedPublicProductDetail(service, id, includeMedia);
     return Response.json(detail, {
-      headers: { 'Cache-Control': 'public, max-age=30, s-maxage=30, stale-while-revalidate=300' },
+      headers: { 'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600' },
     });
   } catch (error) {
     console.error('[public-product-detail] lookup failed', error?.message || error);

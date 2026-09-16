@@ -4,14 +4,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-const prefetchedCruiseDetails = new Set();
+const publicMediaOrigin = String(process.env.NEXT_PUBLIC_R2_MEDIA_ORIGIN || '').replace(/\/$/, '');
 
-function prefetchCruiseDetail(slug) {
-  if (!slug || prefetchedCruiseDetails.has(slug)) return;
-  prefetchedCruiseDetails.add(slug);
-  void fetch(`/api/public-product-detail?service=cruise&id=${encodeURIComponent(slug)}`).catch(() => {
-    prefetchedCruiseDetails.delete(slug);
-  });
+function isDirectPublicMedia(url) {
+  return Boolean(publicMediaOrigin && typeof url === 'string' && url.startsWith(`${publicMediaOrigin}/`));
 }
 
 function CruiseRepresentativeImage({ cruise, eager = false, highPriority = false }) {
@@ -23,6 +19,9 @@ function CruiseRepresentativeImage({ cruise, eager = false, highPriority = false
       fill
       sizes="(max-width: 720px) calc(100vw - 48px), (max-width: 1200px) calc(50vw - 36px), 566px"
       quality={75}
+      // A configured Cloudflare media origin performs delivery outside Vercel;
+      // avoid sending the same public object through the image function again.
+      unoptimized={isDirectPublicMedia(cruise.imageUrl)}
       loading={eager ? 'eager' : 'lazy'}
       fetchPriority={highPriority ? 'high' : 'auto'}
     />}
@@ -68,10 +67,10 @@ export default function CruiseCollection({ cruises }) {
             <article key={cruise.id} className="product-list-card">
               <CruiseRepresentativeImage cruise={cruise} eager={index < 2} highPriority={index === 0} />
               <div className="product-details">
-                <h2><Link href={`/product/${encodeURIComponent(cruise.slug)}`} onPointerEnter={() => prefetchCruiseDetail(cruise.slug)} onFocus={() => prefetchCruiseDetail(cruise.slug)} onTouchStart={() => prefetchCruiseDetail(cruise.slug)}>{cruise.name}</Link></h2>
+                <h2><Link href={`/product/${encodeURIComponent(cruise.slug)}`} prefetch={false}>{cruise.name}</Link></h2>
                 <p>{cruise.description || cruise.nameEn || 'Stay Halong이 엄선한 하롱베이 크루즈입니다.'}</p>
                 <div className="product-meta"><div className="rating">{cruise.rating ? `★ ${cruise.rating}` : '등급 확인 필요'}</div><div className="price">{cruise.minPrice ? <><span>{cruise.minPrice.toLocaleString()} {cruise.currency}</span> 등록요금부터 · 단위 확인 필요</> : <span>요금 확인 필요</span>}</div></div>
-                <Link href={`/product/${encodeURIComponent(cruise.slug)}`} className="product-detail-link" onPointerEnter={() => prefetchCruiseDetail(cruise.slug)} onFocus={() => prefetchCruiseDetail(cruise.slug)} onTouchStart={() => prefetchCruiseDetail(cruise.slug)}>상품 상세 및 예약 보기 <span>→</span></Link>
+                <Link href={`/product/${encodeURIComponent(cruise.slug)}`} className="product-detail-link" prefetch={false}>상품 상세 및 예약 보기 <span>→</span></Link>
               </div>
             </article>
           ))}

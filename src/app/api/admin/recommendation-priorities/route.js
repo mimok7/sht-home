@@ -1,5 +1,6 @@
 import { revalidatePath } from 'next/cache';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
+import { revalidatePublicCatalog } from '@/lib/public-catalog-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -121,6 +122,7 @@ export async function PATCH(request) {
     });
     if (error) throw error;
     revalidatePath('/travel-guide');
+    revalidatePublicCatalog();
     return Response.json({ ok: true, scope: data });
   } catch (error) {
     const conflict = error?.code === '40001' || /먼저 변경/.test(error?.message || '');

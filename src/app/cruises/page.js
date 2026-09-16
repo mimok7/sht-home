@@ -189,7 +189,7 @@ async function getCruiseCards() {
 const getCachedCruiseCards = unstable_cache(
   getCruiseCards,
   ['public-cruise-listing-v9'],
-  { revalidate: 30, tags: ['public-cruise-listing'] },
+  { revalidate: 300, tags: ['public-cruise-listing'] },
 );
 
 export default async function Cruises() {

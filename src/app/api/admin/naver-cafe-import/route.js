@@ -6,6 +6,7 @@ import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
 import { putR2Object, r2ImageUrl, r2StorageBucket } from '@/lib/r2-storage';
+import { revalidatePublicCatalog } from '@/lib/public-catalog-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -320,6 +321,7 @@ async function mirrorCruiseImages(database, cruiseId, cafeRows, cabinRows, heroI
   revalidatePath('/product/[id]', 'page');
   revalidatePath('/');
   revalidatePath('/temp-home');
+  revalidatePublicCatalog();
 }
 
 async function mirrorHotelImages(database, productId, images) {
@@ -361,6 +363,7 @@ async function mirrorHotelHeroImage(database, productId, imageUrl) {
   if (error) throw error;
   revalidatePath('/');
   revalidatePath('/temp-home');
+  revalidatePublicCatalog();
 }
 
 export async function GET(request) {

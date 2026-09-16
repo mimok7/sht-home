@@ -2,6 +2,7 @@
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
+import { revalidatePublicCatalog } from '@/lib/public-catalog-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -148,6 +149,7 @@ async function mirrorCruiseUpdate(database, body) {
     revalidatePath('/travel-guide');
     revalidatePath('/cruises');
     revalidatePath('/product/[id]', 'page');
+    revalidatePublicCatalog();
     return;
   }
   if (body?.action !== 'updateCruise' || !body.id) return;
@@ -163,6 +165,7 @@ async function mirrorCruiseUpdate(database, body) {
   revalidatePath('/cruises');
   revalidatePath('/temp-home');
   revalidatePath('/product/[id]', 'page');
+  revalidatePublicCatalog();
 }
 
 // 호텔 등 일반 서비스의 상품 설명도 플랫폼 동기화 경고와 관계없이 즉시 공개 카탈로그에 반영한다.
@@ -214,6 +217,7 @@ async function mirrorCatalogProductUpdate(database, body) {
   revalidatePath('/hotels/[id]', 'page');
   revalidatePath('/travel-guide');
   revalidatePath('/temp-home');
+  revalidatePublicCatalog();
 }
 
 // 일정 저장은 플랫폼의 전체 카탈로그 동기화를 기다리지 않고 공개 화면에 즉시 반영한다.
@@ -233,6 +237,7 @@ async function mirrorItineraryUpdate(database, body) {
 
   revalidatePath('/cruises');
   revalidatePath('/product/[id]', 'page');
+  revalidatePublicCatalog();
 }
 
 function errorResponse(error, fallback = '관리자 데이터를 처리하지 못했습니다.') {
@@ -346,6 +351,7 @@ async function mutate(database, operator, body) {
     revalidatePath('/');
     revalidatePath('/temp-home');
     revalidatePath('/travel-guide');
+    revalidatePublicCatalog();
     return null;
   }
   if (operator.role !== 'admin') throw new Error('회원과 권한은 관리자만 변경할 수 있습니다.');

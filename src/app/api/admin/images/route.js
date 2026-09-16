@@ -3,6 +3,7 @@ import { revalidatePath } from 'next/cache';
 import { after } from 'next/server';
 import { getHomepageDatabase, getHomepageOperator } from '@/lib/homepage-admin';
 import { assertR2Object, createR2UploadUrl, deleteR2Objects, isR2StorageBucket, r2ImageUrl, r2StorageBucket } from '@/lib/r2-storage';
+import { revalidatePublicCatalog } from '@/lib/public-catalog-cache';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -203,6 +204,7 @@ async function completeHotelUpload(request, database, { target, entityId, path, 
   });
   revalidatePath('/');
   revalidatePath('/temp-home');
+  revalidatePublicCatalog();
   return { imageUrl: image.image_url, imageId: image.id, isPrimary: image.is_primary };
 }
 
@@ -249,6 +251,7 @@ async function removeCabinImages(database, imageIds) {
   await removeStoredImages(database, images);
   revalidatePath('/cruises');
   revalidatePath('/product/[id]', 'page');
+  revalidatePublicCatalog();
   return { deletedCount: images.length };
 }
 
@@ -261,6 +264,7 @@ async function removeCruiseImages(database, imageIds) {
   await removeStoredImages(database, images);
   revalidatePath('/cruises');
   revalidatePath('/product/[id]', 'page');
+  revalidatePublicCatalog();
   return { deletedCount: images.length };
 }
 
@@ -287,6 +291,7 @@ async function setCruiseInitialImage(database, imageId) {
   revalidatePath('/cruises');
   revalidatePath('/');
   revalidatePath('/temp-home');
+  revalidatePublicCatalog();
   return { cruiseId: cruise.id, imageId: image.id };
 }
 
@@ -323,6 +328,7 @@ async function removeHotelImages(database, imageIds) {
   await removeStoredImages(database, images);
   revalidatePath('/hotels');
   revalidatePath('/hotels/[id]', 'page');
+  revalidatePublicCatalog();
   return { deletedCount: images.length };
 }
 

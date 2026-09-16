@@ -25,6 +25,17 @@ function configuration() {
   return { endpoint, bucket, accessKeyId, secretAccessKey };
 }
 
+function publicMediaOrigin() {
+  const value = String(process.env.NEXT_PUBLIC_R2_MEDIA_ORIGIN || '').trim().replace(/\/$/, '');
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.origin : '';
+  } catch {
+    return '';
+  }
+}
+
 function assertImagePath(path) {
   const value = String(path || '');
   if (!IMAGE_PATH.test(value) || value.includes('..') || value.includes('\\')) throw new Error('유효하지 않은 이미지 경로입니다.');
@@ -55,6 +66,10 @@ export function isR2StorageBucket(bucket) {
 
 export function r2ImageUrl(path, origin = '') {
   const safePath = assertImagePath(path);
+  // Only catalogue paths may use the public CDN. Documents and operator
+  // attachments continue through signed, authenticated downloads.
+  const mediaOrigin = isPublicR2ImagePath(safePath) ? publicMediaOrigin() : '';
+  if (mediaOrigin) return `${mediaOrigin}/${safePath.split('/').map(encodeURIComponent).join('/')}`;
   const relativeUrl = `/api/public-image?r2=${encodeURIComponent(safePath)}`;
   return origin ? `${String(origin).replace(/\/$/, '')}${relativeUrl}` : relativeUrl;
 }

@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 const getCachedPublicCatalog = unstable_cache(
   loadPublicCatalog,
   ['public-catalog-v2'],
-  { revalidate: 30, tags: ['public-catalog'] },
+  { revalidate: 300, tags: ['public-catalog'] },
 );
 
 export async function GET(request) {
@@ -21,7 +21,7 @@ export async function GET(request) {
   try {
     const catalog = await getCachedPublicCatalog(service, key);
     return Response.json(catalog, {
-      headers: { 'Cache-Control': 'public, max-age=30, s-maxage=30, stale-while-revalidate=300' },
+      headers: { 'Cache-Control': 'public, max-age=60, s-maxage=300, stale-while-revalidate=3600' },
     });
   } catch (error) {
     console.error('[public-catalog] source lookup failed', error?.message || error);

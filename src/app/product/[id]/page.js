@@ -1,7 +1,7 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
-import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
+import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking-options';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
@@ -23,8 +23,8 @@ function positiveNumber(value) {
   return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function usableImageUrl(imageUrl) {
-  return resolveR2PublicMediaUrl(imageUrl);
+function usableImageUrl(imageUrl, bucket, storagePath) {
+  return resolvePublicMediaUrl(imageUrl, bucket, storagePath);
 }
 
 function formatVnd(value, currency = 'VND') {
@@ -356,7 +356,7 @@ function sortMediaImages(left, right) {
 }
 
 function publicStorageUrl(bucket, path) {
-  return resolveR2PublicMediaUrl('', bucket, path);
+  return usableImageUrl('', bucket, path);
 }
 
 function buildMediaGroups(importRows, cabinImageRows, cabins, cabinIdMap = new Map()) {

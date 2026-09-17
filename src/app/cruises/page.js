@@ -11,9 +11,9 @@ const UNAVAILABLE_LISTING_IMAGE_PATHS = new Set([
   'cruises/be0b433c-f528-45b7-8c0a-4e3c155d8b66/official-structured/exterior/35d22ba3fba2.jpg',
 ]);
 
-// 화면 자체는 동적으로 유지하되, 목록 구성에 필요한 대량 이미지 조회는 짧게 재사용한다.
-// 관리자 변경 사항은 최대 30초 안에 목록에 반영된다.
-export const dynamic = 'force-dynamic';
+// 공개 목록 데이터는 5분간 재사용한다. 최상위 도메인 분기 레이아웃 때문에
+// 문서 자체는 동적이지만, 관리자 변경 시 태그 무효화는 기존 흐름대로 적용된다.
+export const revalidate = 300;
 
 function normalizeImagePath(imageUrl) {
   return resolveR2PublicMediaUrl(imageUrl);

@@ -5,7 +5,9 @@ import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
 import HotelCollection from './HotelCollection';
 import './hotels.css';
 
-export const dynamic = 'force-dynamic';
+// 공개 목록 데이터는 5분간 재사용한다. 최상위 도메인 분기 레이아웃 때문에
+// 문서 자체는 동적이지만, 관리자 저장 시 태그 무효화는 기존 흐름대로 적용된다.
+export const revalidate = 300;
 
 function positiveNumber(value) {
   const number = Number(value);

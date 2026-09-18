@@ -66,7 +66,7 @@ export default function Header({ showRootNavigation = false }) {
   return (
     <header className="header glass">
       <div className="container header-content">
-        <Link href="/" className="logo"><Image className="logo-title" src="/stayhalong_title.png" alt="STAY HALONG — CURATED BAY JOURNEYS" width={1500} height={400} priority /></Link>
+        <Link href="/" className="logo"><Image className="logo-title" src="/stayhalong_title.png" alt="STAY HALONG — CURATED BAY JOURNEYS" width={1500} height={400} sizes={temporary ? '(max-width: 900px) 178px, 200px' : undefined} priority /></Link>
 
         {!temporary && <>
           <nav className={`nav-links ${menuOpen ? 'open' : ''}`} aria-label="주요 메뉴">

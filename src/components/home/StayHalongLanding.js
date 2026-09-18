@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import styles from '@/app/page.module.css';
 import landingStyles from './StayHalongLanding.module.css';
 
@@ -10,18 +10,34 @@ const KAKAO_QUOTE_URL = 'http://pf.kakao.com/_zvsxaG/chat';
 
 export default function StayHalongLanding() {
   const [bookingNoticeOpen, setBookingNoticeOpen] = useState(false);
+  const bookingNoticeRef = useRef(null);
 
   useEffect(() => {
     if (!bookingNoticeOpen) return undefined;
+    const previousFocus = document.activeElement;
+    const dialog = bookingNoticeRef.current;
     const previousOverflow = document.body.style.overflow;
-    const closeOnEscape = (event) => {
+    const handleDialogKeyDown = (event) => {
       if (event.key === 'Escape') setBookingNoticeOpen(false);
+      if (event.key !== 'Tab') return;
+      const controls = [...dialog.querySelectorAll('a[href], button:not([disabled])')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first?.focus();
+      }
     };
     document.body.style.overflow = 'hidden';
-    window.addEventListener('keydown', closeOnEscape);
+    dialog.querySelector('button')?.focus({ preventScroll: true });
+    window.addEventListener('keydown', handleDialogKeyDown);
     return () => {
       document.body.style.overflow = previousOverflow;
-      window.removeEventListener('keydown', closeOnEscape);
+      window.removeEventListener('keydown', handleDialogKeyDown);
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) previousFocus.focus({ preventScroll: true });
     };
   }, [bookingNoticeOpen]);
 
@@ -65,7 +81,7 @@ export default function StayHalongLanding() {
       <div className={styles.routeCopy}><small>03 / YOUR ROUTE</small><h2>처음이라도,<br />선택은 어렵지<br />않게.</h2><ol><li><b>01</b><span><strong>취향을 알려주세요</strong><small>일정, 동행, 원하는 분위기만 간단히.</small></span></li><li><b>02</b><span><strong>현지 큐레이터가 골라요</strong><small>조건에 맞는 선택지만 명확하게.</small></span></li><li><b>03</b><span><strong>예약부터 승선까지</strong><small>한국어로 편안하게 함께합니다.</small></span></li></ol><a href={BOOKING_URL} className={styles.darkButton} onClick={openBookingNotice}>예약하기　↗</a></div>
     </section>
     <section className={styles.final}><small>YOUR BAY. YOUR PACE.</small><h2>이제, 하롱베이에<br /><span>머물러 보세요.</span></h2><a href={BOOKING_URL} onClick={openBookingNotice}>예약 시작하기　↗</a></section>
-    {bookingNoticeOpen && <div className={landingStyles.bookingNoticeOverlay} role="dialog" aria-modal="true" aria-labelledby="booking-notice-title" onClick={(event) => { if (event.target === event.currentTarget) setBookingNoticeOpen(false); }}>
+    {bookingNoticeOpen && <div ref={bookingNoticeRef} className={landingStyles.bookingNoticeOverlay} role="dialog" aria-modal="true" aria-labelledby="booking-notice-title" onClick={(event) => { if (event.target === event.currentTarget) setBookingNoticeOpen(false); }}>
       <section className={landingStyles.bookingNoticePanel}>
         <header>
           <div><span>PRODUCT RESERVATION</span><h2 id="booking-notice-title">상품 예약 안내</h2></div>

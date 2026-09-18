@@ -43,7 +43,7 @@ export async function GET(request) {
   }
 
   if (!platform) {
-    return Response.json({ error: '플랫폼 데이터 연결 정보가 설정되지 않았습니다.' }, { status: 503 });
+    return Response.json({ error: '상품 정보를 준비 중입니다. 잠시 후 다시 시도해 주세요.' }, { status: 503 });
   }
 
   const { data, error } = await platform
@@ -56,7 +56,7 @@ export async function GET(request) {
     // Do not return database internals to visitors. Administrators can inspect
     // the server log and then grant the dedicated platform catalogue view.
     console.error(`[platform catalogue:${service}]`, error.message);
-    return Response.json({ error: '플랫폼 상품 데이터를 읽을 수 없습니다.' }, { status: 502 });
+    return Response.json({ error: '상품 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 502 });
   }
 
   return Response.json({ source: 'sht-platform', service, data: data || [] }, {

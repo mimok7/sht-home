@@ -6,7 +6,7 @@ export const metadata = { title: '검색 | STAY HALONG' };
 export const dynamic = 'force-dynamic';
 
 const sitePages = [
-  { title: '임시 첫화면', description: '하롱베이 현지 프리미엄 여행, 크루즈 컬렉션과 한국어 상담을 안내합니다.', href: '/temp-home', type: '페이지' },
+  { title: '스테이하롱 홈', description: '하롱베이 현지 프리미엄 여행, 크루즈 컬렉션과 한국어 상담을 안내합니다.', href: '/', type: '페이지' },
   { title: '크루즈', description: '하롱베이 크루즈 상품과 일정, 객실, 요금을 찾아보세요.', href: '/cruises', type: '페이지' },
   { title: '여행 가이드', description: '하롱베이 여행 준비와 현지 정보를 안내합니다.', href: '/travel-guide', type: '페이지' },
   { title: '자주 묻는 질문', description: '예약, 결제, 픽업과 이동, 취소 및 변경 안내를 확인하세요.', href: '/faq', type: '페이지' },

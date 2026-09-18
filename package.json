@@ -9,6 +9,7 @@
     "lint": "eslint",
     "db:cli": "node scripts/supabase-cli.mjs",
     "browser:smoke": "node scripts/browser-smoke.mjs",
+    "browser:audit": "node scripts/homepage-audit.mjs",
     "browser:cart": "node scripts/browser-cart-smoke.mjs"
   },
   "dependencies": {
@@ -17,7 +18,7 @@
     "@sparticuz/chromium": "149.0.0",
     "@supabase/ssr": "0.12.7",
     "@supabase/supabase-js": "2.116.0",
-    "next": "16.2.10",
+    "next": "16.3.5",
     "puppeteer": "^25.3.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -25,6 +26,6 @@
   },
   "devDependencies": {
     "eslint": "^9",
-    "eslint-config-next": "16.2.10"
+    "eslint-config-next": "16.3.5"
   }
 }

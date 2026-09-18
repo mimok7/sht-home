@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
 
 const categories = { content: '문구·콘텐츠', product: '상품·요금', design: '디자인·이미지', bug: '오류·기능', other: '기타' };
 const statusLabels = { open: '접수됨', in_progress: '수정 진행 중', done: '수정 완료' };
@@ -109,7 +110,7 @@ export default function ChangeRequestPanel({ adminRequest, active, view = 'creat
       {visibleItems.length === 0 ? <p className="admin-loading">{view === 'completed' ? '완료된 수정 신청이 없습니다.' : '표시할 수정 신청이 없습니다.'}</p> : visibleItems.map((item) => <article className="change-request-item" key={item.id}>
         <header><span>{categories[item.category]}</span><small>{new Date(item.created_at).toLocaleString('ko-KR')}</small></header>
         <h3>{item.title}</h3><p>{item.description}</p>
-        {item.screenshot_urls?.length > 0 && <div className="change-request-shots">{item.screenshot_urls.map((url, index) => <figure key={url}><a href={url} target="_blank" rel="noreferrer"><img src={url} alt={`${item.title} 첨부 캡처 ${index + 1}`} /></a><button type="button" onClick={() => downloadScreenshot(item.id, item.screenshot_paths?.[index])}>이미지 다운로드</button></figure>)}</div>}
+        {item.screenshot_urls?.length > 0 && <div className="change-request-shots">{item.screenshot_urls.map((url, index) => <figure key={url}><a href={url} target="_blank" rel="noreferrer"><Image src={url} alt={`${item.title} 첨부 캡처 ${index + 1}`} width={150} height={104} unoptimized loading="lazy" /></a><button type="button" onClick={() => downloadScreenshot(item.id, item.screenshot_paths?.[index])}>이미지 다운로드</button></figure>)}</div>}
         <footer><span>{item.created_by_email}</span><b className={`change-request-status ${item.status || 'open'}`}>{statusLabels[item.status] || statusLabels.open}</b></footer>
         {view === 'status' && <div className="change-request-actions"><label className="change-request-status-control">처리 상태<select value={item.status || 'open'} onChange={(event) => updateStatus(item.id, event.target.value)}><option value="open">접수됨</option><option value="in_progress">수정 진행 중</option><option value="done">수정 완료</option></select></label><button type="button" className="admin-delete" onClick={() => deleteRequest(item.id)} disabled={deletingId === item.id}>{deletingId === item.id ? '삭제 중…' : '신청 삭제'}</button></div>}
         <div className="change-request-comments">{(item.comments || []).map((reply) => <p key={reply.id}><b>{reply.author_email}</b>{reply.content}<small>{new Date(reply.created_at).toLocaleString('ko-KR')}</small></p>)}</div>

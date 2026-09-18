@@ -1,4 +1,6 @@
 .product-image-button {
+  position: relative;
+  overflow: hidden;
   display: block;
   padding: 0;
   border: 0;
@@ -97,6 +99,8 @@
 }
 
 .cruise-media-thumb {
+  position: relative;
+  overflow: hidden;
   background: var(--sand) center / cover no-repeat;
 }
 
@@ -235,6 +239,8 @@
 }
 
 .lightbox-thumbnails button {
+  position: relative;
+  overflow: hidden;
   flex: 0 0 74px;
   height: 52px;
   border: 1px solid rgba(255, 255, 255, .25);
@@ -246,6 +252,11 @@
 .lightbox-thumbnails button.selected {
   border: 3px solid var(--acid);
   opacity: 1;
+}
+
+.lightbox-thumbnail-image {
+  position: absolute;
+  inset: 0;
 }
 
 .cruise-lightbox-panel > footer p {

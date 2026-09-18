@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import CatalogImage from '@/components/CatalogImage';
 import { use, useEffect, useMemo, useState } from 'react';
 import CruiseMediaGallery from '@/components/CruiseMediaGallery';
 import { resolveR2PublicMediaUrl } from '@/lib/public-media-url';
@@ -276,7 +277,7 @@ export default function HotelDetail({ params }) {
     : hotel.heroImage ? [{ id: 'main', label: '대표 이미지', eyebrow: 'HOTEL', images: [{ id: 'hero', url: hotel.heroImage, alt: `${hotel.name} 대표 이미지` }] }] : [];
 
   return <div className="hotel-detail-page">
-    <div className="hotel-detail-hero" style={{ backgroundImage: hotel.heroImage ? `url(${hotel.heroImage})` : undefined }}><div /></div>
+    <div className="hotel-detail-hero"><CatalogImage src={hotel.heroImage} alt={`${hotel.name} 대표 이미지`} fill sizes="(max-width: 600px) calc(100vw - 32px), (max-width: 1228px) calc(100vw - 48px), 1180px" loading="eager" fetchPriority="high" /><div /></div>
     <div className="container hotel-detail-layout">
       <main className="hotel-detail-main">
         <Link href="/hotels" className="hotel-back-link">← 호텔 목록</Link>

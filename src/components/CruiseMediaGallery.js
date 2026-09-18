@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import CatalogImage from './CatalogImage';
 import './CruiseMediaGallery.css';
 
 function uniqueImages(images) {
@@ -11,10 +12,6 @@ function uniqueImages(images) {
     seen.add(image.url);
     return true;
   });
-}
-
-function imageBackground(imageUrl) {
-  return imageUrl ? `url(${imageUrl})` : undefined;
 }
 
 function useDeferredImage(imageUrl) {
@@ -32,12 +29,19 @@ function useDeferredImage(imageUrl) {
       if (!entry.isIntersecting) return;
       setShouldLoad(true);
       observer.disconnect();
-    }, { rootMargin: '240px 0px' });
+    }, { root: target.closest('.lightbox-thumbnails'), rootMargin: '120px' });
     observer.observe(target);
     return () => observer.disconnect();
   }, [imageUrl]);
 
   return [targetRef, shouldLoad];
+}
+
+function GalleryThumbnail({ image, sizes, className }) {
+  const [targetRef, shouldLoad] = useDeferredImage(image.url);
+  return <span ref={targetRef} className={className}>
+    {shouldLoad && <CatalogImage src={image.url} alt="" fill sizes={sizes} loading="eager" />}
+  </span>;
 }
 
 export default function CruiseMediaGallery({
@@ -51,6 +55,7 @@ export default function CruiseMediaGallery({
   mainGroupId = 'main',
   mainClassName = '',
   showMainMeta = true,
+  eager = false,
 }) {
   const normalizedGroups = useMemo(() => {
     const nextGroups = groups
@@ -71,7 +76,6 @@ export default function CruiseMediaGallery({
   const activeGroup = normalizedGroups.find((group) => group.id === activeGroupId) || null;
   const activeImage = activeGroup?.images[activeIndex] || null;
   const mainImage = displayImage || mainGroup?.images[0]?.url;
-  const [mainImageRef, shouldLoadMainImage] = useDeferredImage(mainImage);
 
   useEffect(() => {
     if (!activeGroup) return undefined;
@@ -103,16 +107,15 @@ export default function CruiseMediaGallery({
     <>
       {showMain && mainImage && (
         <button
-          ref={mainImageRef}
           type="button"
           className={`product-image-box product-image-button ${mainClassName}`.trim()}
-          style={shouldLoadMainImage ? { backgroundImage: imageBackground(mainImage) } : undefined}
           onClick={(event) => {
             event.stopPropagation();
             openGroup(mainGroup.id);
           }}
           aria-label={`${cruiseName} ${mainGroup.label} 이미지 크게 보기`}
         >
+          <CatalogImage src={mainImage} alt="" fill sizes={showMainMeta ? '(max-width: 900px) calc(100vw - 48px), 780px' : '(max-width: 600px) calc(100vw - 48px), 300px'} loading={eager ? 'eager' : 'lazy'} fetchPriority={eager ? 'high' : 'auto'} />
           {showMainMeta && <>
             <span className="duration-tag">{duration || '일정 확인'}</span>
             <span className="image-open-hint">크게 보기 <b>↗</b></span>
@@ -123,11 +126,11 @@ export default function CruiseMediaGallery({
 
       {showArchive && secondaryGroups.length > 0 && (
         <section className="cruise-media-groups" aria-label={`${cruiseName} 저장 이미지`}>
-          <div className="cruise-media-heading"><span>PHOTO ARCHIVE</span><small>대표 사진을 누르면 같은 분류의 전체 원본을 볼 수 있습니다.</small></div>
+          <div className="cruise-media-heading"><span>PHOTO ARCHIVE</span><small>대표 사진을 누르면 같은 분류의 전체 사진을 볼 수 있습니다.</small></div>
           <div className="cruise-media-strip">
             {secondaryGroups.map((group) => (
               <button type="button" className="cruise-media-group" key={group.id} onClick={() => openGroup(group.id)}>
-                <span className="cruise-media-thumb" style={{ backgroundImage: imageBackground(group.images[0].url) }} />
+                <GalleryThumbnail image={group.images[0]} className="cruise-media-thumb" sizes="(max-width: 720px) 142px, 260px" />
                 <span className="cruise-media-copy"><small>{group.eyebrow}</small><strong>{group.label}</strong><i>{group.images.length}장 전체 보기 ↗</i></span>
               </button>
             ))}
@@ -143,7 +146,7 @@ export default function CruiseMediaGallery({
               <button type="button" onClick={closeGallery} aria-label="이미지 갤러리 닫기">닫기 ×</button>
             </header>
             <div className="cruise-lightbox-stage">
-              <div className="cruise-lightbox-image" role="img" aria-label={activeImage.alt} style={{ backgroundImage: imageBackground(activeImage.url) }} />
+              <div className="cruise-lightbox-image"><CatalogImage key={activeImage.url} src={activeImage.url} alt={activeImage.alt || `${cruiseName} 사진 ${activeIndex + 1}`} fill sizes="(max-width: 720px) 100vw, (max-width: 1228px) calc(100vw - 48px), 1180px" loading="eager" style={{ objectFit: 'contain' }} /></div>
               {activeGroup.images.length > 1 && (
                 <>
                   <button type="button" className="lightbox-nav prev" aria-label="이전 이미지" onClick={() => setActiveIndex((activeIndex - 1 + activeGroup.images.length) % activeGroup.images.length)}>←</button>
@@ -154,7 +157,7 @@ export default function CruiseMediaGallery({
             <footer>
               <div className="lightbox-thumbnails" aria-label={`${activeGroup.label} 전체 이미지`}>
                 {activeGroup.images.map((image, index) => (
-                  <button type="button" key={image.id || image.url} className={index === activeIndex ? 'selected' : ''} style={{ backgroundImage: imageBackground(image.url) }} onClick={() => setActiveIndex(index)} aria-label={`${index + 1}번 이미지 보기`} aria-current={index === activeIndex ? 'true' : undefined} />
+                  <button type="button" key={image.id || image.url} className={index === activeIndex ? 'selected' : ''} onClick={() => setActiveIndex(index)} aria-label={`${index + 1}번 이미지 보기`} aria-current={index === activeIndex ? 'true' : undefined}><GalleryThumbnail image={image} className="lightbox-thumbnail-image" sizes="74px" /></button>
                 ))}
               </div>
               <p><strong>{activeIndex + 1} / {activeGroup.images.length}</strong><span>{activeImage.alt}</span></p>

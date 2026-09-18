@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import CatalogImage from '@/components/CatalogImage';
 import { platformSupabase, refreshPlatformSession } from '@/lib/platform-supabase';
 import { supabase } from '@/lib/supabase';
 import { romanizeKoreanName } from '@/lib/koreanRomanization';
@@ -127,7 +128,7 @@ function ImageSurface({ className, src, alt, children, eager = false }) {
   const [failed, setFailed] = useState(!imageUrl);
 
   return <figure className={className} role="img" aria-label={alt}>
-    {!failed && <img src={imageUrl} alt="" loading={eager ? 'eager' : 'lazy'} decoding="async" onError={() => setFailed(true)} />}
+    {!failed && <CatalogImage src={imageUrl} alt="" fill sizes="(max-width: 700px) calc(100vw - 48px), 600px" loading={eager ? 'eager' : 'lazy'} onError={() => setFailed(true)} />}
     {failed && <span className="admin-image-unavailable">이미지 파일을 찾을 수 없습니다.</span>}
     {children}
   </figure>;

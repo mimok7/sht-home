@@ -1,11 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { platformSupabase } from '@/lib/platform-supabase';
 import '../login/auth.css';
 
 export default function Register() {
+  const router = useRouter();
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '', phone: '' });
   const [error, setError] = useState('');
   const [complete, setComplete] = useState(false);
@@ -26,7 +28,10 @@ export default function Register() {
     });
     setSubmitting(false);
     if (signUpError) { setError(signUpError.message.includes('already') ? '이미 가입된 이메일입니다.' : '회원가입을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.'); return; }
-    if (data.session) window.location.assign('/');
+    if (data.session) {
+      router.push('/');
+      router.refresh();
+    }
     else setComplete(true);
   }
 

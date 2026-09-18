@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import CatalogImage from '@/components/CatalogImage';
 import { useMemo, useState } from 'react';
 import './HotelCollection.css';
 
@@ -15,7 +16,8 @@ function formatPrice(value, currency) {
 }
 
 function HotelRepresentativeImage({ hotel, index }) {
-  return <div className="hotel-card-image product-image-box" role="img" aria-label={`${hotel.name} 대표 이미지`} style={hotel.imageUrl ? { backgroundImage: `url(${hotel.imageUrl})` } : undefined}>
+  return <div className="hotel-card-image product-image-box">
+    <CatalogImage src={hotel.imageUrl} alt={`${hotel.name} 대표 이미지`} fill sizes="(max-width: 720px) calc(100vw - 48px), 566px" loading={index < 2 ? 'eager' : 'lazy'} fetchPriority={index === 0 ? 'high' : 'auto'} />
     <span className="duration-tag">HOTEL / {String(index + 1).padStart(2, '0')}</span>
   </div>;
 }

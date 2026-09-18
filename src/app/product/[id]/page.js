@@ -1,6 +1,7 @@
 'use client';
 
 import { use, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { resolvePublicMediaUrl } from '@/lib/public-media-url';
 import { getPlatformCartSession, hydrateBookingCart, queueBookingCartItemAfterLogin, replaceBookingCartItem, syncBookingCart } from '@/lib/booking-cart';
 import { loadPlatformBookingOptions, uniqueValues } from '@/lib/platform-booking-options';
@@ -516,6 +517,7 @@ function orderedVehicleTypes(values) {
 }
 
 export default function ProductDetail({ params }) {
+  const router = useRouter();
   const { id } = use(params);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -874,7 +876,7 @@ export default function ProductDetail({ params }) {
 
   function selectVehicleMode(mode) {
     if (mode === 'none') {
-      window.location.assign('/booking/cart');
+      router.push('/booking/cart');
       return;
     }
     const prices = vehiclePrices.filter((row) => {
@@ -933,7 +935,7 @@ export default function ProductDetail({ params }) {
       const synced = await syncBookingCart();
       if (!synced.synced) throw new Error();
       setVehicleChoiceModalOpen(false);
-      window.location.assign('/booking/cart');
+      router.push('/booking/cart');
     } catch {
       setVehicleOptionsError('차량 선택을 장바구니에 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.');
       setVehicleSaving(false);
@@ -1027,6 +1029,7 @@ export default function ProductDetail({ params }) {
                 duration={duration}
                 heroImage={cruise.heroImage}
                 groups={archiveGroups}
+                eager
               />
             </section>
           )}

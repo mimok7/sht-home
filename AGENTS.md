@@ -7,7 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Homepage work
 
 - `shthome.stayhalong.com` and local `localhost:3000` are the fixed official homepage initial screen. Do not change their screen, menu, or calls to action while the homepage remains under review, unless the user explicitly requests a change to that domain.
-- `stayhalong.com` is the temporary homepage operating screen until final acceptance. Make ongoing homepage changes only to its `StayHalongLanding` experience.
+- `stayhalong.com` is the live temporary homepage and is frozen. Preserve its current `StayHalongLanding` screen, hidden top navigation, and existing link state. Do not change its content, header, footer, menus, or calls to action without a new explicit request for that domain. Apply general fixes and image optimization to the relevant subpages without changing either homepage initial screen.
 - The two domains are selected in `src/app/page.js` by request host and must remain visibly distinct, including their header menu behavior and call-to-action labels and destinations.
 - Keep `/home` removed unless the user explicitly requests restoring that route.
 - Customer-facing homepage copy must never disclose implementation details such as “platform”, “platform DB”, “shared data”, database names, data connections, or internal systems. Use plain customer language (for example, “예약 정보”, “여행 서류”, or “결제 상태”) instead. Apply this rule to labels, badges, empty states, errors, notices, and customer-facing API error messages; internal code comments and manager-only screens are excluded.

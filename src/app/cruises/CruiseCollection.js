@@ -1,27 +1,18 @@
 'use client';
 
-import Image from 'next/image';
+import CatalogImage from '@/components/CatalogImage';
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
 
-const publicMediaOrigin = String(process.env.NEXT_PUBLIC_R2_MEDIA_ORIGIN || '').replace(/\/$/, '');
-
-function isDirectPublicMedia(url) {
-  return Boolean(publicMediaOrigin && typeof url === 'string' && url.startsWith(`${publicMediaOrigin}/`));
-}
-
 function CruiseRepresentativeImage({ cruise, eager = false, highPriority = false }) {
   return <div className="product-image-box">
-    {cruise.imageUrl && <Image
+    {cruise.imageUrl && <CatalogImage
       className="product-representative-image"
       src={cruise.imageUrl}
       alt={`${cruise.name} 대표 이미지`}
       fill
       sizes="(max-width: 720px) calc(100vw - 48px), (max-width: 1200px) calc(50vw - 36px), 566px"
       quality={75}
-      // A configured Cloudflare media origin performs delivery outside Vercel;
-      // avoid sending the same public object through the image function again.
-      unoptimized={isDirectPublicMedia(cruise.imageUrl)}
       loading={eager ? 'eager' : 'lazy'}
       fetchPriority={highPriority ? 'high' : 'auto'}
     />}

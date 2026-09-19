@@ -774,6 +774,7 @@ export default function AdminCruiseManager({ importOnly = false }) {
     <div className="admin-shell container">
       <aside className="admin-sidebar" aria-label="관리 메뉴">
         <span>ADMIN MENU</span>
+        <div className="admin-menu-group"><span>고객 결제 안내</span><a className="admin-menu-link" href="https://onepay.vn/auth-invoice/realms/invoice/protocol/openid-connect/auth?client_id=invoice-client&amp;redirect_uri=https://onepay.vn/invoice/welcome.op&amp;response_type=code&amp;scope=openid%20profile%20email" target="_blank" rel="noopener noreferrer">OnePay 결제 링크 발급 ↗</a><small>예약번호와 최종 금액을 확인하고 발급한 링크를 고객에게 전달하세요. 결제 확인 후 기존 예약 관리 화면에 결과를 반영하세요.</small></div>
         {importOnly ? <>
           <div className="admin-menu-group"><Link href="/admin" className="admin-menu-link"><i>01</i>데이터 관리</Link></div>
           <div className="admin-menu-group"><span className="admin-menu-link selected"><i>02</i>데이터 가져오기</span></div>

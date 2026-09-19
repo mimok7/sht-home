@@ -51,6 +51,10 @@ export default function ReservationListPage() {
           .select('reservation_id,payment_status,amount,payment_method,created_at')
           .in('reservation_id', ids)
           .order('created_at', { ascending: false });
+        if (paymentResult.error) {
+          if (!cancelled) setState({ loading: false, error: '결제 상태를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요.', reservations: [] });
+          return;
+        }
         payments = paymentResult.data || [];
       }
       const latestPayment = new Map();
@@ -73,12 +77,13 @@ export default function ReservationListPage() {
       <Link className="reservation-tab active" href="/booking/reservations" aria-current="page">예약 내역</Link>
       <Link className="reservation-tab" href="/booking/reservations/documents">여권 · 승선코드</Link>
     </nav>
+    <div className="booking-warning" role="status">담당자가 OnePay 결제 내역을 확인한 뒤 이곳에 결제 상태가 반영됩니다.</div>
     {state.loading && <div className="booking-empty"><h2>예약을 확인하고 있습니다.</h2><p>고객님의 예약 정보를 안전하게 불러오는 중입니다.</p></div>}
     {state.error && <div className="booking-empty"><h2>확인이 필요합니다.</h2><p>{state.error}</p><a className="booking-action primary" href="https://customer.stayhalong.com/mypage/reservations" target="_blank" rel="noreferrer">예약 내역 다시 확인 ↗</a></div>}
     {!state.loading && !state.error && state.reservations.length === 0 && <div className="booking-empty"><h2>아직 예약이 없습니다.</h2><p>원하는 여행 상품을 고르면 이곳에서 진행 상태를 확인할 수 있습니다.</p><Link className="booking-action primary" href="/booking">예약 시작하기 →</Link></div>}
     {!state.loading && !state.error && state.reservations.length > 0 && <div className="reservation-list">
       {state.reservations.map((reservation) => {
-        const paymentStatus = reservation.payment?.payment_status || reservation.payment_status || 'pending';
+        const paymentStatus = ['completed', 'paid', 'refunded', 'cancelled'].includes(reservation.payment_status) ? reservation.payment_status : reservation.payment?.payment_status || reservation.payment_status || 'pending';
         const paymentLabel = PAYMENT_LABEL[paymentStatus] || paymentStatus;
         return <article className="reservation-item" key={reservation.re_id}>
           <div className="reservation-type"><span className="reservation-type-desktop">{TYPE_LABEL[reservation.re_type] || reservation.re_type}</span><span className="reservation-type-mobile">{TYPE_LABEL[reservation.re_type] || '여행'} 예약 <small>({paymentLabel})</small></span></div>
@@ -88,6 +93,6 @@ export default function ReservationListPage() {
         </article>;
       })}
     </div>}
-    <div className="booking-warning">결제 안내는 예약 담당자가 전송합니다. 결제 완료 후 상태가 이 화면에 표시됩니다.</div>
+    <div className="booking-warning">결제 안내는 예약 담당자가 전송합니다. 담당자가 결제를 확인해 반영하면 이 화면에 표시됩니다.</div>
   </div></div>;
 }

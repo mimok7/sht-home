@@ -6,6 +6,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const HOAN_KIEM_OUTSIDE_PICKUP_SURCHARGE = 500000;
+const createdReservationIds = new WeakMap();
+const reservationWritesStarted = new WeakSet();
 
 function fail(message, status = 400, details = '') {
   return Response.json({ error: message, details }, { status });
@@ -79,6 +81,7 @@ async function createAutomaticQuote(platform, owner) {
 }
 
 async function insertParent(platform, ownerId, quoteId, values) {
+  reservationWritesStarted.add(platform);
   const result = await platform.from('reservation').insert({
     re_user_id: ownerId,
     re_quote_id: quoteId || null,
@@ -87,6 +90,7 @@ async function insertParent(platform, ownerId, quoteId, values) {
     ...values,
   }).select('re_id,re_quote_id').single();
   if (result.error) throw dbError(result.error, '예약 기본 정보를 저장하지 못했습니다.');
+  createdReservationIds.get(platform)?.push(result.data.re_id);
   return result.data;
 }
 
@@ -111,6 +115,8 @@ async function saveCruise(platform, owner, quoteId, item) {
   let infants = 0;
   const detailRows = rooms.map((room) => {
     const rate = rateMap.get(room.rateCardId);
+    if (rate.currency && rate.currency !== 'VND') throw new Error('선택한 통화의 객실은 담당자에게 예약 금액을 확인해 주세요.');
+    if (rate.cruise_name !== (data.cruiseName || item.name)) throw new Error('선택한 크루즈 객실을 다시 확인해 주세요.');
     if (!isDateValid(rate, data.checkin || item.startDate)) throw new Error(`${rate.room_type} 객실은 선택일에 적용되지 않습니다.`);
     if (scheduleLabel(rate.schedule_type) !== scheduleLabel(data.schedule)) throw new Error(`${rate.room_type} 객실의 일정이 변경되었습니다.`);
     const roomCount = Math.max(1, integer(room.roomCount, 1));
@@ -156,10 +162,18 @@ async function saveCruise(platform, owner, quoteId, item) {
       room_total_price: roomTotal,
     };
   });
-  const optionTotal = (data.tourOptions || []).reduce((sum, option) => sum + number(option.price) * Math.max(1, integer(option.quantity, 1)), 0);
+  const selectedOptions = data.tourOptions || [];
+  const optionResult = selectedOptions.length ? await platform.from('cruise_tour_options').select('option_id,option_name,option_price,schedule_type').eq('cruise_name', data.cruiseName || item.name).eq('is_active', true).in('option_id', selectedOptions.map((option) => option.optionId)) : { data: [], error: null };
+  if (optionResult.error) throw dbError(optionResult.error, '추가 옵션 요금을 확인하지 못했습니다.');
+  const verifiedOptions = selectedOptions.map((option) => {
+    const row = optionResult.data.find((candidate) => String(candidate.option_id) === String(option.optionId));
+    if (!row || scheduleLabel(row.schedule_type) !== scheduleLabel(data.schedule)) throw new Error('선택할 수 없는 추가 옵션입니다.');
+    return { optionId: row.option_id, name: row.option_name, price: number(row.option_price), quantity: Math.max(1, integer(option.quantity, 1)) };
+  });
+  const optionTotal = verifiedOptions.reduce((sum, option) => sum + option.price * option.quantity, 0);
   total += optionTotal;
   const promotions = [...new Map([...rateMap.values()].filter((rate) => rate.promotion_code).map((rate) => [rate.promotion_code, { code: rate.promotion_code, name: rate.promotion_name || null }])).values()];
-  const priceBreakdown = { source: 'homepage_cart', contract_version: data.contractVersion, operational_details_status: 'pending', cruise_name: data.cruiseName || item.name, schedule: data.schedule, checkin_date: checkin, room_selections: detailRows, surcharges, tour_options: data.tourOptions || [], promotion_code: promotions[0]?.code || null, promotion_name: promotions[0]?.name || null, grand_total: total };
+  const priceBreakdown = { source: 'homepage_cart', contract_version: data.contractVersion, operational_details_status: 'pending', cruise_name: data.cruiseName || item.name, schedule: data.schedule, checkin_date: checkin, room_selections: detailRows, surcharges, tour_options: verifiedOptions, promotion_code: promotions[0]?.code || null, promotion_name: promotions[0]?.name || null, grand_total: total };
   const parent = await insertParent(platform, owner.id, quoteId, { re_type: 'cruise', total_amount: total, pax_count: adults + children + infants, re_adult_count: adults, re_child_count: children, re_infant_count: infants, reservation_date: data.checkin || item.startDate, price_breakdown: priceBreakdown });
   const accommodation = JSON.stringify(detailRows.map((row) => ({ room_price_code: row.room_price_code, room_count: row.room_count, adult_count: row.adult_count, child_count: row.child_count, infant_count: row.infant_count })));
   const rows = detailRows.map((row, index) => ({ ...row, reservation_id: parent.re_id, connecting_room: data.contractVersion === 1 && index === 0 ? Boolean(data.connectingRoom) : false, birthday_event: data.contractVersion === 1 && index === 0 ? Boolean(data.birthdayEvent) : false, birthday_name: data.contractVersion === 1 && index === 0 ? data.birthdayName || null : null, accommodation_info: index === 0 ? accommodation : null, request_note: data.contractVersion === 1 && index === 0 ? data.requestNote || null : null }));
@@ -175,7 +189,7 @@ async function saveHotel(platform, owner, quoteId, item) {
   const rate = priceResult.data;
   const checkin = data.checkin || item.startDate;
   const checkout = data.checkout || item.endDate;
-  if (!checkin || !checkout || !isDateValid(rate, checkin, 'start_date', 'end_date')) throw new Error('선택한 숙박일에 적용 가능한 호텔 객실이 아닙니다.');
+  if (!checkin || !checkout || checkout <= checkin || !/^\d{4}-\d{2}-\d{2}$/.test(checkout) || Number.isNaN(Date.parse(checkout)) || new Date(checkout).toISOString().slice(0, 10) !== checkout || !isDateValid(rate, checkin, 'start_date', 'end_date') || !isDateValid(rate, new Date(Date.parse(checkout) - 86400000).toISOString().slice(0, 10), 'start_date', 'end_date')) throw new Error('선택한 숙박일에 적용 가능한 호텔 객실이 아닙니다.');
   const nights = daysBetween(checkin, checkout);
   const roomCount = Math.max(1, integer(data.roomCount, item.quantity));
   const adults = Math.max(1, integer(data.adultCount, item.adults));
@@ -259,17 +273,27 @@ async function saveTour(platform, owner, quoteId, item) {
   const priceResult = await platform.from('tour_pricing').select('*').eq('pricing_id', data.tourPricingId).eq('tour_id', data.tourId).eq('is_active', true).maybeSingle();
   if (priceResult.error || !priceResult.data) throw dbError(priceResult.error, '투어 요금을 다시 확인하지 못했습니다.') || new Error('선택한 투어 요금을 찾을 수 없습니다.');
   const rate = priceResult.data;
+  if (!isDateValid(rate, data.usageDate || item.startDate, 'valid_from', 'valid_until')) throw new Error('선택일에 적용 가능한 투어 요금이 아닙니다.');
   if (guests < integer(rate.min_guests) || (rate.max_guests && guests > integer(rate.max_guests))) throw new Error('선택 인원에 적용되는 투어 요금이 변경되었습니다.');
   let unitPrice = number(rate.price_per_person);
   if (data.paymentMethod) {
-    const payment = await platform.from('tour_payment_pricing').select('price').eq('tour_id', data.tourId).eq('payment_method', data.paymentMethod).eq('is_active', true).maybeSingle();
+    const payment = await platform.from('tour_payment_pricing').select('price,currency,valid_from,valid_until').eq('tour_id', data.tourId).eq('payment_method', data.paymentMethod).eq('is_active', true).maybeSingle();
     if (payment.error) throw dbError(payment.error, '투어 결제 방식별 요금을 확인하지 못했습니다.');
-    if (payment.data?.price != null) unitPrice = number(payment.data.price);
+    if (!payment.data || payment.data.currency && payment.data.currency !== 'VND' || !isDateValid(payment.data, data.usageDate || item.startDate, 'valid_from', 'valid_until')) throw new Error('선택한 결제 방식의 투어 요금을 확인해 주세요.');
+    unitPrice = number(payment.data.price);
   }
-  const addonTotal = (data.addons || []).reduce((sum, addon) => sum + number(addon.price) * Math.max(1, integer(addon.quantity, 1)), 0);
+  const selectedAddons = data.addons || [];
+  const addonResult = selectedAddons.length ? await platform.from('tour_addon_options').select('option_id,option_name,price,price_currency').eq('tour_id', data.tourId).eq('is_available', true).in('option_id', selectedAddons.map((addon) => addon.optionId)) : { data: [], error: null };
+  if (addonResult.error) throw dbError(addonResult.error, '투어 추가 옵션 요금을 확인하지 못했습니다.');
+  const verifiedAddons = selectedAddons.map((addon) => {
+    const row = addonResult.data.find((candidate) => String(candidate.option_id) === String(addon.optionId));
+    if (!row || row.price_currency && row.price_currency !== 'VND') throw new Error('선택한 투어 추가 옵션의 금액을 담당자에게 확인해 주세요.');
+    return { optionId: row.option_id, name: row.option_name, price: number(row.price), quantity: Math.max(1, integer(addon.quantity, 1)) };
+  });
+  const addonTotal = verifiedAddons.reduce((sum, addon) => sum + addon.price * addon.quantity, 0);
   const total = unitPrice * guests + addonTotal;
   const requestNote = data.contractVersion === 1 ? [data.requestNote, data.lunchOption && `식사: ${data.lunchOption}`, data.courseOption && `코스: ${data.courseOption}`, data.nightTourOption && `야간투어: ${data.nightTourOption}`].filter(Boolean).join('\n') : null;
-  const parent = await insertParent(platform, owner.id, quoteId, { re_type: 'tour', total_amount: total, pax_count: guests, re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: data.usageDate || item.startDate, price_breakdown: { source: 'homepage_cart', operational_details_status: 'pending', tour_id: data.tourId, pricing_id: rate.pricing_id, payment_method: data.paymentMethod || null, lunch_option: data.lunchOption || null, course_option: data.courseOption || null, night_tour_option: data.nightTourOption || null, unit_price: unitPrice, addons: data.addons || [], grand_total: total } });
+  const parent = await insertParent(platform, owner.id, quoteId, { re_type: 'tour', total_amount: total, pax_count: guests, re_adult_count: integer(item.adults), re_child_count: integer(item.children), reservation_date: data.usageDate || item.startDate, price_breakdown: { source: 'homepage_cart', operational_details_status: 'pending', tour_id: data.tourId, pricing_id: rate.pricing_id, payment_method: data.paymentMethod || null, lunch_option: data.lunchOption || null, course_option: data.courseOption || null, night_tour_option: data.nightTourOption || null, unit_price: unitPrice, addons: verifiedAddons, grand_total: total } });
   const detail = await platform.from('reservation_tour').insert({ reservation_id: parent.re_id, tour_price_code: rate.pricing_id, tour_capacity: guests, pickup_location: data.contractVersion === 1 ? data.pickupLocation || null : null, dropoff_location: data.contractVersion === 1 ? data.dropoffLocation || null : null, usage_date: data.usageDate || item.startDate, unit_price: unitPrice, total_price: total, request_note: requestNote || null, adult_count: integer(item.adults), child_count: integer(item.children), infant_count: integer(item.infants) });
   if (detail.error) throw dbError(detail.error, '투어 상세 정보를 저장하지 못했습니다.');
   return parent;
@@ -465,12 +489,6 @@ async function saveItem(platform, owner, quoteId, item, linkedCruiseReservationI
   throw new Error('지원하지 않는 서비스가 포함되어 있습니다.');
 }
 
-async function rollback(platform, reservationIds) {
-  if (!reservationIds.length) return;
-  const result = await platform.from('reservation').delete().in('re_id', reservationIds);
-  if (result.error) console.error('[booking-submit] rollback failed', result.error.message);
-}
-
 async function claimCruisePromotions(request, reservation, item) {
   const codes = reservation.promotionCodes || [];
   if (!codes.length) return;
@@ -498,30 +516,47 @@ export async function POST(request) {
 
   const cartResult = await homepage.from('homepage_booking_carts').select('id,items,status,updated_at').eq('platform_user_id', owner.id).maybeSingle();
   if (cartResult.error) return fail('장바구니를 불러오지 못했습니다.', 500);
+  const body = await request.json().catch(() => null);
+  if (!body?.updatedAt || body.updatedAt !== cartResult.data?.updated_at) return fail('장바구니가 변경되었습니다. 새로고침 후 다시 확인해 주세요.', 409);
+  if (cartResult.data.status !== 'active') return fail('이미 예약을 처리 중이거나 확인이 필요합니다. 예약 내역을 확인해 주세요.', 409);
   const items = normalizeBookingCartItems(cartResult.data?.items);
   if (!items.length) return fail('저장할 장바구니 항목이 없습니다.');
 
+  const locked = await homepage.from('homepage_booking_carts').update({ status: 'submitting' }).eq('id', cartResult.data.id).eq('platform_user_id', owner.id).eq('status', 'active').eq('updated_at', body.updatedAt).select('id').maybeSingle();
+  if (locked.error) return fail('예약 접수를 시작하지 못했습니다.', 500);
+  if (!locked.data) return fail('다른 화면에서 예약을 처리 중입니다. 예약 내역을 확인해 주세요.', 409);
+
   const createdIds = [];
+  createdReservationIds.set(platform, createdIds);
   const createdByCartItemId = new Map();
   try {
-    items.forEach(platformData);
+    items.forEach((item) => {
+      platformData(item);
+      if (item.currency !== 'VND') throw new Error('선택한 통화의 상품은 담당자에게 예약 금액을 확인해 주세요.');
+      if (['cruise', 'hotel', 'tour', 'package', 'ticket'].includes(item.serviceType)) {
+        const date = item.metadata.platform.checkin || item.metadata.platform.usageDate || item.startDate;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date || '') || Number.isNaN(Date.parse(date)) || new Date(date).toISOString().slice(0, 10) !== date || date < todayInSeoul()) throw new Error('예약 이용일을 다시 확인해 주세요.');
+      }
+    });
+    items.sort((a, b) => Number(a.serviceType === 'cruise_vehicle') - Number(b.serviceType === 'cruise_vehicle'));
     // 견적 선택 UI 없이, 이번 장바구니의 일반 서비스만 새 견적에 묶는다.
     // 패키지는 고객앱 데이터 계약대로 독립 예약으로 저장한다.
     const quote = items.some((item) => item.serviceType !== 'package') ? await createAutomaticQuote(platform, owner) : null;
     for (const item of items) {
       const linkedCruiseReservationId = item.serviceType === 'cruise_vehicle' ? createdByCartItemId.get(item.metadata?.platform?.cruiseCartItemId) || '' : '';
       const reservation = await saveItem(platform, owner, quote?.id || null, item, linkedCruiseReservationId);
-      createdIds.push(reservation.re_id);
       createdByCartItemId.set(item.id, reservation.re_id);
       if (item.serviceType === 'cruise') await claimCruisePromotions(request, reservation, item);
     }
     const clearedAt = new Date().toISOString();
-    const cleared = await homepage.from('homepage_booking_carts').update({ items: [], item_count: 0, status: 'active', updated_at: clearedAt }).eq('id', cartResult.data.id).eq('updated_at', cartResult.data.updated_at).select('id').maybeSingle();
+    const cleared = await homepage.from('homepage_booking_carts').update({ items: [], item_count: 0, status: 'active', updated_at: clearedAt }).eq('id', cartResult.data.id).eq('status', 'submitting').select('id').maybeSingle();
     if (cleared.error || !cleared.data) throw dbError(cleared.error, '예약은 저장했지만 장바구니를 비우지 못했습니다.') || new Error('장바구니가 다른 화면에서 변경되었습니다. 다시 확인해 주세요.');
     return Response.json({ quoteId: quote?.id || null, reservationIds: createdIds, itemCount: createdIds.length, clearedAt });
   } catch (error) {
-    await rollback(platform, createdIds);
+    // Preserve partial records for staff review. Never retry a partially saved cart.
+    const released = await homepage.from('homepage_booking_carts').update({ status: reservationWritesStarted.has(platform) ? 'review_required' : 'active', updated_at: new Date().toISOString() }).eq('id', cartResult.data.id).eq('status', 'submitting');
+    if (released.error) console.error('[booking-submit] lock release failed', released.error.message);
     console.error('[booking-submit] failed', error?.cause?.message || error?.message || error);
-    return fail(error?.message || '장바구니 예약을 저장하지 못했습니다.', 400, error?.cause?.message || '');
+    return fail(reservationWritesStarted.has(platform) ? '예약 접수 결과에 담당자 확인이 필요합니다. 중복 접수하지 말고 예약 내역을 확인해 주세요.' : error?.message || '장바구니 예약을 저장하지 못했습니다.', reservationWritesStarted.has(platform) ? 409 : 400);
   }
 }

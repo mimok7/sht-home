@@ -194,9 +194,9 @@ async function persistBookingCart(items) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ items: normalizeBookingCartItems(items) }),
   }, session);
-  if (!response.ok) throw new Error('장바구니를 홈페이지 DB에 저장하지 못했습니다.');
+  if (!response.ok) throw new Error('장바구니를 저장하지 못했습니다.');
   const data = await response.json();
-  return { synced: true, items: normalizeBookingCartItems(data.items) };
+  return { synced: true, items: normalizeBookingCartItems(data.items), status: data.status, updatedAt: data.updatedAt };
 }
 
 export function syncBookingCart(items = readBookingCart()) {
@@ -228,7 +228,7 @@ export async function hydrateBookingCart() {
   writeBookingCart(items);
 
   if (!remote.exists || JSON.stringify(items) !== JSON.stringify(remoteItems)) {
-    try { await syncBookingCart(items); } catch { return { items, synced: false, error: '장바구니를 동기화하지 못했습니다.' }; }
+    try { return await syncBookingCart(items); } catch { return { items, synced: false, error: '장바구니를 동기화하지 못했습니다.' }; }
   }
-  return { items, synced: true, updatedAt: remote.updatedAt || null };
+  return { items, synced: true, status: remote.status, updatedAt: remote.updatedAt || null };
 }

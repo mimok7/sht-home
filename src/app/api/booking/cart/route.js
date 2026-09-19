@@ -52,11 +52,15 @@ export async function PUT(request) {
   if (JSON.stringify(items).length > 64000) return Response.json({ error: '장바구니 데이터가 너무 큽니다.' }, { status: 413 });
 
   const updatedAt = new Date().toISOString();
-  const { data, error } = await context.database
-    .from('homepage_booking_carts')
-    .upsert({ platform_user_id: context.owner.id, items, item_count: items.length, status: 'active', updated_at: updatedAt }, { onConflict: 'platform_user_id' })
-    .select('items,item_count,status,updated_at')
-    .single();
+  const current = await context.database.from('homepage_booking_carts').select('id,status,updated_at').eq('platform_user_id', context.owner.id).maybeSingle();
+  if (current.error) return Response.json({ error: '장바구니 상태를 확인하지 못했습니다.' }, { status: 500 });
+  if (current.data && current.data.status !== 'active') return Response.json({ error: '예약 처리 중인 장바구니는 변경할 수 없습니다. 예약 내역을 확인해 주세요.' }, { status: 409 });
+  const values = { items, item_count: items.length, status: 'active', updated_at: updatedAt };
+  const query = current.data
+    ? context.database.from('homepage_booking_carts').update(values).eq('id', current.data.id).eq('platform_user_id', context.owner.id).eq('status', 'active').eq('updated_at', current.data.updated_at)
+    : context.database.from('homepage_booking_carts').insert({ ...values, platform_user_id: context.owner.id });
+  const { data, error } = await query.select('items,item_count,status,updated_at').maybeSingle();
+  if (!error && !data || error?.code === '23505') return Response.json({ error: '다른 화면에서 장바구니가 변경되었습니다. 다시 확인해 주세요.' }, { status: 409 });
 
   if (error) {
     console.error('[booking-cart] write failed', error.message);

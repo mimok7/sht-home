@@ -1,15 +1,9 @@
-// OnePay 서버 알림을 검증하고 결제 상태를 반영한다.
-import { getOnepayConfig, verifyOnepayHash } from '@/lib/onepay';
-import { recordOnepayResult } from '../callback';
-
+// The invoice portal uses the existing manager payment workflow.
+// No homepage-issued payments exist; do not accept unconfigured payment callbacks.
 export const runtime = 'nodejs';
 
-export async function GET(request) {
-  const config = getOnepayConfig();
-  if (!config) return Response.json({ success: false, error: '결제 설정이 없습니다.' }, { status: 503 });
-  const params = request.nextUrl.searchParams;
-  const paymentId = params.get('vpc_MerchTxnRef') || params.get('vpc_MerchantTxnRef') || '';
-  if (!verifyOnepayHash(params, config.secureSecret)) return Response.json({ success: false, error: '서명 검증에 실패했습니다.' }, { status: 400 });
-  const saved = await recordOnepayResult(paymentId, params.get('vpc_TxnResponseCode') === '0', Object.fromEntries(params.entries()));
-  return Response.json({ success: saved });
+export async function GET() {
+  return Response.json({ success: false, error: '현재 결제는 담당자 확인 방식으로 처리합니다.' }, { status: 410 });
 }
+
+export const POST = GET;

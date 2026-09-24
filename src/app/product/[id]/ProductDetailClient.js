@@ -496,6 +496,19 @@ function vehicleWayLabel(value) {
   return String(value || '').includes('왕복') ? '왕복' : value;
 }
 
+function normalizedCruiseName(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/크루즈|cruise/g, '')
+    .replace(/[^a-z0-9가-힣]/g, '');
+}
+
+function vehicleCruiseMatches(vehicleCruiseName, selectedCruiseName) {
+  const selectedName = normalizedCruiseName(selectedCruiseName);
+  return Boolean(selectedName && normalizedCruiseName(vehicleCruiseName) === selectedName);
+}
+
 function cruisePassengerCount(item) {
   return Math.max(1, Number(item?.adults || 0) + Number(item?.children || 0) + Number(item?.infants || 0));
 }
@@ -918,7 +931,7 @@ export default function ProductDetailClient({ id, initialDetail }) {
     if (!savedCruiseSelection) return [];
     return vehiclePrices.filter((row) => {
       if (!String(row.route || '').includes('하롱베이')) return false;
-      if (vehicleMode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && row.cruise === savedCruiseSelection.name;
+      if (vehicleMode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && vehicleCruiseMatches(row.cruise, savedCruiseSelection.name);
       return row.rental_type === '단독대여' && ['공통', savedCruiseSelection.name].includes(row.cruise) && !/스테이\s*하롱\s*셔틀\s*리무진/i.test(String(row.vehicle_type || ''));
     });
   }, [savedCruiseSelection, vehicleMode, vehiclePrices]);
@@ -945,7 +958,7 @@ export default function ProductDetailClient({ id, initialDetail }) {
     }
     const prices = vehiclePrices.filter((row) => {
       if (!String(row.route || '').includes('하롱베이')) return false;
-      if (mode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && row.cruise === savedCruiseSelection?.name;
+      if (mode === 'cruise_shuttle') return String(row.vehicle_type || '').includes('셔틀') && vehicleCruiseMatches(row.cruise, savedCruiseSelection?.name);
       return row.rental_type === '단독대여' && ['공통', savedCruiseSelection?.name].includes(row.cruise) && !/스테이\s*하롱\s*셔틀\s*리무진/i.test(String(row.vehicle_type || ''));
     });
     setVehicleMode(mode);
